@@ -36,6 +36,11 @@ namespace 通用
     {
         [GhostField]public bool Value;
     }
+    
+    public struct Velocity : IComponentData
+    {
+        public float3 Value;
+    }
 
    
     

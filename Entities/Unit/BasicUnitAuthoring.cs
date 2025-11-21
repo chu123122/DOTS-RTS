@@ -17,7 +17,9 @@ namespace 通用
                 AddComponent<BasicUnitTag>(entity);
                 AddComponent<NewBasicUnitTag>(entity);
                 AddComponent<RtsTeam>(entity);
+                
                 AddComponent<UnitMoveTargetPosition>(entity);
+                AddComponent(entity,new Velocity{Value = new float3(0,0,0)});
                 AddComponent(entity, new UnitMoveSpeed { Value = authoring.moveSpeed });
                 AddComponent(entity, new UnitSelected { Value = false });
                 
