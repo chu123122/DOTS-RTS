@@ -42,6 +42,12 @@ namespace 通用
         public float3 Value;
     }
 
+    public struct UnitMovementSettings : IComponentData
+    {
+        public float MaxForce; // 转向力的最大值 (建议 20-50)
+        public float RotationSpeed; // 转身速度 (建议 10-20)
+    }
+
    
     
    

@@ -48,3 +48,8 @@ public struct FlowFieldGlobalTarget : IComponentData
     public float3 TargetPosition; // 当前地图流动的汇聚点
     // public int TargetHash;     // (可选) 用于版本控制，防止旧单位跟随新场
 }
+public struct UnitSpatialMap : IComponentData
+{
+    // MultiHashMap 允许一个 Key (格子) 对应多个 Value (单位)
+    public NativeParallelMultiHashMap<int, Entity> Map;
+}

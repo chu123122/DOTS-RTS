@@ -1,3 +1,4 @@
+using Entities.Unit.System.FlowFieldSystem;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Collections;
@@ -5,6 +6,7 @@ using UnityEngine; // 为了 Debug.DrawLine
 using 通用;
 
 [UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateAfter(typeof(FlowFieldBakeSystem))]
 public partial class FlowFieldDebugSystem : SystemBase
 {
     // 开关：在 Editor 里随时可以关掉，防止卡顿
@@ -17,6 +19,9 @@ public partial class FlowFieldDebugSystem : SystemBase
 
         // 只在 Editor 模式下运行，且只在有 Grid 时运行
         if (!SystemAPI.TryGetSingleton<FlowFieldGrid>(out var grid)) return;
+        
+        Dependency.Complete();
+        
         if (!grid.Grid.IsCreated) return;
 
         var cells = grid.Grid;
