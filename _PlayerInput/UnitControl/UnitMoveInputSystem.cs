@@ -74,7 +74,9 @@ namespace 客户端
                 RequestCommandRpcSystem requestCommandRpcSystem =
                     this.GetService<RequestCommandRpcSystem>();
                 requestCommandRpcSystem.SendInputCommand(
-                    requestCommandRpcSystem.CreateInputCommand(InputCommandType.Move, closestHit.Position, ghostIds));
+                    InputCommandType.Move, 
+                    closestHit.Position
+                );
             }
         }
     }

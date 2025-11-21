@@ -22,22 +22,20 @@ namespace Test
         {
             createUnitButton.onClick.AddListener(() =>
             {
-                var query = World.DefaultGameObjectInjectionWorld.
-                    EntityManager.CreateEntityQuery(typeof(NetWorkDataContainer));
-                int ghostId = query.GetSingleton<NetWorkDataContainer>().Id;
                 float3 position = new float3(0, 0.5f, 0);
                 var clientHelpSystem=this.GetService<ClientHelpSystem>();
                 clientHelpSystem.SendSpawnCreateEntityRpc(new CreateBaseUnitRpc(position));
-                
-                List<int> ghostIds = new List<int>() { ghostId };
-                
-                RequestCommandRpcSystem commandRpcSystem = this.GetService<RequestCommandRpcSystem>();
-
-                PlayerInputCommand command =
-                    commandRpcSystem.CreateInputCommand(InputCommandType.Create, position, ghostIds);
-                commandRpcSystem.SendInputCommand(command);
-                
-                StartCoroutine(DelayedEntityQuery(ghostIds));
+                var world = World.DefaultGameObjectInjectionWorld;
+        
+                // 2. 获取我们写好的 "发信系统"
+                var rpcSystem = world.GetExistingSystemManaged<RequestCommandRpcSystem>();
+        
+                // 3. 【关键】通过这个入口发送 "Create" 指令
+                // 这样它既会发给服务器生成单位，也会自动被录制到 ReplayBuffer 里
+                rpcSystem.SendInputCommand(
+                    InputCommandType.Create, // 告诉它是创建指令
+                    position            // 告诉它在哪创建
+                );
             });
         }
 

@@ -9,7 +9,7 @@ using 通用; // 引用 FlowFieldUtils 所在的命名空间
 
 // 必须在预测组，且在移动之前更新
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-[UpdateBefore(typeof(UnitFlowMovementSystem))] 
+[UpdateBefore(typeof(NetCodeUnitFlowMovementSystem))] 
 public partial class UnitSpatialPartitionSystem : SystemBase
 {
     protected override void OnCreate()

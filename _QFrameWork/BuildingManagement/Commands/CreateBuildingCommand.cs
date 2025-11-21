@@ -55,16 +55,16 @@ namespace QFramework.BuildingManagement.Commands
         /// </summary>
         private void CreateBuildingEntity(Vector3 pos)
         {
-            var entityQuery = World.DefaultGameObjectInjectionWorld.EntityManager.
-                CreateEntityQuery(typeof(NetWorkDataContainer));
-            int ghostId = entityQuery.GetSingleton<NetWorkDataContainer>().Id;
-            var endPosition = _camera.ScreenToWorldPoint(Input.mousePosition);
-            var clientHelpSystem = this.GetService<ClientHelpSystem>();
-            var buildingAuthoring = _building.GetComponent<BuildingAuthoring>();
-            clientHelpSystem.SendSpawnCreateEntityRpc(new CreateBaseBuildingRpc(pos, buildingAuthoring.buildingType));
-            List<int> ghostIds = new List<int>() { ghostId };
-            RequestCommandRpcSystem controller = this.GetService<RequestCommandRpcSystem>();
-            controller.SendInputCommand(controller.CreateInputCommand(InputCommandType.Create, endPosition, ghostIds));
+            // var entityQuery = World.DefaultGameObjectInjectionWorld.EntityManager.
+            //     CreateEntityQuery(typeof(NetWorkDataContainer));
+            // int ghostId = entityQuery.GetSingleton<NetWorkDataContainer>().Id;
+            // var endPosition = _camera.ScreenToWorldPoint(Input.mousePosition);
+            // var clientHelpSystem = this.GetService<ClientHelpSystem>();
+            // var buildingAuthoring = _building.GetComponent<BuildingAuthoring>();
+            // clientHelpSystem.SendSpawnCreateEntityRpc(new CreateBaseBuildingRpc(pos, buildingAuthoring.buildingType));
+            // List<int> ghostIds = new List<int>() { ghostId };
+            // RequestCommandRpcSystem controller = this.GetService<RequestCommandRpcSystem>();
+         //   controller.SendInputCommand(controller.CreateInputCommand(InputCommandType.Create, endPosition, ghostIds));
             // DelayedEntityQuery(ghostIds);
         }
         
