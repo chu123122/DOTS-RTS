@@ -62,7 +62,7 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
     public float SeparationWeight;
     public float SeparationRadius;
 
-    public void Execute(
+   public void Execute(
         Entity entity, 
         ref LocalTransform transform, 
         ref Velocity velocity, 
@@ -71,26 +71,42 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
     {
         // --- 1. Flow Field 力 ---
         int2 cellPos = FlowFieldUtils.WorldToCell(transform.Position, GridOrigin, CellRadius);
-        // (省略：边界检查代码同上...)
+        // (边界检查省略...)
         if (cellPos.x < 0 || cellPos.x >= GridDimensions.x || cellPos.y < 0 || cellPos.y >= GridDimensions.y) return;
 
         int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
         FlowFieldCell cell = Grid[flatIndex];
         
         float3 desiredDir = float3.zero;
-        if (cell.BestDirectionIndex != 0xFF)
+        bool isAtDestination = (cell.BestDirectionIndex == 0xFF); // 0xFF 代表到了终点或无效
+
+        if (!isAtDestination)
         {
             int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
             desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
         }
         
-        // 基础流场驱动力
-        float3 moveForce = (desiredDir * speed.Value) - velocity.Value;
+        // 【关键修改 A】到达终点时的行为差异
+        // 如果没到终点：FlowForce 负责驱动
+        // 如果到了终点：FlowForce 消失，且我们要施加"刹车"
+        float3 moveForce = float3.zero;
+        
+        if (!isAtDestination)
+        {
+            moveForce = (desiredDir * speed.Value) - velocity.Value;
+        }
+        else
+        {
+            // 到达终点后，期望速度是 0，所以 moveForce 会变成纯粹的"减速力"
+            // 但我们不希望它太强硬，给一个阻尼系数
+            moveForce = (float3.zero - velocity.Value) * 2.0f; // 2.0f 是刹车强度
+        }
 
-        // --- 2. Separation 力 (关键部分) ---
+        // --- 2. Separation 力 ---
         float3 separationForce = float3.zero;
         int neighborCount = 0;
-
+        
+        // ... (这中间的 9宫格 搜索代码保持不变) ...
         // 搜索 9 宫格
         for (int x = -1; x <= 1; x++)
         {
@@ -107,13 +123,13 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                     do
                     {
                         if (neighborEntity == entity) continue;
-                        
+                
                         // 使用 Lookup 获取邻居位置
                         if (!TransformLookup.HasComponent(neighborEntity)) continue;
                         float3 neighborPos = TransformLookup[neighborEntity].Position;
 
                         float dist = math.distance(transform.Position, neighborPos);
-                        
+                
                         // 只有靠得足够近才排斥
                         if (dist < SeparationRadius && dist > 0.001f)
                         {
@@ -130,12 +146,11 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
 
         if (neighborCount > 0)
         {
-            separationForce /= neighborCount; // 平均一下
+            separationForce /= neighborCount;
             separationForce *= SeparationWeight;
         }
 
-        // --- 3. 合成与应用 ---
-        // 这里的魔法是：FlowField 负责"走"，Separation 负责"推"
+        // --- 3. 合成与应用 (物理层修复) ---
         float3 totalForce = moveForce + separationForce;
         
         // 限制最大力
@@ -145,15 +160,35 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
 
         velocity.Value += totalForce * DeltaTime;
         
+        // 【关键修改 B】全局阻尼 (Damping) - 防止溜冰和抖动
+        // 每一帧都让速度衰减一点点 (比如 0.95)，模拟空气阻力或地面摩擦
+        // 这能有效吸收微小的抖动力
+        velocity.Value *= 0.95f;
+
         // 限制最大速度
         if (math.length(velocity.Value) > speed.Value)
             velocity.Value = math.normalize(velocity.Value) * speed.Value;
 
-        // 应用位移
-        transform.Position += velocity.Value * DeltaTime;
+        // 【关键修改 C】微小速度过滤 (Deadzone)
+        // 如果速度太小（比如只是被轻微挤压），就视为静止，不要更新位置，也不要更新旋转
+        if (math.lengthsq(velocity.Value) < 0.01f) 
+        {
+            velocity.Value = float3.zero;
+        }
+        else
+        {
+            transform.Position += velocity.Value * DeltaTime;
+        }
         
-        // 更新旋转 (只看速度方向)
-        if (math.lengthsq(velocity.Value) > 0.01f)
-            transform.Rotation = quaternion.LookRotationSafe(math.normalize(velocity.Value), math.up());
+        // --- 4. 视觉层修复：平滑旋转 (Slerp) ---
+        // 只有当速度超过一定阈值才旋转，且使用 Slerp 缓慢转向
+        if (math.lengthsq(velocity.Value) > 0.1f) // 阈值调高一点，防止原地抽搐
+        {
+            quaternion targetRotation = quaternion.LookRotationSafe(math.normalize(velocity.Value), math.up());
+            
+            // settings.RotationSpeed 建议设为 10.0f - 15.0f
+            // Math.slerp 负责平滑插值，不再是瞬间 snap
+            transform.Rotation = math.slerp(transform.Rotation, targetRotation, DeltaTime * settings.RotationSpeed);
+        }
     }
 }

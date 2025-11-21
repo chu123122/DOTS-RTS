@@ -6,6 +6,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
 {
     public float cellRadius = 0.5f; 
     public int2 gridSize = new int2(100, 100);
+    public float3 gridOrigin;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
@@ -18,7 +19,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 GridDimensions = authoring.gridSize,
                 CellRadius = authoring.cellRadius,
-                GridOrigin = float3.zero
+                GridOrigin = authoring.gridOrigin
             });
             
             // 添加全局目标
