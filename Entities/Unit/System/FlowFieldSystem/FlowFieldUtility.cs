@@ -19,7 +19,6 @@ public static class FlowFieldUtils
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int2 WorldToCell(float3 worldPos, float3 gridOrigin, float cellRadius)
     {
-        // 简单的网格映射
         float cellSize = cellRadius * 2;
         float3 localPos = worldPos - gridOrigin;
         return new int2((int)(localPos.x / cellSize), (int)(localPos.z / cellSize));

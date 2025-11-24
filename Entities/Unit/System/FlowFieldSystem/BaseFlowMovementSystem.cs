@@ -25,6 +25,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(isReadOnly: true);
         transformLookup.Update(this);
 
+        //移动Job
         var moveJob = new MoveAlongFlowFieldJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime, 
@@ -36,9 +37,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SpatialMap = spatialMap.Map,
             TransformLookup = transformLookup,
             
-            // 可以在这里微调分离参数
-            SeparationWeight = 4f,
-            SeparationRadius = 0.6f 
+            SeparationWeight = 4f,//软分离力
+            SeparationRadius = 0.6f //软距离半径，取实际0.5f的1.2倍
         };
         Dependency = moveJob.ScheduleParallel(Dependency);
     }
@@ -68,12 +68,9 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         in UnitMoveSpeed speed,
         in UnitMovementSettings settings)
     {
-        // ========================================================
-        // Phase 1: 环境感知 & 流场计算 (Sensing & Macro Force)
-        // ========================================================
+        // 1. 流场计算
         int2 cellPos = FlowFieldUtils.WorldToCell(transform.Position, GridOrigin, CellRadius);
         
-        // 边界保护
         if (cellPos.x < 0 || cellPos.x >= GridDimensions.x || 
             cellPos.y < 0 || cellPos.y >= GridDimensions.y) 
         {
@@ -85,15 +82,14 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         FlowFieldCell cell = Grid[flatIndex];
 
         // 缓冲区逻辑
-        int arrivalDistance = 2; 
+        int arrivalDistance = 2;
+        //缓冲权重
         float flowWeight = 1.0f;
         if (cell.IntegrationValue != ushort.MaxValue && cell.IntegrationValue <= arrivalDistance)
         {
             float linearT = (float)cell.IntegrationValue / (float)arrivalDistance;
-            // 使用开方曲线，保持冲劲
             flowWeight = math.sqrt(linearT);
         }
-
         // 到达判定
         bool isAtDestination =  (cell.IntegrationValue == 0);
 
@@ -107,33 +103,29 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         }
         else if (isAtDestination)
         {
-            moveForce = float3.zero; // 到了终点切断动力，交给阻尼和分离力
+            moveForce = float3.zero; // 单位到达终点时取消流域力
         }
 
-        // ========================================================
-        // Phase 2: 邻居搜索 (同时计算 "软力" 和 "硬修正")
-        // ========================================================
-        float3 separationForce = float3.zero;   // 软力：影响速度
-        float3 positionCorrection = float3.zero; // 硬修正：直接修位置
+        // 2。 排斥力计算 
+        float3 separationForce = float3.zero;   // 分离力，软作用力
+        float3 positionCorrection = float3.zero; // 偏移距离，硬作用力
         int neighborCount = 0;
-        
-        // 【关键参数】硬半径 = 单位直径 (1.0)
-        // 小于这个距离代表物理穿模，必须修位置
         float hardRadius = 0.5f; 
 
-        // 9 宫格循环
         for (int x = -1; x <= 1; x++)
         {
             for (int y = -1; y <= 1; y++)
             {
                 int2 checkCell = cellPos + new int2(x, y);
                 if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                    checkCell.y < 0 || checkCell.y >= GridDimensions.y) continue;
+                    checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                    continue;
 
                 int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
+                
+                //障碍物作用力
                 if (Grid[checkIndex].Cost == 0)
                 {
-                    // 计算墙格子的世界中心
                     float3 wallPos = GridOrigin + new float3(
                         checkCell.x * CellRadius * 2 + CellRadius, 
                         transform.Position.y, 
@@ -144,8 +136,6 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                     diff.y = 0;
                     
                     float distSq = math.lengthsq(diff);
-                    // 墙壁的警戒半径：格子半径 + 单位半径 + 缓冲
-                    // 假设格子 0.5*2=1.0，单位 0.5。警戒距离 1.0 比较合适
                     float wallCheckRadius = CellRadius + 0.6f; 
                     
                     if (distSq < wallCheckRadius * wallCheckRadius && distSq > 0.0001f)
@@ -153,12 +143,11 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                         float dist = math.sqrt(distSq);
                         float3 pushDir = diff / dist;
                         
-                        // 墙壁斥力：非常强硬 (10倍权重)
+                        //排斥力
                         float repelStrength = (wallCheckRadius - dist) / dist * 10.0f; 
                         separationForce += pushDir * repelStrength * speed.Value;
                         
-                        // 墙壁硬修正：如果真的陷进去了，直接推出来
-                        // 阈值：格子半径 + 单位半径 (0.5 + 0.5 = 1.0)
+                        //直接位移，当物体与墙壁穿模时
                         float wallHardRadius = CellRadius + 0.5f;
                         if (dist < wallHardRadius)
                         {
@@ -166,9 +155,10 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                             positionCorrection += pushDir * (penetration * 0.5f);
                         }
                     }
-                    continue; // 是墙就不用查 Entity HashMap 了
+                    continue; 
                 }
                 
+                //当前Grid存在邻居时，遍历计算
                 if (SpatialMap.TryGetFirstValue(checkIndex, out Entity neighborEntity, out var it))
                 {
                     do
@@ -178,31 +168,24 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
 
                         float3 neighborPos = TransformLookup[neighborEntity].Position;
                         float3 diff = transform.Position - neighborPos;
-                        
-                        // 【关键】强制 2D 锁定，防止被挤飞到天上
                         diff.y = 0; 
 
                         float distSq = math.lengthsq(diff);
-                        float sepRadiusSq = SeparationRadius * SeparationRadius; // 软半径平方
+                        float sepRadiusSq = SeparationRadius * SeparationRadius; 
 
-                        // 只有在侦测范围内才处理
                         if (distSq < sepRadiusSq && distSq > 0.00001f)
                         {
                             float dist = math.sqrt(distSq);
-                            float3 pushDir = diff / dist; // 标准化方向向量
+                            float3 pushDir = diff / dist; 
 
-                            // >>> A. 硬穿模修正 (PBD Logic) <<<
+                            // 硬穿模修正 
                             if (dist < hardRadius)
                             {
                                 float penetration = hardRadius - dist;
-                                // 累加修正向量。系数 0.4 意味着每帧修正 40% 的穿透量
-                                // 两个单位各修 40%，合起来就是 80%，迅速分开且不震荡
                                 positionCorrection += pushDir * (penetration * 0.4f); 
                             }
                             
-                            // >>> B. 软分离力 (Velocity Logic) <<<
-                            // 即使在修位置，也要给个速度斥力，保持队形松散
-                            // 线性公式：(Radius - dist) / Radius
+                            //Biods分离力 
                             float softFactor = 1.0f - (dist / SeparationRadius);
                             separationForce += pushDir * softFactor * speed.Value;
                             
@@ -214,30 +197,26 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
             }
         }
 
-        // 应用软力平均值
         if (neighborCount > 0)
         {
             separationForce /= neighborCount;
-            // 终点时加大权重，防止挤成一团
             float currentSepWeight = isAtDestination ? SeparationWeight * 1.5f : SeparationWeight;
             separationForce *= currentSepWeight;
         }
-
-        // ========================================================
-        // Phase 3: 物理积分 (Velocity Update)
-        // ========================================================
-        float3 totalForce = moveForce + separationForce;
         
+        // 3. 合力作用
+        float3 totalForce = moveForce + separationForce;//合力=流域力（Flow Field）+分离力（Biods）
+        
+        //被卡在障碍物里面时，强制推出
         if (cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
         {
-            // 简单的逃逸：沿当前格子中心向外推
             float3 cellCenter = GridOrigin + new float3(
                 cellPos.x * CellRadius * 2 + CellRadius, 
                 transform.Position.y, 
                 cellPos.y * CellRadius * 2 + CellRadius
             );
             float3 escapeDir = math.normalize(transform.Position - cellCenter);
-            if (math.lengthsq(escapeDir) < 0.001f) escapeDir = new float3(1,0,0); // 防止重合
+            if (math.lengthsq(escapeDir) < 0.001f) escapeDir = new float3(1,0,0); 
             totalForce += escapeDir * speed.Value * 5.0f;
         }
         
@@ -247,13 +226,12 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
 
         velocity.Value += totalForce * DeltaTime;
 
-        // 阻尼逻辑：只有在 (到达终点) 且 (没有发生硬穿模) 时才刹车
-        // 如果正在被挤 (positionCorrection > 0)，就不要刹车，顺滑滑开
+        // 发生穿模（硬碰撞）
         bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
 
         if (isAtDestination && !isHardColliding)
         {
-            // 强阻尼停车
+            // 强阻尼力停车
             velocity.Value *= math.pow(0.8f, DeltaTime * 60f);
         }
         else if (flowWeight < 0.99f)
@@ -265,39 +243,28 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         // 限速
         if (math.length(velocity.Value) > speed.Value)
             velocity.Value = math.normalize(velocity.Value) * speed.Value;
-
-        // ========================================================
-        // Phase 4: 位置更新 & 硬修正应用 (Position Update)
-        // ========================================================
         
-        // 允许移动条件：速度够快 或 正在发生硬穿模
+        // 速度够快或正在发生硬穿模
         bool shouldMove = math.lengthsq(velocity.Value) > 0.005f || isHardColliding;
-
         if (shouldMove)
         {
-            // Step 1: 正常速度位移
             float3 newPos = transform.Position + velocity.Value * DeltaTime;
-
-            // Step 2: 叠加硬修正 (解决穿模)
+            
+            //PBD修正
             if (isHardColliding)
             {
-                // 限制单帧最大修正量 (防止瞬移穿墙)
                 float maxCorrectionPerFrame = 0.15f; 
                 if (math.lengthsq(positionCorrection) > maxCorrectionPerFrame * maxCorrectionPerFrame)
-                {
                     positionCorrection = math.normalize(positionCorrection) * maxCorrectionPerFrame;
-                }
                 
-                // 直接修改坐标！
                 newPos += positionCorrection;
             }
 
-            // 强制锁 Y 轴
-            newPos.y = transform.Position.y; // 保持高度不变
+            newPos.y = transform.Position.y; 
             transform.Position = newPos;
             velocity.Value.y = 0;
 
-            // Step 3: 平滑旋转
+            //旋转
             if (math.lengthsq(velocity.Value) > 0.01f)
             {
                 quaternion targetRot = quaternion.LookRotationSafe(math.normalize(velocity.Value), math.up());
@@ -306,7 +273,6 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         }
         else
         {
-            // 彻底静止
             if (isAtDestination && !isHardColliding) velocity.Value = float3.zero;
         }
     }

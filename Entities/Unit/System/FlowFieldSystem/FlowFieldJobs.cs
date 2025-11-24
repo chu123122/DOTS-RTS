@@ -90,7 +90,7 @@ namespace Entities.Unit.System.FlowFieldSystem
     {
         [ReadOnly] public int2 GridDimensions;
         public NativeArray<FlowFieldCell> Grid;
-        public NativeQueue<int2> Queue; // 队列里存的是坐标(x,y)
+        public NativeQueue<int2> Queue; 
 
         [ReadOnly] public int2 TargetCell;
 
@@ -109,7 +109,6 @@ namespace Entities.Unit.System.FlowFieldSystem
 
             Queue.Enqueue(TargetCell);
 
-            // 定义 8 个方向
             NativeArray<int2> neighbors = new NativeArray<int2>(8, Allocator.Temp);
             neighbors[0] = new int2(0, 1);
             neighbors[1] = new int2(1, 1);
@@ -122,7 +121,6 @@ namespace Entities.Unit.System.FlowFieldSystem
 
             while (Queue.TryDequeue(out int2 currentCellPos))
             {
-                // 获取当前格子的 Cost，用于累加
                 int currentIndex = FlowFieldUtils.GetFlatIndex(currentCellPos, GridDimensions);
                 ushort currentIntegrationCost = Grid[currentIndex].IntegrationValue;
 
@@ -130,23 +128,18 @@ namespace Entities.Unit.System.FlowFieldSystem
                 {
                     int2 neighborPos = currentCellPos + neighbors[index];
 
-                    // 边界检查
                     if (neighborPos.x < 0 || neighborPos.x >= GridDimensions.x ||
                         neighborPos.y < 0 || neighborPos.y >= GridDimensions.y)
                         continue;
 
-                    // 计算邻居 Index
                     int neighborIndex = FlowFieldUtils.GetFlatIndex(neighborPos, GridDimensions);
                     var neighborCellData = Grid[neighborIndex];
-
-                    // 核心 BFS 逻辑：
-                    // 1. 不是障碍物 (Cost != 0)
-                    // 2. 还没被访问过 (IntegrationValue == Max)
+                    
                     if (neighborCellData.Cost != 0 && neighborCellData.IntegrationValue == ushort.MaxValue)
                     {
-                        // 累加代价 (这里简单 +1，也可以 +Cost)
+                        // 累加
                         neighborCellData.IntegrationValue = (ushort)(currentIntegrationCost + 1);
-                        Grid[neighborIndex] = neighborCellData; // 写回数组
+                        Grid[neighborIndex] = neighborCellData; 
 
                         Queue.Enqueue(neighborPos);
                     }

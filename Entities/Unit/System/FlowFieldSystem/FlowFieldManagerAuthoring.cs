@@ -14,15 +14,12 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
         {
             var entity = GetEntity(TransformUsageFlags.None);
 
-            // 【关键修改】只添加配置，不添加运行时 Grid
             AddComponent(entity, new FlowFieldSettings
             {
                 GridDimensions = authoring.gridSize,
                 CellRadius = authoring.cellRadius,
                 GridOrigin = authoring.gridOrigin
             });
-            
-            // 添加全局目标
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
         }
     }

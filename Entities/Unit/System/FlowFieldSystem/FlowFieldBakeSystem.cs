@@ -27,20 +27,16 @@ namespace Entities.Unit.System.FlowFieldSystem
             {
                 var settings = EntityManager.GetComponentData<FlowFieldSettings>(managerEntity);
                 int totalCells = settings.GridDimensions.x * settings.GridDimensions.y;
-                // 动态创建运行时组件
                 var runtimeGrid = new FlowFieldGrid
                 {
                     GridDimensions = settings.GridDimensions,
                     CellRadius = settings.CellRadius,
                     GridOrigin = settings.GridOrigin,
-                    // 在这里分配内存！Allocator.Persistent 意味着它会一直存在直到游戏结束
                     Grid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent)
                 };
 
-                // 添加到 Entity 上
                 EntityManager.AddComponentData(managerEntity, runtimeGrid);
         
-                // 顺便触发第一次计算
                // EntityManager.AddComponent<RecalculateFlowFieldTag>(managerEntity);
             }
             
@@ -49,10 +45,10 @@ namespace Entities.Unit.System.FlowFieldSystem
             var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
             
             if(!SystemAPI.HasComponent<FlowFieldGlobalTarget>(gridEntity))return;
-            float3 targetPos = SystemAPI.GetComponent<FlowFieldGlobalTarget>(gridEntity).TargetPosition;
             
+            float3 targetPos = SystemAPI.GetComponent<FlowFieldGlobalTarget>(gridEntity).TargetPosition;
             var queue = new NativeQueue<int2>(Allocator.TempJob);
-
+            //1.重置流域Job
             var resetJob = new ResetGridJob()
             {
                 Grid = gridComponent.Grid
@@ -60,20 +56,17 @@ namespace Entities.Unit.System.FlowFieldSystem
             JobHandle resetHandle = resetJob.Schedule(gridComponent.Grid.Length, 64,Dependency);
 
             var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
-            
-            // 2. 定义过滤器 (Filter)
             uint obstacleLayer = 1u << 2; 
-
             CollisionFilter filter = new CollisionFilter
             {
                 BelongsTo = ~0u,
                 CollidesWith = obstacleLayer,
                 GroupIndex = 0
             };
-            
+            //2.障碍物计算Job
             var costJob = new GenerateCostFieldJob
             {
-                CollisionWorld = physicsWorld.CollisionWorld, // 传入物理世界
+                CollisionWorld = physicsWorld.CollisionWorld, 
                 Grid = gridComponent.Grid,
                 GridOrigin = gridComponent.GridOrigin,
                 GridDimensions = gridComponent.GridDimensions,
@@ -82,6 +75,7 @@ namespace Entities.Unit.System.FlowFieldSystem
             };
             JobHandle costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
             
+            //3.BFS搜索Job
             var bfsJob = new GenerateIntegrationFieldJob()
             {
                 Grid = gridComponent.Grid,
@@ -91,7 +85,7 @@ namespace Entities.Unit.System.FlowFieldSystem
             };
             JobHandle bfsHandle = bfsJob.Schedule(costHandle);
 
-            
+            //4.向量场计算Job
             var vectorJob = new GenerateVectorFieldJob()
             {
                 Grid = gridComponent.Grid,
@@ -108,7 +102,6 @@ namespace Entities.Unit.System.FlowFieldSystem
         
         protected override void OnDestroy()
         {
-            // 查找所有 FlowFieldGrid 并释放内存
             foreach (var grid in SystemAPI.Query<RefRW<FlowFieldGrid>>())
             {
                 if (grid.ValueRW.Grid.IsCreated)
