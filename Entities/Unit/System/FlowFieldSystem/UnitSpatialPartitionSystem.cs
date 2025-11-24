@@ -7,9 +7,7 @@ using Unity.Jobs;
 using Unity.NetCode; // 必须引用
 using 通用; // 引用 FlowFieldUtils 所在的命名空间
 
-// 必须在预测组，且在移动之前更新
-[UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-[UpdateBefore(typeof(NetCodeUnitFlowMovementSystem))] 
+[UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
 public partial class UnitSpatialPartitionSystem : SystemBase
 {
     protected override void OnCreate()
@@ -42,7 +40,7 @@ public partial class UnitSpatialPartitionSystem : SystemBase
         {
             mapComp.ValueRW.Map.Capacity = unitCount * 2;
         }
-
+        Dependency.Complete();
         // 2. 清空上一帧的数据
         mapComp.ValueRW.Map.Clear();
 

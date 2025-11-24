@@ -16,7 +16,7 @@ namespace 通用
             {
                 var entity = GetEntity(TransformUsageFlags.Dynamic);
                 AddComponent<BasicUnitTag>(entity);
-                AddComponent<NewBasicUnitTag>(entity);
+                AddComponent<IsNewCreatingTag>(entity);
                 AddComponent<RtsTeam>(entity);
 
                 AddComponent<UnitMoveTargetPosition>(entity);

@@ -3,7 +3,6 @@ using _RePlaySystem.Base; // 假设这是你的 LocalInstance 所在
 
 // 本地回放版
 [UpdateInGroup(typeof(SimulationSystemGroup))] // 运行在标准 Update 中
-[UpdateAfter(typeof(UnitSpatialPartitionSystem))] 
 public partial class LocalUnitFlowMovementSystem : BaseFlowMovementSystem
 {
     protected override void OnCreate()

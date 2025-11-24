@@ -29,25 +29,6 @@ namespace _RePlaySystem.Base
 
         public void SendInputCommand(InputCommandType type, float3 position, int playerId = 0)
         {
-            var ecb = new EntityCommandBuffer(Allocator.Temp);
-            
-            // 1. 发送 RPC (保持不变)
-            var rpcEntity = ecb.CreateEntity();
-            ecb.AddComponent(rpcEntity, new SendRpcCommandRequest());
-            ecb.AddComponent(rpcEntity, new RequestSendCommandRpc()
-            {
-                CommandData = new PlayerInputCommandData
-                {
-                    Type = type,
-                    Position = position,
-                    PlayerNetWorkId = playerId,
-                    Units = default 
-                },
-            });
-
-            ecb.Playback(EntityManager);
-            ecb.Dispose();
-
             // 2. 【新增】客户端本地录制逻辑
             // 检查当前是否处于录制模式
             if (SystemAPI.TryGetSingletonEntity<ReplaySystemState>(out var stateEntity))

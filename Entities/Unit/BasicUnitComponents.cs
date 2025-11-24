@@ -11,7 +11,7 @@ namespace 通用
     {
     }
 
-    public struct NewBasicUnitTag : IComponentData
+    public struct IsNewCreatingTag : IComponentData
     {
     }
 

@@ -9,7 +9,7 @@ namespace Entities.Unit.System.FlowFieldSystem
 {
     
     public struct RecalculateFlowFieldTag : IComponentData {}
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class FlowFieldBakeSystem : SystemBase
     {
         protected override void OnCreate()

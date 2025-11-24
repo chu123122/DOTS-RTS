@@ -3,7 +3,6 @@ using Unity.NetCode;
 
 // 正常的网络版
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-[UpdateAfter(typeof(UnitSpatialPartitionSystem))]
 public partial class NetCodeUnitFlowMovementSystem : BaseFlowMovementSystem
 {
     protected override void OnCreate()
