@@ -85,7 +85,7 @@ namespace Entities.Unit.System.FlowFieldSystem
         }
     }
 
-    // [BurstCompile]
+     [BurstCompile]
     public struct GenerateIntegrationFieldJob : IJob
     {
         [ReadOnly] public int2 GridDimensions;

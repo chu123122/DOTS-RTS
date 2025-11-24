@@ -60,8 +60,7 @@ namespace Entities.Unit.System.FlowFieldSystem
             JobHandle resetHandle = resetJob.Schedule(gridComponent.Grid.Length, 64,Dependency);
 
             var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
-            Debug.Log($"Static Bodies: {physicsWorld.CollisionWorld.NumStaticBodies}, " +
-                      $"Dynamic: {physicsWorld.CollisionWorld.NumDynamicBodies}");
+            
             // 2. 定义过滤器 (Filter)
             uint obstacleLayer = 1u << 2; 
 
@@ -81,9 +80,7 @@ namespace Entities.Unit.System.FlowFieldSystem
                 CellRadius = gridComponent.CellRadius,
                 ObstacleFilter = filter
             };
-            // 依赖于 Reset，因为我们要覆写 Cost
             JobHandle costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
-          
             
             var bfsJob = new GenerateIntegrationFieldJob()
             {
