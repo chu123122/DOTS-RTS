@@ -96,12 +96,9 @@ namespace Entities.Unit.System.FlowFieldSystem
 
         public void Execute()
         {
-            // 1. 统一使用 Utils 计算 Index
             int targetIndex = FlowFieldUtils.GetFlatIndex(TargetCell, GridDimensions);
 
-            // 安全检查
             if (targetIndex < 0 || targetIndex >= Grid.Length) return;
-
             if (Grid[targetIndex].Cost == 0)
                 return;
 
@@ -110,7 +107,6 @@ namespace Entities.Unit.System.FlowFieldSystem
             targetCellData.IntegrationValue = 0;
             Grid[targetIndex] = targetCellData;
 
-            // 【修复】入队的是 坐标(int2)，不是 Index(int)
             Queue.Enqueue(TargetCell);
 
             // 定义 8 个方向
@@ -152,7 +148,6 @@ namespace Entities.Unit.System.FlowFieldSystem
                         neighborCellData.IntegrationValue = (ushort)(currentIntegrationCost + 1);
                         Grid[neighborIndex] = neighborCellData; // 写回数组
 
-                        // 【修复】入队邻居的 坐标(int2)
                         Queue.Enqueue(neighborPos);
                     }
                 }

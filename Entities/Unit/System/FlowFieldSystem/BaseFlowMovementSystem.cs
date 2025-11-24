@@ -95,17 +95,17 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         }
 
         // 到达判定
-        bool isAtDestination = (cell.BestDirectionIndex == 0xFF) || (cell.IntegrationValue == 0);
+        bool isAtDestination =  (cell.IntegrationValue == 0);
 
         // 流场驱动力
         float3 moveForce = float3.zero;
-        if (!isAtDestination)
+        if (!isAtDestination&& cell.Cost != 0)
         {
             int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
             float3 desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
             moveForce = (desiredDir * speed.Value * flowWeight) - velocity.Value;
         }
-        else
+        else if (isAtDestination)
         {
             moveForce = float3.zero; // 到了终点切断动力，交给阻尼和分离力
         }
@@ -131,7 +131,44 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                     checkCell.y < 0 || checkCell.y >= GridDimensions.y) continue;
 
                 int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
+                if (Grid[checkIndex].Cost == 0)
+                {
+                    // 计算墙格子的世界中心
+                    float3 wallPos = GridOrigin + new float3(
+                        checkCell.x * CellRadius * 2 + CellRadius, 
+                        transform.Position.y, 
+                        checkCell.y * CellRadius * 2 + CellRadius
+                    );
 
+                    float3 diff = transform.Position - wallPos;
+                    diff.y = 0;
+                    
+                    float distSq = math.lengthsq(diff);
+                    // 墙壁的警戒半径：格子半径 + 单位半径 + 缓冲
+                    // 假设格子 0.5*2=1.0，单位 0.5。警戒距离 1.0 比较合适
+                    float wallCheckRadius = CellRadius + 0.6f; 
+                    
+                    if (distSq < wallCheckRadius * wallCheckRadius && distSq > 0.0001f)
+                    {
+                        float dist = math.sqrt(distSq);
+                        float3 pushDir = diff / dist;
+                        
+                        // 墙壁斥力：非常强硬 (10倍权重)
+                        float repelStrength = (wallCheckRadius - dist) / dist * 10.0f; 
+                        separationForce += pushDir * repelStrength * speed.Value;
+                        
+                        // 墙壁硬修正：如果真的陷进去了，直接推出来
+                        // 阈值：格子半径 + 单位半径 (0.5 + 0.5 = 1.0)
+                        float wallHardRadius = CellRadius + 0.5f;
+                        if (dist < wallHardRadius)
+                        {
+                            float penetration = wallHardRadius - dist;
+                            positionCorrection += pushDir * (penetration * 0.5f);
+                        }
+                    }
+                    continue; // 是墙就不用查 Entity HashMap 了
+                }
+                
                 if (SpatialMap.TryGetFirstValue(checkIndex, out Entity neighborEntity, out var it))
                 {
                     do
@@ -190,6 +227,19 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         // Phase 3: 物理积分 (Velocity Update)
         // ========================================================
         float3 totalForce = moveForce + separationForce;
+        
+        if (cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
+        {
+            // 简单的逃逸：沿当前格子中心向外推
+            float3 cellCenter = GridOrigin + new float3(
+                cellPos.x * CellRadius * 2 + CellRadius, 
+                transform.Position.y, 
+                cellPos.y * CellRadius * 2 + CellRadius
+            );
+            float3 escapeDir = math.normalize(transform.Position - cellCenter);
+            if (math.lengthsq(escapeDir) < 0.001f) escapeDir = new float3(1,0,0); // 防止重合
+            totalForce += escapeDir * speed.Value * 5.0f;
+        }
         
         float maxForce = settings.MaxForce;
         if (math.length(totalForce) > maxForce)

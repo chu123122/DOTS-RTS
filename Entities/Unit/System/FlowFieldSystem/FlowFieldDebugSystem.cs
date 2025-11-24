@@ -11,7 +11,7 @@ public partial class FlowFieldDebugSystem : SystemBase
 {
     // 开关：在 Editor 里随时可以关掉，防止卡顿
     public bool ShowVectors = true;
-    public bool ShowCost = false; // 如果你想看阻挡格
+    public bool ShowCost = true; // 如果你想看阻挡格
 
     protected override void OnUpdate()
     {
@@ -58,7 +58,7 @@ public partial class FlowFieldDebugSystem : SystemBase
                     Debug.DrawRay(cellCenter, dir * radius, Color.white);
                 }
                 
-                // 3. (可选) 画目标点高亮 (绿色)
+                // 3.  画目标点高亮 (绿色)
                 if (cell.IntegrationValue == 0)
                 {
                     Debug.DrawRay(cellCenter, Vector3.up * 5, Color.green);

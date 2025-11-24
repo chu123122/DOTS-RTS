@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.NetCode;
+using Unity.Physics;
 using UnityEngine;
 
 namespace Entities.Unit.System.FlowFieldSystem
@@ -16,6 +17,7 @@ namespace Entities.Unit.System.FlowFieldSystem
         {
             RequireForUpdate<FlowFieldSettings>();
             RequireForUpdate<RecalculateFlowFieldTag>();
+            RequireForUpdate<PhysicsWorldSingleton>();
         }
 
         protected override void OnUpdate()
@@ -25,7 +27,6 @@ namespace Entities.Unit.System.FlowFieldSystem
             {
                 var settings = EntityManager.GetComponentData<FlowFieldSettings>(managerEntity);
                 int totalCells = settings.GridDimensions.x * settings.GridDimensions.y;
-                Debug.Log($"totalCells: {totalCells}");
                 // 动态创建运行时组件
                 var runtimeGrid = new FlowFieldGrid
                 {
@@ -58,6 +59,32 @@ namespace Entities.Unit.System.FlowFieldSystem
             };
             JobHandle resetHandle = resetJob.Schedule(gridComponent.Grid.Length, 64,Dependency);
 
+            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
+            Debug.Log($"Static Bodies: {physicsWorld.CollisionWorld.NumStaticBodies}, " +
+                      $"Dynamic: {physicsWorld.CollisionWorld.NumDynamicBodies}");
+            // 2. 定义过滤器 (Filter)
+            uint obstacleLayer = 1u << 2; 
+
+            CollisionFilter filter = new CollisionFilter
+            {
+                BelongsTo = ~0u,
+                CollidesWith = obstacleLayer,
+                GroupIndex = 0
+            };
+            
+            var costJob = new GenerateCostFieldJob
+            {
+                CollisionWorld = physicsWorld.CollisionWorld, // 传入物理世界
+                Grid = gridComponent.Grid,
+                GridOrigin = gridComponent.GridOrigin,
+                GridDimensions = gridComponent.GridDimensions,
+                CellRadius = gridComponent.CellRadius,
+                ObstacleFilter = filter
+            };
+            // 依赖于 Reset，因为我们要覆写 Cost
+            JobHandle costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
+          
+            
             var bfsJob = new GenerateIntegrationFieldJob()
             {
                 Grid = gridComponent.Grid,
@@ -65,8 +92,9 @@ namespace Entities.Unit.System.FlowFieldSystem
                 TargetCell = FlowFieldUtils.WorldToCell(targetPos,gridComponent.GridOrigin,gridComponent.CellRadius),
                 Queue = queue,
             };
-            JobHandle bfsHandle = bfsJob.Schedule(resetHandle);
+            JobHandle bfsHandle = bfsJob.Schedule(costHandle);
 
+            
             var vectorJob = new GenerateVectorFieldJob()
             {
                 Grid = gridComponent.Grid,
