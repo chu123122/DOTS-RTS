@@ -85,11 +85,13 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         FlowFieldCell cell = Grid[flatIndex];
 
         // 缓冲区逻辑
-        int arrivalDistance = 3; 
+        int arrivalDistance = 2; 
         float flowWeight = 1.0f;
         if (cell.IntegrationValue != ushort.MaxValue && cell.IntegrationValue <= arrivalDistance)
         {
-            flowWeight = (float)cell.IntegrationValue / (float)arrivalDistance;
+            float linearT = (float)cell.IntegrationValue / (float)arrivalDistance;
+            // 使用开方曲线，保持冲劲
+            flowWeight = math.sqrt(linearT);
         }
 
         // 到达判定
