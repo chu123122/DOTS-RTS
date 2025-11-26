@@ -10,8 +10,8 @@
 
 ---
 
-## 📺 [Click to Watch Demo Video (Bilibili / YouTube)]
-https://www.bilibili.com/video/BV1moUhBsE3K/
+## 📺 [[Click to Watch Demo Video](https://www.bilibili.com/video/BV1moUhBsE3K/) (Bilibili )]
+
 ---
 
 ## 📖 项目简介 (Introduction)
