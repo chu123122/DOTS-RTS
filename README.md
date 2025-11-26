@@ -27,24 +27,21 @@
 * **性能：** 支持 **500+** 单位同时寻路，寻路逻辑完全并行化（Job System）。
 * **机制：** 通过 `Physics.Overlap` 预计算静态障碍物代价场 (Cost Field)，生成全局积分场 (Integration Field)，实现 $O(1)$ 复杂度的单位寻路查询。
 
-![FlowField](docs/images/flowfield_demo.gif) 
-*(这里放你那个大方阵移动的 GIF)*
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/FlowField.gif"/>
 
 ### 2. 基于 PBD 的高密度避障 (PBD Avoidance)
 为了解决大量单位挤过窄口（沙漏场景）时的死锁与穿模问题，实现了一套专用的 **基于位置的动力学 (Position Based Dynamics)** 求解器。
 * **分层处理：** 结合 **软分离力 (Soft Separation)** 维持队形与 **硬约束投影 (Hard Constraint Projection)** 修正穿模。
 * **稳定性：** 引入帧率无关阻尼 (Frame-rate Independent Damping) 和拥堵截断机制，在极度拥挤下依然保持物理收敛，无鬼畜抖动。
 
-![Avoidance](docs/images/avoidance_demo.gif)
-*(这里放你那个沙漏挤压的 GIF)*
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/PBD.gif"/>
 
 ### 3. 事件溯源回放系统 (Event Sourcing Replay)
 在服务端权威（Server-Authoritative）架构下，实现了一套基于指令流的回放系统。
 * **零快照：** 不记录每帧 Transform，仅记录关键输入指令 (Command Buffer)。
 * **瞬间重置：** 利用 ECS 的结构特性，实现了毫秒级的状态回滚与指令重演。
 
-![Replay](docs/images/replay_demo.gif)
-*(这里放你按 R 键回放的 GIF)*
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/Replay.gif"/>
 
 ### 4. 混合式网络架构 (Hybrid Network Architecture)
 * **框架：** 基于 **Unity NetCode for Entities**。
