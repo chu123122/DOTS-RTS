@@ -11,7 +11,7 @@
 ---
 
 ## 📺 [Click to Watch Demo Video (Bilibili / YouTube)]
-
+https://www.bilibili.com/video/BV1moUhBsE3K/
 ---
 
 ## 📖 项目简介 (Introduction)
