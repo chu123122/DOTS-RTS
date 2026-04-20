@@ -1,0 +1,37 @@
+{
+  "buildings": [
+    {
+      "id": 0,
+      "prefabPath": "Prefabs/基地",
+      "buildName": "基地",
+      "description": "玩家的基地",
+      "maxHp": 500,
+      "buildSize": {
+        "x": 1,
+        "y": 1
+      }
+    },
+    {
+      "id": 1,
+      "prefabPath": "Prefabs/Barracks",
+      "buildName": "兵营",
+      "description": "用于生成基本单位的兵营",
+      "maxHp": 500,
+      "buildSize": {
+        "x": 2,
+        "y": 2
+      }
+    },
+    {
+      "id": 2,
+      "prefabPath": "Prefabs/圣地",
+      "buildName": "圣地",
+      "description": "地图上特定的建筑可以被占领",
+      "maxHp": 100,
+      "buildSize": {
+        "x": 1,
+        "y": 1
+      }
+    }
+  ]
+}

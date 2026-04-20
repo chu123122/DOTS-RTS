@@ -1,0 +1,74 @@
+# Unity生成目录
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# MemoryCaptures（Profiler）
+[Mm]emory[Cc]aptures/
+
+# Asset meta data should only be ignored when the default asset serialization mode is Force Text, keep it here.
+# *.meta
+
+# Unity3D生成的文件
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D生成的Meta文件（保留）
+# *.meta
+
+# Unity3D生成的asset bundle
+*.unitypackage
+
+# IDE - Visual Studio
+.vs/
+[Ee]xported[Oo]bj/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Rider
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# JetBrains
+.idea/
+
+# Plastic SCM
+.plastic/
+hidden_changes.conf
+ignore.conf

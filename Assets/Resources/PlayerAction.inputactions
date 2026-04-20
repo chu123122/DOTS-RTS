@@ -1,0 +1,128 @@
+{
+    "name": "PlayerAction",
+    "maps": [
+        {
+            "name": "UnitControl",
+            "id": "a1962998-4dc0-45b0-817c-243dbd891d4a",
+            "actions": [
+                {
+                    "name": "Select Unit",
+                    "type": "Button",
+                    "id": "d20880e3-e99c-4702-af0a-82956c17c502",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Multi Select With Shift",
+                    "type": "Button",
+                    "id": "2d05f745-6188-4ca4-9d34-477b6b270a6b",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
+                    "name": "Multi Select With Mouse",
+                    "type": "Value",
+                    "id": "fd5083a2-9809-405f-b610-1ccd3df77297",
+                    "expectedControlType": "Vector2",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
+                    "name": "RePlayTest",
+                    "type": "Button",
+                    "id": "8f7266a6-8274-4d4e-b628-4c5948fe3e98",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "d9c035ec-8939-403a-aaf0-a0fc5ebb8873",
+                    "path": "<Mouse>/leftButton",
+                    "interactions": "Tap",
+                    "processors": "",
+                    "groups": "KeyBoardAndMouse",
+                    "action": "Select Unit",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f3f6bf30-5ab0-43d3-b66c-049428518aef",
+                    "path": "<Keyboard>/shift",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";KeyBoardAndMouse",
+                    "action": "Multi Select With Shift",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "da2a4fd7-3e44-4a92-9604-cbe4976c7838",
+                    "path": "<Mouse>/position",
+                    "interactions": "Tap",
+                    "processors": "",
+                    "groups": ";KeyBoardAndMouse",
+                    "action": "Multi Select With Mouse",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "73774489-f4d2-43fe-ae9f-b63d357f5082",
+                    "path": "<Keyboard>/r",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RePlayTest",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        },
+        {
+            "name": "Building",
+            "id": "66d63649-36c1-4c68-ae40-e47fc6466e4c",
+            "actions": [
+                {
+                    "name": "New action",
+                    "type": "Button",
+                    "id": "180613c3-93fd-4a7c-9273-2ab03203102a",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "3aa774cd-fb01-4c89-9beb-3a0dd6b34235",
+                    "path": "",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "New action",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": [
+        {
+            "name": "KeyBoardAndMouse",
+            "bindingGroup": "KeyBoardAndMouse",
+            "devices": []
+        }
+    ]
+}
