@@ -4,7 +4,6 @@ using Unity.Collections;
 using Unity.Mathematics;
 using Unity.Transforms;
 using Unity.Jobs;
-using Unity.NetCode; // 必须引用
 using 通用; // 引用 FlowFieldUtils 所在的命名空间
 
 [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]

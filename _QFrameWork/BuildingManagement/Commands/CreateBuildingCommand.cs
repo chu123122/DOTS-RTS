@@ -1,16 +1,9 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using _QFrameWork._CommonUtils;
-using _RePlaySystem.Base;
 using DefaultNamespace;
-using Entities._Common;
-using Entities._Common.SpawnEntityRpc;
-using Entities.Building.Authoring;
 using QFramework.BuildingManagement.Utils;
 using Test.BuildingSystem;
-using UI.MapUI;
-using UI.MapUI.Events;
 using Unity.Entities;
 using Unity.VisualScripting;
 using UnityEditor;
@@ -55,33 +48,8 @@ namespace QFramework.BuildingManagement.Commands
         /// </summary>
         private void CreateBuildingEntity(Vector3 pos)
         {
-            // var entityQuery = World.DefaultGameObjectInjectionWorld.EntityManager.
-            //     CreateEntityQuery(typeof(NetWorkDataContainer));
-            // int ghostId = entityQuery.GetSingleton<NetWorkDataContainer>().Id;
-            // var endPosition = _camera.ScreenToWorldPoint(Input.mousePosition);
-            // var clientHelpSystem = this.GetService<ClientHelpSystem>();
-            // var buildingAuthoring = _building.GetComponent<BuildingAuthoring>();
-            // clientHelpSystem.SendSpawnCreateEntityRpc(new CreateBaseBuildingRpc(pos, buildingAuthoring.buildingType));
-            // List<int> ghostIds = new List<int>() { ghostId };
-            // RequestCommandRpcSystem controller = this.GetService<RequestCommandRpcSystem>();
-         //   controller.SendInputCommand(controller.CreateInputCommand(InputCommandType.Create, endPosition, ghostIds));
-            // DelayedEntityQuery(ghostIds);
         }
         
-        private void DelayedEntityQuery(List<int> ghostIds)
-        {
-            Debug.Log("DelayedEntityQuery");
-            foreach (var id in ghostIds)
-            {
-                Entity entity = this.GetService<ClientHelpSystem>().GetEntityByIndexInClientWorld(id);
-                this.SendEvent(new CreateEntityEvent()
-                {
-                    IsEnemy = true,
-                    Type = MapUIEntityType.Building,
-                    Entity = entity
-                });
-            }
-        }
         /// <summary>
         /// 创建建筑 Mono
         /// </summary>

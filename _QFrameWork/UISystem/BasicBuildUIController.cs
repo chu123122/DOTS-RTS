@@ -1,12 +1,8 @@
-using System.Collections;
-using System.Collections.Generic;
 using _RePlaySystem.Base;
 using DefaultNamespace;
 using Entities._Common;
 using Entities._Common.SpawnEntityRpc;
 using QFramework;
-using UI.MapUI;
-using UI.MapUI.Events;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -56,22 +52,6 @@ namespace Test
             );
             
         }
-
-        private IEnumerator DelayedEntityQuery(List<int> ghostIds)
-        {
-            yield return new WaitForSeconds(2f);//TODO: 需要换种可靠的解决方案
-            foreach (var id in ghostIds)
-            {
-                Entity entity = this.GetService<ClientHelpSystem>().GetEntityByIndexInClientWorld(id);
-                this.SendEvent(new CreateEntityEvent()
-                {
-                    IsEnemy = false,
-                    Type = MapUIEntityType.Solider,
-                    Entity = entity
-                });
-            }
-        }
-
 
         public IArchitecture GetArchitecture()
         {
