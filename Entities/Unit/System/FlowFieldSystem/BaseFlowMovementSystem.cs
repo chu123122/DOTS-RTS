@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Physics;
 using Unity.Transforms;
 using 通用;
 
@@ -21,6 +22,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _movementQuery = GetEntityQuery(
             ComponentType.ReadWrite<LocalTransform>(),
             ComponentType.ReadWrite<Velocity>(),
+            ComponentType.ReadWrite<FlowArrivalState>(),
             ComponentType.ReadOnly<UnitMoveSpeed>(),
             ComponentType.ReadOnly<UnitMovementSettings>());
     }
@@ -41,8 +43,35 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob,
             NativeArrayOptions.UninitializedMemory);
 
+        // 到达区域容量按每个单位当前 PhysicsCollider 的 XZ 投影计算。
+        // 缩放和旋转均来自本帧 LocalTransform，不再假设每个单位固定占一个格子。
+        var collisionFootprints = new NativeArray<float2>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.UninitializedMemory);
+        var arrivalEnterDistance = new NativeReference<int>(Allocator.TempJob);
+
         // 约束阶段需要按邻居 Entity 查询其预测位置，因此额外建立 Entity -> 预测位置快照。
         var predictedPositions = new NativeParallelHashMap<Entity, float3>(unitCount, Allocator.TempJob);
+
+        var physicsColliderLookup = SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
+        physicsColliderLookup.Update(this);
+
+        var footprintJob = new CalculateUnitCollisionFootprintJob
+        {
+            PhysicsColliderLookup = physicsColliderLookup,
+            FallbackCellSize = gridComponent.CellRadius * 2f,
+            CollisionFootprints = collisionFootprints
+        };
+        JobHandle footprintHandle = footprintJob.ScheduleParallel(_movementQuery, Dependency);
+
+        var arrivalAreaJob = new CalculateArrivalAreaJob
+        {
+            CollisionFootprints = collisionFootprints,
+            CellSize = gridComponent.CellRadius * 2f,
+            ArrivalEnterDistance = arrivalEnterDistance
+        };
+        JobHandle arrivalAreaHandle = arrivalAreaJob.Schedule(footprintHandle);
 
         // 软避让仍使用当前帧真实位置；预测位置会在所有软力计算完成后统一生成。
         var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(isReadOnly: true);
@@ -55,9 +84,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
+            ArrivalEnterDistance = arrivalEnterDistance,
             States = states
         };
-        JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, Dependency);
+        JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, arrivalAreaHandle);
 
         // 阶段 2：基于当前 SpatialMap 和当前位置累计单位/墙壁软避让力。
         var softAvoidanceJob = new CalculateSoftAvoidanceJob
@@ -107,9 +137,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, constraintHandle);
 
-        // 两个临时容器都必须等最终应用阶段读完后才能释放。
+        // 所有临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
+        JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
+        JobHandle arrivalDistanceDisposeHandle = arrivalEnterDistance.Dispose(applyMovementHandle);
         JobHandle predictedPositionDisposeHandle = predictedPositions.Dispose(applyMovementHandle);
-        Dependency = JobHandle.CombineDependencies(stateDisposeHandle, predictedPositionDisposeHandle);
+        JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
+            stateDisposeHandle,
+            footprintDisposeHandle);
+        JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
+            arrivalDistanceDisposeHandle,
+            predictedPositionDisposeHandle);
+        Dependency = JobHandle.CombineDependencies(frameStateDisposeHandle, lookupDisposeHandle);
     }
 }

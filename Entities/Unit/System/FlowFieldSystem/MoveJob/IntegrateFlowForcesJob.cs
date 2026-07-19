@@ -49,13 +49,9 @@ public partial struct IntegrateFlowForcesJob : IJobEntity
 
         // 半隐式欧拉：v(t+dt) = v(t) + a*dt，x* = x(t) + v(t+dt)*dt。
         float3 integratedVelocity = state.CurrentVelocity + totalForce * DeltaTime;
-        if (state.IsAtDestination)
+        if (state.IsSettled)
         {
             integratedVelocity *= math.pow(0.8f, DeltaTime * 60f);
-        }
-        else if (state.FlowWeight < 0.99f)
-        {
-            integratedVelocity *= math.pow(0.95f, DeltaTime * 60f);
         }
 
         if (math.length(integratedVelocity) > state.MoveSpeed)

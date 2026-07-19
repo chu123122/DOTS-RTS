@@ -31,6 +31,11 @@ public partial struct ApplyFlowMovementJob : IJobEntity
         float3 positionCorrection = state.PositionCorrection;
         bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
 
+        // 停车与位置约束解耦：到达区域内速度足够低时直接归零，
+        // 即使仍有穿透修正，也只应用位置投影，不重新产生运动速度。
+        if (state.IsSettled && math.lengthsq(integratedVelocity) <= 0.005f)
+            integratedVelocity = float3.zero;
+
         bool shouldMove = math.lengthsq(integratedVelocity) > 0.005f || isHardColliding;
         if (shouldMove)
         {
@@ -57,7 +62,7 @@ public partial struct ApplyFlowMovementJob : IJobEntity
                 transform.Rotation = math.slerp(state.CurrentRotation, targetRotation, DeltaTime * 10.0f);
             }
         }
-        else if (state.IsAtDestination && !isHardColliding)
+        else if (state.IsSettled)
         {
             integratedVelocity = float3.zero;
         }

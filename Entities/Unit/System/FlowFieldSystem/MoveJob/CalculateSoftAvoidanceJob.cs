@@ -79,7 +79,7 @@ public partial struct CalculateSoftAvoidanceJob : IJobEntity
         {
             // 先平均再加权，避免邻居数量直接线性放大软避让力。
             separationForce /= neighborCount;
-            float currentWeight = state.IsAtDestination ? SeparationWeight * 1.5f : SeparationWeight;
+            float currentWeight = state.IsSettled ? SeparationWeight * 1.5f : SeparationWeight;
             separationForce *= currentWeight;
         }
 

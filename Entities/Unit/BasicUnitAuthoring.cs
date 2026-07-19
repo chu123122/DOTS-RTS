@@ -21,6 +21,7 @@ namespace 通用
 
                 AddComponent<UnitMoveTargetPosition>(entity);
                 AddComponent(entity, new Velocity { Value = new float3(0, 0, 0) });
+                AddComponent(entity, new FlowArrivalState { IsSettled = false });
                 AddComponent(entity, new UnitMovementSettings { MaxForce = 20f, RotationSpeed = 10f });
                 AddComponent(entity, new UnitMoveSpeed { Value = authoring.moveSpeed });
                 AddComponent(entity, new UnitSelected { Value = false });

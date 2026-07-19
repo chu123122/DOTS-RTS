@@ -42,6 +42,16 @@ namespace 通用
         public float3 Value;
     }
 
+    /// <summary>
+    /// 记录单位是否已经进入当前流场目标的到达区域。
+    /// 该状态跨帧保留，用于为进入/退出到达区域提供滞回，避免边界反复启停。
+    /// </summary>
+    [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
+    public struct FlowArrivalState : IComponentData
+    {
+        [GhostField] public bool IsSettled;
+    }
+
     public struct UnitMovementSettings : IComponentData
     {
         public float MaxForce; // 转向力的最大值 (建议 20-50)

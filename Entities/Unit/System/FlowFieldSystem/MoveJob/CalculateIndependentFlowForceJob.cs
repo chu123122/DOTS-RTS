@@ -17,6 +17,8 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     public int2 GridDimensions;
     public float CellRadius;
 
+    [ReadOnly] public NativeReference<int> ArrivalEnterDistance;
+
     public NativeArray<FlowMovementFrameState> States;
 
     public void Execute(
@@ -24,7 +26,8 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         in LocalTransform transform,
         in Velocity velocity,
         in UnitMoveSpeed speed,
-        in UnitMovementSettings settings)
+        in UnitMovementSettings settings,
+        ref FlowArrivalState arrivalState)
     {
         var state = new FlowMovementFrameState
         {
@@ -48,29 +51,30 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
         FlowFieldCell cell = Grid[flatIndex];
 
-        // 靠近终点时逐步降低流场牵引，避免单位以最大速度冲过目标格。
-        const int arrivalDistance = 2;
-        float flowWeight = 1.0f;
-        if (cell.IntegrationValue != ushort.MaxValue && cell.IntegrationValue <= arrivalDistance)
-        {
-            float linearT = (float)cell.IntegrationValue / arrivalDistance;
-            flowWeight = math.sqrt(linearT);
-        }
+        bool isReachable = cell.Cost != 0 && cell.IntegrationValue != ushort.MaxValue;
+        int integrationDistance = cell.IntegrationValue;
+        int arrivalEnterDistance = ArrivalEnterDistance.Value;
+        int arrivalExitDistance = arrivalEnterDistance + 1;
 
-        bool isAtDestination = cell.IntegrationValue == 0;
+        // 已进入到达区域的单位只有越过更外层的退出边界才重新跟随流场。
+        // 未进入的单位到达内层边界后停车，从而形成一格宽的滞回带。
+        bool isSettled = arrivalState.IsSettled
+            ? isReachable && integrationDistance <= arrivalExitDistance
+            : isReachable && integrationDistance <= arrivalEnterDistance;
+        arrivalState.IsSettled = isSettled;
+
         float3 moveForce = float3.zero;
-        if (!isAtDestination && cell.Cost != 0)
+        if (!isSettled && cell.Cost != 0)
         {
-            // Steering 形式：期望速度与当前速度之差作为本阶段的力。
+            // 到达区域外保持完整期望速度，不再设置固定格数的提前减速带。
             int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
             float3 desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
-            moveForce = desiredDir * speed.Value * flowWeight - velocity.Value;
+            moveForce = desiredDir * speed.Value - velocity.Value;
         }
 
         state.CellPosition = cellPos;
         state.Cell = cell;
-        state.FlowWeight = flowWeight;
-        state.IsAtDestination = isAtDestination;
+        state.IsSettled = isSettled;
         state.IsInsideGrid = true;
         state.IndependentForce = moveForce;
         States[entityIndex] = state;

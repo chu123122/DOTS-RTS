@@ -18,11 +18,10 @@ public struct FlowMovementFrameState
     public float MoveSpeed;
     public float MaxForce;
 
-    // 当前所在流场格及到达状态，由独立力阶段计算。
+    // 当前所在流场格及带滞回的到达状态，由独立力阶段计算。
     public int2 CellPosition;
     public FlowFieldCell Cell;
-    public float FlowWeight;
-    public bool IsAtDestination;
+    public bool IsSettled;
     public bool IsInsideGrid;
 
     // 按流水线依次生成的中间结果。
