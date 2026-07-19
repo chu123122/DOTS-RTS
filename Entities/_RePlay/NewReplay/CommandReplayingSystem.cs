@@ -154,7 +154,7 @@ namespace _RePlaySystem.Base
                 var cmd = buffer[idx];
                 if (currentReplayTime < cmd.TimeOffset) break;
 
-                ExecuteReplayCommand(cmd, ref ecb);
+                ExecuteReplayCommand(cmd, idx, ref ecb);
                 idx++;
             }
 
@@ -168,7 +168,7 @@ namespace _RePlaySystem.Base
         }
 
         // 注意参数变化：传入 ref EntityCommandBuffer ecb
-        private void ExecuteReplayCommand(ReplayCommandElement cmd, ref EntityCommandBuffer ecb)
+        private void ExecuteReplayCommand(ReplayCommandElement cmd, int commandIndex, ref EntityCommandBuffer ecb)
         {
             if (cmd.Type == RTSCommandType.Spawn)
             {
@@ -177,7 +177,9 @@ namespace _RePlaySystem.Base
                 // 使用 ecb.Instantiate
                 var newUnit = ecb.Instantiate(prefabEntity);
 
-                var transform = LocalTransform.FromPosition(cmd.Position);
+                float spawnOffset = commandIndex % 10 * 0.01f;
+                float3 spawnPosition = cmd.Position + new float3(spawnOffset, 0, 0);
+                var transform = LocalTransform.FromPosition(spawnPosition);
                 transform.Scale = 0.5f;
                 // 使用 ecb.SetComponent
                 ecb.SetComponent(newUnit, transform);
