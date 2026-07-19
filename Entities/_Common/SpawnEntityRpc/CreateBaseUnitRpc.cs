@@ -24,6 +24,7 @@ namespace Entities._Common.SpawnEntityRpc
                 Position = _position,
             });
             ecb.Playback(World.DefaultGameObjectInjectionWorld.EntityManager);
+            ecb.Dispose();
         }
     }
 }

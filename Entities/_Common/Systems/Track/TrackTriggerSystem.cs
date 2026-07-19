@@ -55,12 +55,14 @@ public partial struct TrackTriggerSystem : ISystem
                 _collisionFilter
             );
             CheckSphere(haveTrackTarget, hits, entity, state.EntityManager,ecb);
+            hits.Dispose();
             // if (state.World.IsClient())
             // {
             DebugDrawing.DrawWireCircleXZ(sphereCenter, trackDistance.ValueRO.Distance, Color.green);
             // }
         }
         ecb.Playback(state.EntityManager);
+        ecb.Dispose();
     }
 
     public void OnDestroy(ref SystemState state)

@@ -23,7 +23,7 @@ namespace Entities.Unit.System
                          WithEntityAccess())
             {
                 ecb.DestroyEntity(entity);
-                var unitPrefabQuery = EntityManager.CreateEntityQuery(typeof(RtsPrefabs));
+                using var unitPrefabQuery = EntityManager.CreateEntityQuery(typeof(RtsPrefabs));
                 Entity unitPrefabEntity = unitPrefabQuery.GetSingleton<RtsPrefabs>().Entity;
 
                 var unit = ecb.Instantiate(unitPrefabEntity);
@@ -35,6 +35,7 @@ namespace Entities.Unit.System
             }
 
             ecb.Playback(EntityManager);
+            ecb.Dispose();
         }
     }
 }

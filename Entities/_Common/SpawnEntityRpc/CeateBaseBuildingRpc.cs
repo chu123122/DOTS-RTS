@@ -31,6 +31,7 @@ namespace Entities._Common.SpawnEntityRpc
                 BuildingType = _buildingType,
             });
             ecb.Playback(World.DefaultGameObjectInjectionWorld.EntityManager);
+            ecb.Dispose();
         }
     }
 }

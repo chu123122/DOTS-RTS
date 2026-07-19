@@ -73,7 +73,7 @@ namespace _RePlaySystem.Base
                     EntityManager.AddComponentData(stateEntity, new LocalInstance());
 
                 // 1. 清场单位
-                var unitQuery = EntityManager.CreateEntityQuery(typeof(BasicUnitTag));
+                using var unitQuery = EntityManager.CreateEntityQuery(typeof(BasicUnitTag));
                 var entities = unitQuery.ToEntityArray(Allocator.Temp);
                 EntityManager.DestroyEntity(entities);
                 entities.Dispose();

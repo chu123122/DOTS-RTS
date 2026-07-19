@@ -17,7 +17,7 @@ namespace 服务器
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<RtsPrefabs>();
-            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<RtsTeamRequest, ReceiveRpcCommandRequest>();
+            using var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<RtsTeamRequest, ReceiveRpcCommandRequest>();
             state.RequireForUpdate(state.GetEntityQuery(builder));
         }
 
@@ -43,7 +43,7 @@ namespace 服务器
                 ecb.AppendToBuffer(requestSource.SourceConnection,new LinkedEntityGroup{Value = unit });
             } 
             ecb.Playback(state.EntityManager);
-            
+            ecb.Dispose();
         }
     }
 }

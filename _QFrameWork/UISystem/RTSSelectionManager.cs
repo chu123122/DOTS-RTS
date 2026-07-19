@@ -96,7 +96,7 @@ public class RTSSelectionManager : MonoBehaviour
         // 注意：这是在主线程直接操作 EntityManager，对于几百个单位完全没问题
         // 如果你有 10000 个单位，这里需要改成 Job
         
-        EntityQuery query = entityManager.CreateEntityQuery(
+        using EntityQuery query = entityManager.CreateEntityQuery(
             typeof(LocalTransform), 
             typeof(UnitSelected),
             typeof(BasicUnitTag) // 确保只选单位，不选子弹等

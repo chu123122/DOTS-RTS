@@ -93,9 +93,9 @@ namespace Entities.Unit.System.FlowFieldSystem
             };
             JobHandle vectorHandle = vectorJob.Schedule(gridComponent.Grid.Length, 64,bfsHandle);
             
-            queue.Dispose(vectorHandle);
+            JobHandle queueDisposeHandle = queue.Dispose(vectorHandle);
             EntityManager.RemoveComponent<RecalculateFlowFieldTag>(gridEntity);
-            Dependency= vectorHandle;
+            Dependency = queueDisposeHandle;
             Debug.Log($"预烘培完成！");
 
         }

@@ -29,6 +29,7 @@ namespace TMG.NFE_Tutorial
             }
 
             ecb.Playback(state.EntityManager);
+            ecb.Dispose();
         }
     }
 }

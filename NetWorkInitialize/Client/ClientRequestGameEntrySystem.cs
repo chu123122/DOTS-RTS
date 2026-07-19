@@ -11,7 +11,7 @@ namespace 中间值
         private EntityQuery _pendingNetworkQuery;
         public void OnCreate(ref SystemState state)
         {
-            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkId>().WithNone<NetworkStreamInGame>();
+            using var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkId>().WithNone<NetworkStreamInGame>();
             _pendingNetworkQuery = state.GetEntityQuery(builder);
             state.RequireForUpdate(_pendingNetworkQuery);
             state.RequireForUpdate<ClientTeamRequest>();
@@ -34,6 +34,8 @@ namespace 中间值
             }
             
             ecb.Playback(state.EntityManager);
+            pendingNetworkIds.Dispose();
+            ecb.Dispose();
         }
     }
 }

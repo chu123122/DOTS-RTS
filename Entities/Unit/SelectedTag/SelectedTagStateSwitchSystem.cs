@@ -28,6 +28,7 @@ namespace 通用
                 if(!selected)ecb.AddComponent<Disabled>(entity);
             }
             ecb.Playback(state.EntityManager);
+            ecb.Dispose();
         }
     }
 }

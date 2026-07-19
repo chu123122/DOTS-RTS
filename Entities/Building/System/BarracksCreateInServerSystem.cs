@@ -30,7 +30,8 @@ namespace Entities.Building.System
                     ecb.DestroyEntity(entity);
 
                     // 获取兵营预制件实体
-                    Entity barracksPrefabEntity = EntityManager.CreateEntityQuery(typeof(BarracksPerfabComponent))
+                    using var barracksPrefabQuery = EntityManager.CreateEntityQuery(typeof(BarracksPerfabComponent));
+                    Entity barracksPrefabEntity = barracksPrefabQuery
                         .GetSingleton<BarracksPerfabComponent>().BuildingEntity;
                     
                     // 在缓冲区中实例化兵营预制件

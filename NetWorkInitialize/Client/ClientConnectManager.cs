@@ -55,7 +55,7 @@ namespace 客户端
 
             var serverEndPoint = NetworkEndpoint.AnyIpv4.WithPort(Port);
    
-            var networkDriverQuery =
+            using var networkDriverQuery =
                 serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
             networkDriverQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(serverEndPoint);
         }

@@ -35,6 +35,7 @@ namespace Entities._Common
                 }
             }
             ecb.Playback(state.EntityManager);
+            ecb.Dispose();
         }
     }
 }

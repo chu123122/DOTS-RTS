@@ -57,6 +57,7 @@ namespace Entities.Unit.System
                     _collisionFilter
                 );
                 CheckSphere(haveAttackTarget, hits, entity, state.EntityManager,ecb);
+                hits.Dispose();
                 // if (state.World.IsServer())
                 // {
                 DebugDrawing.DrawWireCircleXZ(sphereCenter, attackDistance.ValueRO.Distance, Color.red);
@@ -67,6 +68,7 @@ namespace Entities.Unit.System
                 // }
             }
             ecb.Playback(state.EntityManager);
+            ecb.Dispose();
         }
         
         private void CheckSphere(bool isInSphere, NativeList<DistanceHit> hits, Entity entity,
