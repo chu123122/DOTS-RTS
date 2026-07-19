@@ -17,6 +17,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     protected override void OnCreate()
     {
         RequireForUpdate<FlowFieldGrid>();
+        RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<UnitSpatialMap>();
 
         _movementQuery = GetEntityQuery(
@@ -32,6 +33,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var spatialMap = SystemAPI.GetSingleton<UnitSpatialMap>();
         if (!gridComponent.Grid.IsCreated) return;
+        if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
@@ -128,6 +130,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             States = states
         };
         JobHandle constraintHandle = constraintJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
+
+        // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
+        // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
+        World.GetExistingSystemManaged<Entities.Unit.System.FlowFieldSystem.FlowFieldBakeSystem>()
+            ?.RegisterActiveGridReader(constraintHandle);
 
         // 阶段 5：应用预测位置和约束修正，写回最终 Transform/Velocity。
         var applyMovementJob = new ApplyFlowMovementJob

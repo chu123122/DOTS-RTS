@@ -45,11 +45,11 @@ public partial class RtsCommandSystem : SystemBase
         if (newCommandFound)
         {
             SystemAPI.SetComponent(gridEntity, new FlowFieldGlobalTarget { TargetPosition = newTargetPos });
-
-            if (!SystemAPI.HasComponent<RecalculateFlowFieldTag>(gridEntity))
-            {
-                EntityManager.AddComponent<RecalculateFlowFieldTag>(gridEntity);
-            }
+            RecalculateFlowFieldTag request =
+                EntityManager.GetComponentData<RecalculateFlowFieldTag>(gridEntity);
+            request.RequestVersion++;
+            EntityManager.SetComponentData(gridEntity, request);
+            EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, true);
         }
     }
 }

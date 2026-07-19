@@ -6,11 +6,24 @@ using Unity.Physics;
 
 namespace Entities.Unit.System.FlowFieldSystem
 {
-    
-    public struct RecalculateFlowFieldTag : IComponentData {}
+    /// <summary>
+    /// 可启停的流场重算请求。RequestVersion 用于识别计算期间到达的新目标。
+    /// </summary>
+    public struct RecalculateFlowFieldTag : IComponentData, IEnableableComponent
+    {
+        public uint RequestVersion;
+    }
+
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class FlowFieldBakeSystem : SystemBase
     {
+        private JobHandle _bakeHandle;
+        private JobHandle _activeGridReaders;
+        private JobHandle _pendingReuseHandle;
+        private bool _isBaking;
+        private bool _scheduledCostDirty;
+        private uint _scheduledRequestVersion;
+
         protected override void OnCreate()
         {
             RequireForUpdate<FlowFieldSettings>();
@@ -18,111 +31,181 @@ namespace Entities.Unit.System.FlowFieldSystem
             RequireForUpdate<PhysicsWorldSingleton>();
         }
 
+        /// <summary>
+        /// 移动系统将所有读取 ActiveGrid 的 Job 注册回来。
+        /// 缓冲交换后，旧 ActiveGrid 只有在这些读取完成后才会被重新写入。
+        /// </summary>
+        public void RegisterActiveGridReader(JobHandle readerHandle)
+        {
+            if (_activeGridReaders.IsCompleted)
+            {
+                _activeGridReaders.Complete();
+                _activeGridReaders = readerHandle;
+                return;
+            }
+
+            _activeGridReaders = JobHandle.CombineDependencies(_activeGridReaders, readerHandle);
+        }
+
         protected override void OnUpdate()
         {
-            if (!SystemAPI.TryGetSingletonEntity<FlowFieldSettings>(out Entity managerEntity)) return;
-            if (!EntityManager.HasComponent<FlowFieldGrid>(managerEntity))
+            Entity managerEntity = SystemAPI.GetSingletonEntity<FlowFieldSettings>();
+            bool requestEnabled =
+                EntityManager.IsComponentEnabled<RecalculateFlowFieldTag>(managerEntity);
+
+            if (_isBaking)
             {
-                var settings = EntityManager.GetComponentData<FlowFieldSettings>(managerEntity);
-                int totalCells = settings.GridDimensions.x * settings.GridDimensions.y;
-                var runtimeGrid = new FlowFieldGrid
+                if (!requestEnabled)
                 {
-                    GridDimensions = settings.GridDimensions,
-                    CellRadius = settings.CellRadius,
-                    GridOrigin = settings.GridOrigin,
-                    Grid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent)
-                };
+                    if (_bakeHandle.IsCompleted)
+                    {
+                        _bakeHandle.Complete();
+                        _isBaking = false;
+                    }
+                    return;
+                }
 
-                EntityManager.AddComponentData(managerEntity, runtimeGrid);
-        
-               // EntityManager.AddComponent<RecalculateFlowFieldTag>(managerEntity);
+                TryPublishOrRestart(managerEntity);
+                return;
             }
-            
-            
-            var gridEntity =SystemAPI.GetSingletonEntity<FlowFieldGrid>();
-            var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
-            var costState = SystemAPI.GetSingleton<FlowFieldCostState>();
-            
-            if(!SystemAPI.HasComponent<FlowFieldGlobalTarget>(gridEntity))return;
-            
-            float3 targetPos = SystemAPI.GetComponent<FlowFieldGlobalTarget>(gridEntity).TargetPosition;
-            var queue = new NativeQueue<int2>(Allocator.TempJob);
-            //1.重置流域Job
-            var resetJob = new ResetGridJob()
-            {
-                Grid = gridComponent.Grid
-            };
-            JobHandle resetHandle = resetJob.Schedule(gridComponent.Grid.Length, 64,Dependency);
 
-            JobHandle costHandle = resetHandle;
+            if (!requestEnabled) return;
+
+            EnsureRuntimeGrid(managerEntity);
+            ScheduleBake(managerEntity);
+        }
+
+        private void EnsureRuntimeGrid(Entity managerEntity)
+        {
+            if (EntityManager.HasComponent<FlowFieldGrid>(managerEntity)) return;
+
+            FlowFieldSettings settings = EntityManager.GetComponentData<FlowFieldSettings>(managerEntity);
+            int totalCells = settings.GridDimensions.x * settings.GridDimensions.y;
+            var runtimeGrid = new FlowFieldGrid
+            {
+                GridDimensions = settings.GridDimensions,
+                CellRadius = settings.CellRadius,
+                GridOrigin = settings.GridOrigin,
+                Grid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent),
+                PendingGrid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent)
+            };
+
+            EntityManager.AddComponentData(managerEntity, runtimeGrid);
+        }
+
+        private void ScheduleBake(Entity managerEntity)
+        {
+            FlowFieldGrid grid = EntityManager.GetComponentData<FlowFieldGrid>(managerEntity);
+            FlowFieldCostState costState = EntityManager.GetComponentData<FlowFieldCostState>(managerEntity);
+            RecalculateFlowFieldTag request =
+                EntityManager.GetComponentData<RecalculateFlowFieldTag>(managerEntity);
+            float3 targetPosition = EntityManager.GetComponentData<FlowFieldGlobalTarget>(managerEntity).TargetPosition;
+
+            JobHandle prepareDependency = JobHandle.CombineDependencies(Dependency, _pendingReuseHandle);
+            var prepareJob = new PreparePendingFlowFieldJob
+            {
+                ActiveGrid = grid.Grid,
+                PendingGrid = grid.PendingGrid
+            };
+            JobHandle prepareHandle = prepareJob.Schedule(grid.PendingGrid.Length, 64, prepareDependency);
+
+            JobHandle costHandle = prepareHandle;
             if (costState.IsDirty)
             {
-                var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
-                uint obstacleLayer = 1u << 2;
                 CollisionFilter filter = new CollisionFilter
                 {
                     BelongsTo = ~0u,
-                    CollidesWith = obstacleLayer,
+                    CollidesWith = 1u << 2,
                     GroupIndex = 0
                 };
 
-                // Cost 只在障碍物布局失效时重建；普通目标变化直接复用现有结果。
                 var costJob = new GenerateCostFieldJob
                 {
-                    CollisionWorld = physicsWorld.CollisionWorld,
-                    Grid = gridComponent.Grid,
-                    GridOrigin = gridComponent.GridOrigin,
-                    GridDimensions = gridComponent.GridDimensions,
-                    CellRadius = gridComponent.CellRadius,
+                    CollisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().CollisionWorld,
+                    Grid = grid.PendingGrid,
+                    GridOrigin = grid.GridOrigin,
+                    GridDimensions = grid.GridDimensions,
+                    CellRadius = grid.CellRadius,
                     ObstacleFilter = filter
                 };
-                costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
-            }
-            
-            //3.BFS搜索Job
-            var bfsJob = new GenerateIntegrationFieldJob()
-            {
-                Grid = gridComponent.Grid,
-                GridDimensions = gridComponent.GridDimensions,
-                TargetCell = FlowFieldUtils.WorldToCell(targetPos,gridComponent.GridOrigin,gridComponent.CellRadius),
-                Queue = queue,
-            };
-            JobHandle bfsHandle = bfsJob.Schedule(costHandle);
-
-            //4.向量场计算Job
-            var vectorJob = new GenerateVectorFieldJob()
-            {
-                Grid = gridComponent.Grid,
-                GridDimensions = gridComponent.GridDimensions,
-            };
-            JobHandle vectorHandle = vectorJob.Schedule(gridComponent.Grid.Length, 64,bfsHandle);
-            
-            JobHandle queueDisposeHandle = queue.Dispose(vectorHandle);
-            EntityManager.RemoveComponent<RecalculateFlowFieldTag>(gridEntity);
-            Dependency = queueDisposeHandle;
-
-            var runtimeState = SystemAPI.GetSingletonRW<FlowFieldRuntimeState>();
-            runtimeState.ValueRW.ActiveVersion++;
-
-            if (costState.IsDirty)
-            {
-                var writableCostState = SystemAPI.GetSingletonRW<FlowFieldCostState>();
-                writableCostState.ValueRW.IsDirty = false;
-                writableCostState.ValueRW.CostVersion++;
+                costHandle = costJob.Schedule(grid.PendingGrid.Length, 64, prepareHandle);
             }
 
+            var queue = new NativeQueue<int2>(Allocator.TempJob);
+            var integrationJob = new GenerateIntegrationFieldJob
+            {
+                Grid = grid.PendingGrid,
+                GridDimensions = grid.GridDimensions,
+                TargetCell = FlowFieldUtils.WorldToCell(targetPosition, grid.GridOrigin, grid.CellRadius),
+                Queue = queue
+            };
+            JobHandle integrationHandle = integrationJob.Schedule(costHandle);
+
+            var vectorJob = new GenerateVectorFieldJob
+            {
+                Grid = grid.PendingGrid,
+                GridDimensions = grid.GridDimensions
+            };
+            JobHandle vectorHandle = vectorJob.Schedule(grid.PendingGrid.Length, 64, integrationHandle);
+
+            _bakeHandle = queue.Dispose(vectorHandle);
+            _scheduledRequestVersion = request.RequestVersion;
+            _scheduledCostDirty = costState.IsDirty;
+            _isBaking = true;
+            Dependency = _bakeHandle;
         }
-        
+
+        private void TryPublishOrRestart(Entity managerEntity)
+        {
+            if (!_bakeHandle.IsCompleted) return;
+
+            _bakeHandle.Complete();
+            _isBaking = false;
+
+            RecalculateFlowFieldTag currentRequest =
+                EntityManager.GetComponentData<RecalculateFlowFieldTag>(managerEntity);
+            if (currentRequest.RequestVersion != _scheduledRequestVersion)
+            {
+                // 计算期间出现了新目标。旧结果不发布，直接重用 PendingGrid 计算最新版。
+                ScheduleBake(managerEntity);
+                return;
+            }
+
+            FlowFieldGrid grid = EntityManager.GetComponentData<FlowFieldGrid>(managerEntity);
+            (grid.Grid, grid.PendingGrid) = (grid.PendingGrid, grid.Grid);
+            EntityManager.SetComponentData(managerEntity, grid);
+
+            // 旧 ActiveGrid 现在成为 PendingGrid，下一次写入必须等待旧读者完成。
+            _pendingReuseHandle = JobHandle.CombineDependencies(_pendingReuseHandle, _activeGridReaders);
+            _activeGridReaders = default;
+
+            FlowFieldRuntimeState runtimeState =
+                EntityManager.GetComponentData<FlowFieldRuntimeState>(managerEntity);
+            runtimeState.ActiveVersion++;
+            EntityManager.SetComponentData(managerEntity, runtimeState);
+
+            if (_scheduledCostDirty)
+            {
+                FlowFieldCostState costState = EntityManager.GetComponentData<FlowFieldCostState>(managerEntity);
+                costState.IsDirty = false;
+                costState.CostVersion++;
+                EntityManager.SetComponentData(managerEntity, costState);
+            }
+
+            EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(managerEntity, false);
+        }
+
         protected override void OnDestroy()
         {
-            foreach (var grid in SystemAPI.Query<RefRW<FlowFieldGrid>>())
+            _bakeHandle.Complete();
+            _activeGridReaders.Complete();
+            _pendingReuseHandle.Complete();
+
+            foreach (RefRW<FlowFieldGrid> grid in SystemAPI.Query<RefRW<FlowFieldGrid>>())
             {
-                if (grid.ValueRW.Grid.IsCreated)
-                {
-                    grid.ValueRW.Grid.Dispose();
-                }
+                if (grid.ValueRW.Grid.IsCreated) grid.ValueRW.Grid.Dispose();
+                if (grid.ValueRW.PendingGrid.IsCreated) grid.ValueRW.PendingGrid.Dispose();
             }
         }
     }
-    
 }

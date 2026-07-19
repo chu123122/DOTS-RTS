@@ -84,6 +84,25 @@ namespace Entities.Unit.System.FlowFieldSystem
         }
     }
 
+    /// <summary>
+    /// 从当前已发布快照复制静态 Cost，并清空待写缓冲中的目标相关数据。
+    /// </summary>
+    [BurstCompile]
+    public struct PreparePendingFlowFieldJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<FlowFieldCell> ActiveGrid;
+        public NativeArray<FlowFieldCell> PendingGrid;
+
+        public void Execute(int index)
+        {
+            FlowFieldCell cell = PendingGrid[index];
+            cell.Cost = ActiveGrid[index].Cost;
+            cell.IntegrationValue = ushort.MaxValue;
+            cell.BestDirectionIndex = 0xFF;
+            PendingGrid[index] = cell;
+        }
+    }
+
      [BurstCompile]
     public struct GenerateIntegrationFieldJob : IJob
     {

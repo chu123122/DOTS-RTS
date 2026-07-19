@@ -16,6 +16,7 @@ public struct FlowFieldGrid : IComponentData
     public float CellRadius;     
     
     public NativeArray<FlowFieldCell> Grid;
+    public NativeArray<FlowFieldCell> PendingGrid;
 }
 public struct FlowFieldSettings : IComponentData
 {

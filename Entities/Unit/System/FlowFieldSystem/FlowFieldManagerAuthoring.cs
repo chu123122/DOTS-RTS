@@ -1,3 +1,4 @@
+using Entities.Unit.System.FlowFieldSystem;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -31,6 +32,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
+            AddComponent(entity, new RecalculateFlowFieldTag());
+            SetComponentEnabled<RecalculateFlowFieldTag>(entity, false);
             AddComponent(entity, new FlowFieldVisualizationSettings
             {
                 Visible = authoring.showGrid,

@@ -83,10 +83,13 @@ namespace _RePlaySystem.Base
                 {
                     var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGrid>();
 
-                    // A. 移除可能存在的烘焙 Tag，防止系统在后台偷偷 Bake 旧数据
+                    // A. 使当前请求失效并禁用，防止旧流场结果在回放开始后发布。
                     if (SystemAPI.HasComponent<RecalculateFlowFieldTag>(gridEntity))
                     {
-                        EntityManager.RemoveComponent<RecalculateFlowFieldTag>(gridEntity);
+                        var request = SystemAPI.GetComponent<RecalculateFlowFieldTag>(gridEntity);
+                        request.RequestVersion++;
+                        EntityManager.SetComponentData(gridEntity, request);
+                        EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, false);
                     }
 
                     // B. 强制将目标归零
@@ -193,7 +196,10 @@ namespace _RePlaySystem.Base
                 if (SystemAPI.TryGetSingletonEntity<FlowFieldGlobalTarget>(out var gridEntity))
                 {
                     ecb.SetComponent(gridEntity, new FlowFieldGlobalTarget { TargetPosition = cmd.Position });
-                    ecb.AddComponent<RecalculateFlowFieldTag>(gridEntity);
+                    var request = SystemAPI.GetComponent<RecalculateFlowFieldTag>(gridEntity);
+                    request.RequestVersion++;
+                    ecb.SetComponent(gridEntity, request);
+                    ecb.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, true);
                 }
             }
 
