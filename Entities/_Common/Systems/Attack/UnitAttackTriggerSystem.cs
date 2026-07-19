@@ -1,4 +1,3 @@
-using System.Drawing;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -6,9 +5,7 @@ using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Physics;
 using Unity.Transforms;
-using Utils;
 using 通用;
-using Color = UnityEngine.Color;
 
 namespace Entities.Unit.System
 {
@@ -58,14 +55,6 @@ namespace Entities.Unit.System
                 );
                 CheckSphere(haveAttackTarget, hits, entity, state.EntityManager,ecb);
                 hits.Dispose();
-                // if (state.World.IsServer())
-                // {
-                DebugDrawing.DrawWireCircleXZ(sphereCenter, attackDistance.ValueRO.Distance, Color.red);
-                // }
-                // else
-                // {
-                //     DebugDrawing.DrawWireCircleXZ(sphereCenter, attackDistance.ValueRO.Distance, Color.red);
-                // }
             }
             ecb.Playback(state.EntityManager);
             ecb.Dispose();

@@ -1,4 +1,3 @@
-using System.Drawing;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -6,9 +5,7 @@ using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Physics;
 using Unity.Transforms;
-using Utils;
 using 通用;
-using Color = UnityEngine.Color;
 
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 public partial struct TrackTriggerSystem : ISystem
@@ -56,10 +53,6 @@ public partial struct TrackTriggerSystem : ISystem
             );
             CheckSphere(haveTrackTarget, hits, entity, state.EntityManager,ecb);
             hits.Dispose();
-            // if (state.World.IsClient())
-            // {
-            DebugDrawing.DrawWireCircleXZ(sphereCenter, trackDistance.ValueRO.Distance, Color.green);
-            // }
         }
         ecb.Playback(state.EntityManager);
         ecb.Dispose();

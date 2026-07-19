@@ -3,7 +3,6 @@ using Entities.Unit.System.FlowFieldSystem;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode;
-using UnityEngine;
 using 通用;
 
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
@@ -50,7 +49,6 @@ public partial class RtsCommandSystem : SystemBase
             if (!SystemAPI.HasComponent<RecalculateFlowFieldTag>(gridEntity))
             {
                 EntityManager.AddComponent<RecalculateFlowFieldTag>(gridEntity);
-                Debug.Log($"[RTSCommand] New Order Received: {newTargetPos}. Baking...");
             }
         }
     }

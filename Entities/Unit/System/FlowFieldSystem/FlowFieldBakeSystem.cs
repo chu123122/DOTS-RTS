@@ -4,7 +4,6 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Physics;
-using UnityEngine;
 
 namespace Entities.Unit.System.FlowFieldSystem
 {
@@ -96,7 +95,9 @@ namespace Entities.Unit.System.FlowFieldSystem
             JobHandle queueDisposeHandle = queue.Dispose(vectorHandle);
             EntityManager.RemoveComponent<RecalculateFlowFieldTag>(gridEntity);
             Dependency = queueDisposeHandle;
-            Debug.Log($"预烘培完成！");
+
+            var runtimeState = SystemAPI.GetSingletonRW<FlowFieldRuntimeState>();
+            runtimeState.ValueRW.ActiveVersion++;
 
         }
         

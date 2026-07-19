@@ -8,6 +8,14 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     public int2 gridSize = new int2(100, 100);
     public float3 gridOrigin;
 
+    [Header("Flow Field Visualization")]
+    public bool showGrid = true;
+    public bool showCost = true;
+    public bool showDirections = true;
+    [Range(4, 16)] public int pixelsPerCell = 8;
+    [Range(0f, 1f)] public float visualizationOpacity = 0.65f;
+    public float visualizationHeightOffset = 0.05f;
+
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
         public override void Bake(FlowFieldManagerAuthoring authoring)
@@ -21,6 +29,16 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 GridOrigin = authoring.gridOrigin
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
+            AddComponent(entity, new FlowFieldRuntimeState());
+            AddComponent(entity, new FlowFieldVisualizationSettings
+            {
+                Visible = authoring.showGrid,
+                ShowCost = authoring.showCost,
+                ShowDirections = authoring.showDirections,
+                PixelsPerCell = (byte)math.clamp(authoring.pixelsPerCell, 4, 16),
+                HeightOffset = authoring.visualizationHeightOffset,
+                Opacity = math.saturate(authoring.visualizationOpacity)
+            });
         }
     }
 }

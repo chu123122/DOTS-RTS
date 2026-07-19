@@ -4,7 +4,6 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
-using UnityEngine; // 必须引用
 using 通用; // 引用 FlowFieldUtils
 
 [BurstCompile]
@@ -30,8 +29,6 @@ public struct GenerateCostFieldJob : IJobParallelFor
             1f, 
             cellPos.y * cellSize + CellRadius
         );
-        Debug.Log($"index:{index},worldPos:{worldPos}");
-        
         PointDistanceInput input = new PointDistanceInput
         {
             Position = worldPos,

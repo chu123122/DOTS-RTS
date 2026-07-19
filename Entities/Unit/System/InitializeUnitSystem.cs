@@ -6,7 +6,6 @@ using Unity.NetCode;
 using Unity.Physics;
 using Unity.Transforms;
 using _RePlaySystem.Base;
-using UnityEngine;
 
 namespace 通用
 {
@@ -39,10 +38,6 @@ namespace 通用
 
                 bool haveGhost = SystemAPI.HasComponent<GhostInstance>(entity);
                 bool haveLocal = SystemAPI.HasComponent<LocalInstance>(entity);
-                Debug.Log(
-                    $"Entity: {entity.Index}, " +
-                    $"HasGhost: {haveGhost}, " +
-                    $"HasLocal: {haveLocal}");
                 // --- 检查 1: 联机模式 (GhostInstance) ---
                 if (haveGhost)
                 {
