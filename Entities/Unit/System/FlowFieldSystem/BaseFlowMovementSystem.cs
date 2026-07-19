@@ -35,6 +35,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.UninitializedMemory);
+        var predictedPositions = new NativeParallelHashMap<Entity, float3>(unitCount, Allocator.TempJob);
 
         var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(isReadOnly: true);
         transformLookup.Update(this);
@@ -68,9 +69,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             DeltaTime = SystemAPI.Time.DeltaTime,
             GridOrigin = gridComponent.GridOrigin,
             CellRadius = gridComponent.CellRadius,
+            PredictedPositions = predictedPositions.AsParallelWriter(),
             States = states
         };
-        JobHandle integrateForcesHandle = integrateForcesJob.Schedule(unitCount, 64, softAvoidanceHandle);
+        JobHandle integrateForcesHandle = integrateForcesJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
 
         var constraintJob = new CalculateFlowConstraintsJob
         {
@@ -79,7 +81,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
             SpatialMap = spatialMap.Map,
-            TransformLookup = transformLookup,
+            PredictedPositions = predictedPositions,
             SeparationRadius = 0.6f,
             States = states
         };
@@ -91,7 +93,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             States = states
         };
         JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, constraintHandle);
-        Dependency = states.Dispose(applyMovementHandle);
+        JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
+        JobHandle predictedPositionDisposeHandle = predictedPositions.Dispose(applyMovementHandle);
+        Dependency = JobHandle.CombineDependencies(stateDisposeHandle, predictedPositionDisposeHandle);
     }
 }
 
@@ -112,6 +116,7 @@ public struct FlowMovementFrameState
     public float3 IndependentForce;
     public float3 SoftAvoidanceForce;
     public float3 IntegratedVelocity;
+    public float3 PredictedPosition;
     public float3 PositionCorrection;
 }
 
@@ -297,20 +302,22 @@ public partial struct CalculateSoftAvoidanceJob : IJobEntity
 }
 
 [BurstCompile]
-public struct IntegrateFlowForcesJob : IJobParallelFor
+public partial struct IntegrateFlowForcesJob : IJobEntity
 {
     public float DeltaTime;
     public float3 GridOrigin;
     public float CellRadius;
+    public NativeParallelHashMap<Entity, float3>.ParallelWriter PredictedPositions;
     public NativeArray<FlowMovementFrameState> States;
 
-    public void Execute(int index)
+    public void Execute(Entity entity, [EntityIndexInQuery] int entityIndex)
     {
-        FlowMovementFrameState state = States[index];
+        FlowMovementFrameState state = States[entityIndex];
         if (!state.IsInsideGrid)
         {
             state.IntegratedVelocity = float3.zero;
-            States[index] = state;
+            state.PredictedPosition = state.CurrentPosition;
+            States[entityIndex] = state;
             return;
         }
 
@@ -330,8 +337,26 @@ public struct IntegrateFlowForcesJob : IJobParallelFor
         if (math.length(totalForce) > state.MaxForce)
             totalForce = math.normalize(totalForce) * state.MaxForce;
 
-        state.IntegratedVelocity = state.CurrentVelocity + totalForce * DeltaTime;
-        States[index] = state;
+        float3 integratedVelocity = state.CurrentVelocity + totalForce * DeltaTime;
+        if (state.IsAtDestination)
+        {
+            integratedVelocity *= math.pow(0.8f, DeltaTime * 60f);
+        }
+        else if (state.FlowWeight < 0.99f)
+        {
+            integratedVelocity *= math.pow(0.95f, DeltaTime * 60f);
+        }
+
+        if (math.length(integratedVelocity) > state.MoveSpeed)
+            integratedVelocity = math.normalize(integratedVelocity) * state.MoveSpeed;
+
+        float3 predictedPosition = state.CurrentPosition + integratedVelocity * DeltaTime;
+        predictedPosition.y = state.CurrentPosition.y;
+
+        state.IntegratedVelocity = integratedVelocity;
+        state.PredictedPosition = predictedPosition;
+        States[entityIndex] = state;
+        PredictedPositions.TryAdd(entity, predictedPosition);
     }
 }
 
@@ -344,7 +369,7 @@ public partial struct CalculateFlowConstraintsJob : IJobEntity
     public float CellRadius;
 
     [ReadOnly] public NativeParallelMultiHashMap<int, Entity> SpatialMap;
-    [ReadOnly] public ComponentLookup<LocalTransform> TransformLookup;
+    [ReadOnly] public NativeParallelHashMap<Entity, float3> PredictedPositions;
 
     public float SeparationRadius;
     public NativeArray<FlowMovementFrameState> States;
@@ -370,10 +395,10 @@ public partial struct CalculateFlowConstraintsJob : IJobEntity
                 {
                     float3 wallPosition = GridOrigin + new float3(
                         checkCell.x * CellRadius * 2 + CellRadius,
-                        state.CurrentPosition.y,
+                        state.PredictedPosition.y,
                         checkCell.y * CellRadius * 2 + CellRadius);
 
-                    AccumulateWallConstraint(state.CurrentPosition, wallPosition, ref positionCorrection);
+                    AccumulateWallConstraint(state.PredictedPosition, wallPosition, ref positionCorrection);
                     continue;
                 }
 
@@ -383,10 +408,9 @@ public partial struct CalculateFlowConstraintsJob : IJobEntity
                 do
                 {
                     if (neighborEntity == entity) continue;
-                    if (!TransformLookup.HasComponent(neighborEntity)) continue;
+                    if (!PredictedPositions.TryGetValue(neighborEntity, out float3 neighborPosition)) continue;
 
-                    float3 neighborPosition = TransformLookup[neighborEntity].Position;
-                    AccumulateUnitConstraint(state.CurrentPosition, neighborPosition, ref positionCorrection);
+                    AccumulateUnitConstraint(state.PredictedPosition, neighborPosition, ref positionCorrection);
                 } while (SpatialMap.TryGetNextValue(out neighborEntity, ref iterator));
             }
         }
@@ -462,22 +486,10 @@ public partial struct ApplyFlowMovementJob : IJobEntity
         float3 positionCorrection = state.PositionCorrection;
         bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
 
-        if (state.IsAtDestination && !isHardColliding)
-        {
-            integratedVelocity *= math.pow(0.8f, DeltaTime * 60f);
-        }
-        else if (state.FlowWeight < 0.99f)
-        {
-            integratedVelocity *= math.pow(0.95f, DeltaTime * 60f);
-        }
-
-        if (math.length(integratedVelocity) > state.MoveSpeed)
-            integratedVelocity = math.normalize(integratedVelocity) * state.MoveSpeed;
-
         bool shouldMove = math.lengthsq(integratedVelocity) > 0.005f || isHardColliding;
         if (shouldMove)
         {
-            float3 newPosition = state.CurrentPosition + integratedVelocity * DeltaTime;
+            float3 newPosition = state.PredictedPosition;
             if (isHardColliding)
             {
                 const float maxCorrectionPerFrame = 0.15f;
