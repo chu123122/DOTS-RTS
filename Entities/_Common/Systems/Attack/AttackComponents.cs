@@ -25,8 +25,7 @@ public struct AttackProperties : IComponentData
     public Entity AttackPrefab;
 }
 
-public struct AttackCoolDown : ICommandData
+public struct AttackCoolDown : IComponentData
 {
-    public NetworkTick Tick { get; set; }
     public NetworkTick Value;
 }

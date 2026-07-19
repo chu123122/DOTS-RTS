@@ -20,22 +20,18 @@ namespace Entities._Common
             {
                 if (damageBuffer.IsEmpty)
                 {
-                    damageThisTickBuffer.AddCommandData(new DamageThisTick { Tick = currentTick, Value = 0 });
+                    damageThisTickBuffer.Clear();
                 }
                 else
                 {
                     var totalDamage = 0;
-                    if (damageThisTickBuffer.GetDataAtTick(currentTick, out var damageThisTick))
-                    {
-                        totalDamage = damageThisTick.Value;
-                    }
-
                     foreach (var damage in damageBuffer)
                     {
                         totalDamage += damage.Value;
                     }
 
-                    damageThisTickBuffer.AddCommandData(new DamageThisTick { Tick = currentTick, Value = totalDamage });
+                    damageThisTickBuffer.Clear();
+                    damageThisTickBuffer.Add(new DamageThisTick { Tick = currentTick, Value = totalDamage });
                     damageBuffer.Clear();
                 }
             }

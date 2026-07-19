@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using _RePlaySystem.Base;
 using DefaultNamespace;
 using Unity.Entities;
@@ -56,21 +55,33 @@ namespace 客户端
 
             if (collisionWorld.CastRay(selectionInput, out RaycastHit closestHit))
             {
-                List<int> ghostIds = new List<int>();
-                foreach (var (targetPosition, unitSelected, ghostInstance) in
-                         SystemAPI.Query<RefRW<UnitMoveTargetPosition>
-                             , RefRO<UnitSelected>,
-                             RefRO<GhostInstance>>().WithAll<GhostOwnerIsLocal>())
+                bool hasSelectedUnit = false;
+                foreach (var unitSelected in
+                         SystemAPI.Query<RefRO<UnitSelected>>().WithAll<GhostOwnerIsLocal>())
                 {
                     if (unitSelected.ValueRO.Value)
                     {
-                        targetPosition.ValueRW.Value = closestHit.Position;
-                        targetPosition.ValueRW.GetMoveInput = true;
-                        ghostIds.Add(ghostInstance.ValueRO.ghostId);
+                        hasSelectedUnit = true;
+                        break;
                     }
                 }
-                if(ghostIds.Count<=0)return;//未实际获取到选中单位
-                
+
+                if (!hasSelectedUnit) return;
+
+                Entity flowFieldEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
+                EntityManager.SetComponentData(flowFieldEntity, new MoveOrder
+                {
+                    TargetPosition = closestHit.Position
+                });
+                EntityManager.SetComponentEnabled<MoveOrder>(flowFieldEntity, true);
+
+                Entity requestEntity = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(requestEntity, new RequestMoveOrderRPC
+                {
+                    TargetPosition = closestHit.Position
+                });
+                EntityManager.AddComponent<SendRpcCommandRequest>(requestEntity);
+
                 RequestCommandRpcSystem requestCommandRpcSystem =
                     this.GetService<RequestCommandRpcSystem>();
                 requestCommandRpcSystem.SendInputCommand(

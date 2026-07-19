@@ -30,6 +30,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 GridOrigin = authoring.gridOrigin
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
+            AddComponent(entity, new MoveOrder());
+            SetComponentEnabled<MoveOrder>(entity, false);
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new RecalculateFlowFieldTag());

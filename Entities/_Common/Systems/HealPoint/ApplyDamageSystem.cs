@@ -26,9 +26,11 @@ namespace Entities._Common
                          WithEntityAccess().WithAll<Simulate>())
             {
                
-                if(!damageThisTicks.GetDataAtTick(currentTick,out var damageThisTick))continue;
+                if (damageThisTicks.IsEmpty) continue;
+                DamageThisTick damageThisTick = damageThisTicks[0];
                 if(damageThisTick.Tick!=currentTick)continue;
                 currentHealthPoint.ValueRW.CurrentHp -= damageThisTick.Value;
+                damageThisTicks.Clear();
                 if (currentHealthPoint.ValueRO.CurrentHp <= 0)
                 {
                     ecb.AddComponent(entity,new DestroyEntityTag());

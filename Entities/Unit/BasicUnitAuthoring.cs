@@ -19,7 +19,6 @@ namespace 通用
                 AddComponent<IsNewCreatingTag>(entity);
                 AddComponent<RtsTeam>(entity);
 
-                AddComponent<UnitMoveTargetPosition>(entity);
                 AddComponent(entity, new Velocity { Value = new float3(0, 0, 0) });
                 AddComponent(entity, new FlowArrivalState { IsSettled = false });
                 AddComponent(entity, new UnitMovementSettings { MaxForce = 20f, RotationSpeed = 10f });

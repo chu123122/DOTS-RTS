@@ -31,7 +31,7 @@ namespace 通用
                     AttackPrefab = GetEntity(abilityAuthoring.attackPrefab,TransformUsageFlags.Dynamic),
                     FirePointOffset = abilityAuthoring.firePointOffset
                 });
-                AddBuffer<AttackCoolDown>(entity);
+                AddComponent(entity, new AttackCoolDown { Value = NetworkTick.Invalid });
             }
         }
     }

@@ -25,16 +25,9 @@ namespace 通用
         public float Value;
     }
 
-    [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
-    public struct UnitMoveTargetPosition : IInputComponentData
+    public struct UnitSelected : IComponentData
     {
-        [GhostField(Quantization = 0)]public float3 Value;
-        [GhostField(Quantization = 0)] public bool GetMoveInput;
-    }
-    [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
-    public struct UnitSelected : IInputComponentData
-    {
-        [GhostField]public bool Value;
+        public bool Value;
     }
     
     public struct Velocity : IComponentData

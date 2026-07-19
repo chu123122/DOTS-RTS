@@ -1,9 +1,7 @@
-using _RePlaySystem.Base;
 using Entities.Unit.System.FlowFieldSystem;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode;
-using 通用;
 
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 public partial class RtsCommandSystem : SystemBase
@@ -11,6 +9,7 @@ public partial class RtsCommandSystem : SystemBase
     protected override void OnCreate()
     {
         RequireForUpdate<FlowFieldGlobalTarget>();
+        RequireForUpdate<MoveOrder>();
         RequireForUpdate<NetworkTime>();
     }
 
@@ -21,35 +20,20 @@ public partial class RtsCommandSystem : SystemBase
 
         var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
         var currentTarget = SystemAPI.GetComponent<FlowFieldGlobalTarget>(gridEntity);
+        var moveOrder = EntityManager.GetComponentData<MoveOrder>(gridEntity);
+        EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
 
-        bool newCommandFound = false;
-        float3 newTargetPos = float3.zero;
+        if (math.distance(moveOrder.TargetPosition, currentTarget.TargetPosition) < 0.1f)
+            return;
 
-        foreach (var input in
-                 SystemAPI.Query<
-                     RefRW<UnitMoveTargetPosition>>())
+        SystemAPI.SetComponent(gridEntity, new FlowFieldGlobalTarget
         {
-            if (input.ValueRO.GetMoveInput)
-            {
-                input.ValueRW.GetMoveInput = false; 
-
-                if (math.distance(input.ValueRO.Value, currentTarget.TargetPosition) < 0.1f)
-                    continue; 
-
-                newCommandFound = true;
-                newTargetPos = input.ValueRO.Value;
-                
-            }
-        }
-
-        if (newCommandFound)
-        {
-            SystemAPI.SetComponent(gridEntity, new FlowFieldGlobalTarget { TargetPosition = newTargetPos });
-            RecalculateFlowFieldTag request =
-                EntityManager.GetComponentData<RecalculateFlowFieldTag>(gridEntity);
-            request.RequestVersion++;
-            EntityManager.SetComponentData(gridEntity, request);
-            EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, true);
-        }
+            TargetPosition = moveOrder.TargetPosition
+        });
+        RecalculateFlowFieldTag request =
+            EntityManager.GetComponentData<RecalculateFlowFieldTag>(gridEntity);
+        request.RequestVersion++;
+        EntityManager.SetComponentData(gridEntity, request);
+        EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, true);
     }
 }

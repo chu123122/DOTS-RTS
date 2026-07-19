@@ -8,5 +8,10 @@ namespace 通用
     {
         public float3 Position;
     }
+
+    public struct RequestMoveOrderRPC : IRpcCommand
+    {
+        public float3 TargetPosition;
+    }
     
 }

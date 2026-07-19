@@ -31,6 +31,14 @@ public struct FlowFieldGlobalTarget : IComponentData
 }
 
 /// <summary>
+/// 单次全局移动订单。组件启用时由 RtsCommandSystem 消费，随后立即禁用。
+/// </summary>
+public struct MoveOrder : IComponentData, IEnableableComponent
+{
+    public float3 TargetPosition;
+}
+
+/// <summary>
 /// 只在一份完整流场发布后递增，移动和可视化系统据此读取稳定快照。
 /// </summary>
 public struct FlowFieldRuntimeState : IComponentData

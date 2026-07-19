@@ -14,10 +14,9 @@ namespace Entities._Common
     {
         public int Value;
     }
-    [GhostComponent(PrefabType = GhostPrefabType.AllPredicted,OwnerSendType = SendToOwnerType.SendToNonOwner)]
-    public struct DamageThisTick : ICommandData
+    public struct DamageThisTick : IBufferElementData
     {
-        public NetworkTick Tick { get; set; }
+        public NetworkTick Tick;
         public int Value;
     }
     
