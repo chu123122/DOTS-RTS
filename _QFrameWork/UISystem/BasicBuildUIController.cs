@@ -19,6 +19,8 @@ namespace Test
         public Button createUnitButton;
         public Button create50UnitButton;
 
+        private int _unitSpawnSequence;
+
         private void Awake()
         {
             createUnitButton.onClick.AddListener(CreateUnit);
@@ -32,7 +34,13 @@ namespace Test
         }
 
         private void CreateUnit()
-        {   float3 position = new float3(0, 0.5f, 0);
+        {
+            // 在客户端命令源头生成一次确定性微小偏移。
+            // 实时 RPC 和回放记录共用同一个最终位置，避免两条路径重复或遗漏偏移。
+            float spawnOffset = _unitSpawnSequence % 10 * 0.01f;
+            _unitSpawnSequence++;
+            float3 position = new float3(spawnOffset, 0.5f, 0);
+
             var clientHelpSystem=this.GetService<ClientHelpSystem>();
             clientHelpSystem.SendSpawnCreateEntityRpc(new CreateBaseUnitRpc(position));
             var world = World.DefaultGameObjectInjectionWorld;
