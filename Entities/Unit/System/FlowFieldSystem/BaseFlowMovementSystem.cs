@@ -47,6 +47,30 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 [BurstCompile]
 public partial struct MoveAlongFlowFieldJob : IJobEntity
 {
+    private struct MovementContext
+    {
+        public int2 CellPosition;
+        public FlowFieldCell Cell;
+        public float FlowWeight;
+        public bool IsAtDestination;
+    }
+
+    private struct IndependentForceResult
+    {
+        public float3 Force;
+    }
+
+    private struct SoftAvoidanceResult
+    {
+        public float3 Force;
+        public int NeighborCount;
+    }
+
+    private struct ConstraintProjectionResult
+    {
+        public float3 PositionCorrection;
+    }
+
     public float DeltaTime;
     
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
@@ -61,57 +85,97 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
     public float SeparationWeight;
     public float SeparationRadius;
 
- public void Execute(
+    public void Execute(
         Entity entity,
         ref LocalTransform transform,
         ref Velocity velocity,
         in UnitMoveSpeed speed,
         in UnitMovementSettings settings)
     {
-        // 1. 流场计算
-        int2 cellPos = FlowFieldUtils.WorldToCell(transform.Position, GridOrigin, CellRadius);
-        
-        if (cellPos.x < 0 || cellPos.x >= GridDimensions.x || 
-            cellPos.y < 0 || cellPos.y >= GridDimensions.y) 
+        if (!TryBuildMovementContext(transform.Position, out MovementContext context))
         {
             velocity.Value = float3.zero; 
             return;
         }
 
+        IndependentForceResult independentForce = CalculateIndependentForce(context, velocity.Value, speed.Value);
+        SoftAvoidanceResult softAvoidance = default;
+        ConstraintProjectionResult constraints = default;
+
+        AccumulateLocalInteractions(
+            entity,
+            transform.Position,
+            speed.Value,
+            context.CellPosition,
+            ref softAvoidance,
+            ref constraints);
+
+        FinalizeSoftAvoidance(ref softAvoidance, context.IsAtDestination);
+        IntegrateProjectAndWriteBack(
+            ref transform,
+            ref velocity,
+            speed.Value,
+            settings,
+            context,
+            independentForce,
+            softAvoidance,
+            constraints);
+    }
+
+    private bool TryBuildMovementContext(float3 position, out MovementContext context)
+    {
+        int2 cellPos = FlowFieldUtils.WorldToCell(position, GridOrigin, CellRadius);
+        if (cellPos.x < 0 || cellPos.x >= GridDimensions.x ||
+            cellPos.y < 0 || cellPos.y >= GridDimensions.y)
+        {
+            context = default;
+            return false;
+        }
+
         int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
         FlowFieldCell cell = Grid[flatIndex];
-
-        // 缓冲区逻辑
-        int arrivalDistance = 2;
-        //缓冲权重
+        const int arrivalDistance = 2;
         float flowWeight = 1.0f;
         if (cell.IntegrationValue != ushort.MaxValue && cell.IntegrationValue <= arrivalDistance)
         {
-            float linearT = (float)cell.IntegrationValue / (float)arrivalDistance;
+            float linearT = (float)cell.IntegrationValue / arrivalDistance;
             flowWeight = math.sqrt(linearT);
         }
-        // 到达判定
-        bool isAtDestination =  (cell.IntegrationValue == 0);
 
-        // 流场驱动力
+        context = new MovementContext
+        {
+            CellPosition = cellPos,
+            Cell = cell,
+            FlowWeight = flowWeight,
+            IsAtDestination = cell.IntegrationValue == 0
+        };
+        return true;
+    }
+
+    private static IndependentForceResult CalculateIndependentForce(
+        in MovementContext context,
+        float3 currentVelocity,
+        float moveSpeed)
+    {
         float3 moveForce = float3.zero;
-        if (!isAtDestination&& cell.Cost != 0)
+        if (!context.IsAtDestination && context.Cell.Cost != 0)
         {
-            int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
+            int2 dirOffset = FlowFieldUtils.GetDirectionOffset(context.Cell.BestDirectionIndex);
             float3 desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
-            moveForce = (desiredDir * speed.Value * flowWeight) - velocity.Value;
-        }
-        else if (isAtDestination)
-        {
-            moveForce = float3.zero; // 单位到达终点时取消流域力
+            moveForce = desiredDir * moveSpeed * context.FlowWeight - currentVelocity;
         }
 
-        // 2。 排斥力计算 
-        float3 separationForce = float3.zero;   // 分离力，软作用力
-        float3 positionCorrection = float3.zero; // 偏移距离，硬作用力
-        int neighborCount = 0;
-        float hardRadius = 0.5f; 
+        return new IndependentForceResult { Force = moveForce };
+    }
 
+    private void AccumulateLocalInteractions(
+        Entity entity,
+        float3 position,
+        float moveSpeed,
+        int2 cellPos,
+        ref SoftAvoidanceResult softAvoidance,
+        ref ConstraintProjectionResult constraints)
+    {
         for (int x = -1; x <= 1; x++)
         {
             for (int y = -1; y <= 1; y++)
@@ -128,33 +192,16 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                 {
                     float3 wallPos = GridOrigin + new float3(
                         checkCell.x * CellRadius * 2 + CellRadius, 
-                        transform.Position.y, 
+                        position.y,
                         checkCell.y * CellRadius * 2 + CellRadius
                     );
 
-                    float3 diff = transform.Position - wallPos;
-                    diff.y = 0;
-                    
-                    float distSq = math.lengthsq(diff);
-                    float wallCheckRadius = CellRadius + 0.6f; 
-                    
-                    if (distSq < wallCheckRadius * wallCheckRadius && distSq > 0.0001f)
-                    {
-                        float dist = math.sqrt(distSq);
-                        float3 pushDir = diff / dist;
-                        
-                        //排斥力
-                        float repelStrength = (wallCheckRadius - dist) / dist * 10.0f; 
-                        separationForce += pushDir * repelStrength * speed.Value;
-                        
-                        //直接位移，当物体与墙壁穿模时
-                        float wallHardRadius = CellRadius + 0.5f;
-                        if (dist < wallHardRadius)
-                        {
-                            float penetration = wallHardRadius - dist;
-                            positionCorrection += pushDir * (penetration * 0.5f);
-                        }
-                    }
+                    AccumulateWallInteraction(
+                        position,
+                        wallPos,
+                        moveSpeed,
+                        ref softAvoidance,
+                        ref constraints);
                     continue; 
                 }
                 
@@ -167,57 +214,109 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
                         if (!TransformLookup.HasComponent(neighborEntity)) continue;
 
                         float3 neighborPos = TransformLookup[neighborEntity].Position;
-                        float3 diff = transform.Position - neighborPos;
-                        diff.y = 0; 
-
-                        float distSq = math.lengthsq(diff);
-                        float sepRadiusSq = SeparationRadius * SeparationRadius; 
-
-                        if (distSq < sepRadiusSq && distSq > 0.00001f)
-                        {
-                            float dist = math.sqrt(distSq);
-                            float3 pushDir = diff / dist; 
-
-                            // 硬穿模修正 
-                            if (dist < hardRadius)
-                            {
-                                float penetration = hardRadius - dist;
-                                positionCorrection += pushDir * (penetration * 0.4f); 
-                            }
-                            
-                            //Biods分离力 
-                            float softFactor = 1.0f - (dist / SeparationRadius);
-                            separationForce += pushDir * softFactor * speed.Value;
-                            
-                            neighborCount++;
-                        }
+                        AccumulateUnitInteraction(
+                            position,
+                            neighborPos,
+                            moveSpeed,
+                            ref softAvoidance,
+                            ref constraints);
 
                     } while (SpatialMap.TryGetNextValue(out neighborEntity, ref it));
                 }
             }
         }
+    }
 
-        if (neighborCount > 0)
+    private void AccumulateWallInteraction(
+        float3 position,
+        float3 wallPosition,
+        float moveSpeed,
+        ref SoftAvoidanceResult softAvoidance,
+        ref ConstraintProjectionResult constraints)
+    {
+        float3 diff = position - wallPosition;
+        diff.y = 0;
+
+        float distSq = math.lengthsq(diff);
+        float wallCheckRadius = CellRadius + 0.6f;
+        if (distSq >= wallCheckRadius * wallCheckRadius || distSq <= 0.0001f)
+            return;
+
+        float dist = math.sqrt(distSq);
+        float3 pushDir = diff / dist;
+        float repelStrength = (wallCheckRadius - dist) / dist * 10.0f;
+        softAvoidance.Force += pushDir * repelStrength * moveSpeed;
+
+        float wallHardRadius = CellRadius + 0.5f;
+        if (dist < wallHardRadius)
         {
-            separationForce /= neighborCount;
-            float currentSepWeight = isAtDestination ? SeparationWeight * 1.5f : SeparationWeight;
-            separationForce *= currentSepWeight;
+            float penetration = wallHardRadius - dist;
+            constraints.PositionCorrection += pushDir * (penetration * 0.5f);
         }
-        
-        // 3. 合力作用
-        float3 totalForce = moveForce + separationForce;//合力=流域力（Flow Field）+分离力（Biods）
-        
+    }
+
+    private void AccumulateUnitInteraction(
+        float3 position,
+        float3 neighborPosition,
+        float moveSpeed,
+        ref SoftAvoidanceResult softAvoidance,
+        ref ConstraintProjectionResult constraints)
+    {
+        float3 diff = position - neighborPosition;
+        diff.y = 0;
+
+        float distSq = math.lengthsq(diff);
+        float sepRadiusSq = SeparationRadius * SeparationRadius;
+        if (distSq >= sepRadiusSq || distSq <= 0.00001f)
+            return;
+
+        float dist = math.sqrt(distSq);
+        float3 pushDir = diff / dist;
+        const float hardRadius = 0.5f;
+        if (dist < hardRadius)
+        {
+            float penetration = hardRadius - dist;
+            constraints.PositionCorrection += pushDir * (penetration * 0.4f);
+        }
+
+        float softFactor = 1.0f - dist / SeparationRadius;
+        softAvoidance.Force += pushDir * softFactor * moveSpeed;
+        softAvoidance.NeighborCount++;
+    }
+
+    private void FinalizeSoftAvoidance(ref SoftAvoidanceResult softAvoidance, bool isAtDestination)
+    {
+        if (softAvoidance.NeighborCount <= 0)
+            return;
+
+        softAvoidance.Force /= softAvoidance.NeighborCount;
+        float currentSepWeight = isAtDestination ? SeparationWeight * 1.5f : SeparationWeight;
+        softAvoidance.Force *= currentSepWeight;
+    }
+
+    private void IntegrateProjectAndWriteBack(
+        ref LocalTransform transform,
+        ref Velocity velocity,
+        float moveSpeed,
+        in UnitMovementSettings settings,
+        in MovementContext context,
+        in IndependentForceResult independentForce,
+        in SoftAvoidanceResult softAvoidance,
+        in ConstraintProjectionResult constraints)
+    {
+        float3 totalForce = independentForce.Force + softAvoidance.Force;
+
         //被卡在障碍物里面时，强制推出
-        if (cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
+        if (context.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
         {
             float3 cellCenter = GridOrigin + new float3(
-                cellPos.x * CellRadius * 2 + CellRadius, 
+                context.CellPosition.x * CellRadius * 2 + CellRadius,
                 transform.Position.y, 
-                cellPos.y * CellRadius * 2 + CellRadius
+                context.CellPosition.y * CellRadius * 2 + CellRadius
             );
             float3 escapeDir = math.normalize(transform.Position - cellCenter);
             if (math.lengthsq(escapeDir) < 0.001f) escapeDir = new float3(1,0,0); 
-            totalForce += escapeDir * speed.Value * 5.0f;
+            totalForce += escapeDir * moveSpeed * 5.0f;
         }
         
         float maxForce = settings.MaxForce;
@@ -227,22 +326,23 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         velocity.Value += totalForce * DeltaTime;
 
         // 发生穿模（硬碰撞）
+        float3 positionCorrection = constraints.PositionCorrection;
         bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
 
-        if (isAtDestination && !isHardColliding)
+        if (context.IsAtDestination && !isHardColliding)
         {
             // 强阻尼力停车
             velocity.Value *= math.pow(0.8f, DeltaTime * 60f);
         }
-        else if (flowWeight < 0.99f)
+        else if (context.FlowWeight < 0.99f)
         {
             // 缓冲区轻微减速
             velocity.Value *= math.pow(0.95f, DeltaTime * 60f);
         }
 
         // 限速
-        if (math.length(velocity.Value) > speed.Value)
-            velocity.Value = math.normalize(velocity.Value) * speed.Value;
+        if (math.length(velocity.Value) > moveSpeed)
+            velocity.Value = math.normalize(velocity.Value) * moveSpeed;
         
         // 速度够快或正在发生硬穿模
         bool shouldMove = math.lengthsq(velocity.Value) > 0.005f || isHardColliding;
@@ -273,7 +373,7 @@ public partial struct MoveAlongFlowFieldJob : IJobEntity
         }
         else
         {
-            if (isAtDestination && !isHardColliding) velocity.Value = float3.zero;
+            if (context.IsAtDestination && !isHardColliding) velocity.Value = float3.zero;
         }
     }
 }
