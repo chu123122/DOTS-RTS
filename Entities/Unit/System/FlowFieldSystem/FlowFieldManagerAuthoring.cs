@@ -30,6 +30,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new FlowFieldRuntimeState());
+            AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new FlowFieldVisualizationSettings
             {
                 Visible = authoring.showGrid,

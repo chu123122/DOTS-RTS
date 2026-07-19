@@ -79,7 +79,6 @@ namespace Entities.Unit.System.FlowFieldSystem
 
             cell.IntegrationValue = ushort.MaxValue;
             cell.BestDirectionIndex = 0xFF;
-            cell.Cost = 1; //TODO:没有考虑障碍物情况
 
             Grid[index] = cell;
         }

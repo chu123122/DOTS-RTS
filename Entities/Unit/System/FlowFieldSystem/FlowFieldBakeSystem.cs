@@ -2,7 +2,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode;
 using Unity.Physics;
 
 namespace Entities.Unit.System.FlowFieldSystem
@@ -42,6 +41,7 @@ namespace Entities.Unit.System.FlowFieldSystem
             
             var gridEntity =SystemAPI.GetSingletonEntity<FlowFieldGrid>();
             var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
+            var costState = SystemAPI.GetSingleton<FlowFieldCostState>();
             
             if(!SystemAPI.HasComponent<FlowFieldGlobalTarget>(gridEntity))return;
             
@@ -54,25 +54,30 @@ namespace Entities.Unit.System.FlowFieldSystem
             };
             JobHandle resetHandle = resetJob.Schedule(gridComponent.Grid.Length, 64,Dependency);
 
-            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
-            uint obstacleLayer = 1u << 2; 
-            CollisionFilter filter = new CollisionFilter
+            JobHandle costHandle = resetHandle;
+            if (costState.IsDirty)
             {
-                BelongsTo = ~0u,
-                CollidesWith = obstacleLayer,
-                GroupIndex = 0
-            };
-            //2.障碍物计算Job
-            var costJob = new GenerateCostFieldJob
-            {
-                CollisionWorld = physicsWorld.CollisionWorld, 
-                Grid = gridComponent.Grid,
-                GridOrigin = gridComponent.GridOrigin,
-                GridDimensions = gridComponent.GridDimensions,
-                CellRadius = gridComponent.CellRadius,
-                ObstacleFilter = filter
-            };
-            JobHandle costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
+                var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
+                uint obstacleLayer = 1u << 2;
+                CollisionFilter filter = new CollisionFilter
+                {
+                    BelongsTo = ~0u,
+                    CollidesWith = obstacleLayer,
+                    GroupIndex = 0
+                };
+
+                // Cost 只在障碍物布局失效时重建；普通目标变化直接复用现有结果。
+                var costJob = new GenerateCostFieldJob
+                {
+                    CollisionWorld = physicsWorld.CollisionWorld,
+                    Grid = gridComponent.Grid,
+                    GridOrigin = gridComponent.GridOrigin,
+                    GridDimensions = gridComponent.GridDimensions,
+                    CellRadius = gridComponent.CellRadius,
+                    ObstacleFilter = filter
+                };
+                costHandle = costJob.Schedule(gridComponent.Grid.Length, 64, resetHandle);
+            }
             
             //3.BFS搜索Job
             var bfsJob = new GenerateIntegrationFieldJob()
@@ -98,6 +103,13 @@ namespace Entities.Unit.System.FlowFieldSystem
 
             var runtimeState = SystemAPI.GetSingletonRW<FlowFieldRuntimeState>();
             runtimeState.ValueRW.ActiveVersion++;
+
+            if (costState.IsDirty)
+            {
+                var writableCostState = SystemAPI.GetSingletonRW<FlowFieldCostState>();
+                writableCostState.ValueRW.IsDirty = false;
+                writableCostState.ValueRW.CostVersion++;
+            }
 
         }
         

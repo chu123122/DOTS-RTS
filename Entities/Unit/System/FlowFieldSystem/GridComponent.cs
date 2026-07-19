@@ -37,6 +37,16 @@ public struct FlowFieldRuntimeState : IComponentData
     public uint ActiveVersion;
 }
 
+/// <summary>
+/// Cost 只随障碍物布局变化。目标点变化不会修改这个状态。
+/// 动态墙壁发生变化时，将 IsDirty 设为 true 并请求一次流场重算。
+/// </summary>
+public struct FlowFieldCostState : IComponentData
+{
+    public bool IsDirty;
+    public uint CostVersion;
+}
+
 public struct FlowFieldVisualizationSettings : IComponentData
 {
     public bool Visible;
