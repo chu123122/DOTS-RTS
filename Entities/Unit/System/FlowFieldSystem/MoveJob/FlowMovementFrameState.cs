@@ -1,0 +1,34 @@
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using Unity.Transforms;
+using 通用;
+
+/// <summary>
+/// 单位在一次移动流水线中的临时状态。
+/// 该数据仅存活一帧，由各 Job 按顺序补全，不会写入 ECS 组件长期保存。
+/// </summary>
+public struct FlowMovementFrameState
+{
+    // 阶段开始时的单位状态，后续阶段以此为统一基线。
+    public float3 CurrentPosition;
+    public quaternion CurrentRotation;
+    public float3 CurrentVelocity;
+    public float MoveSpeed;
+    public float MaxForce;
+
+    // 当前所在流场格及到达状态，由独立力阶段计算。
+    public int2 CellPosition;
+    public FlowFieldCell Cell;
+    public float FlowWeight;
+    public bool IsAtDestination;
+    public bool IsInsideGrid;
+
+    // 按流水线依次生成的中间结果。
+    public float3 IndependentForce;
+    public float3 SoftAvoidanceForce;
+    public float3 IntegratedVelocity;
+    public float3 PredictedPosition;
+    public float3 PositionCorrection;
+}

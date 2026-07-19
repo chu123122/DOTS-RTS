@@ -1,4 +1,3 @@
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -6,6 +5,10 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using 通用;
 
+/// <summary>
+/// 单位流场移动的分阶段调度基类。
+/// 每帧依次计算独立流场力、软避让力、半隐式欧拉预测位置、位置约束和最终位姿。
+/// </summary>
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     private EntityQuery _movementQuery;
@@ -31,15 +34,21 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
 
+        // 同一 EntityQuery 的各阶段通过 EntityIndexInQuery 访问相同槽位，
+        // 避免把仅在本帧有效的中间状态写回 ECS 组件。
         var states = new NativeArray<FlowMovementFrameState>(
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.UninitializedMemory);
+
+        // 约束阶段需要按邻居 Entity 查询其预测位置，因此额外建立 Entity -> 预测位置快照。
         var predictedPositions = new NativeParallelHashMap<Entity, float3>(unitCount, Allocator.TempJob);
 
+        // 软避让仍使用当前帧真实位置；预测位置会在所有软力计算完成后统一生成。
         var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(isReadOnly: true);
         transformLookup.Update(this);
 
+        // 阶段 1：只计算流场、到达减速等不依赖其他单位的力。
         var independentForceJob = new CalculateIndependentFlowForceJob
         {
             Grid = gridComponent.Grid,
@@ -50,6 +59,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, Dependency);
 
+        // 阶段 2：基于当前 SpatialMap 和当前位置累计单位/墙壁软避让力。
         var softAvoidanceJob = new CalculateSoftAvoidanceJob
         {
             Grid = gridComponent.Grid,
@@ -64,6 +74,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle softAvoidanceHandle = softAvoidanceJob.ScheduleParallel(_movementQuery, independentForceHandle);
 
+        // 阶段 3：合力积分得到速度，并为所有单位生成同一时刻的预测位置快照。
         var integrateForcesJob = new IntegrateFlowForcesJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -74,6 +85,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle integrateForcesHandle = integrateForcesJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
 
+        // 阶段 4：SpatialMap 只负责筛选候选，实际穿透检测使用双方预测位置。
         var constraintJob = new CalculateFlowConstraintsJob
         {
             Grid = gridComponent.Grid,
@@ -87,433 +99,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle constraintHandle = constraintJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
 
+        // 阶段 5：应用预测位置和约束修正，写回最终 Transform/Velocity。
         var applyMovementJob = new ApplyFlowMovementJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
             States = states
         };
         JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, constraintHandle);
+
+        // 两个临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
         JobHandle predictedPositionDisposeHandle = predictedPositions.Dispose(applyMovementHandle);
         Dependency = JobHandle.CombineDependencies(stateDisposeHandle, predictedPositionDisposeHandle);
-    }
-}
-
-public struct FlowMovementFrameState
-{
-    public float3 CurrentPosition;
-    public quaternion CurrentRotation;
-    public float3 CurrentVelocity;
-    public float MoveSpeed;
-    public float MaxForce;
-
-    public int2 CellPosition;
-    public FlowFieldCell Cell;
-    public float FlowWeight;
-    public bool IsAtDestination;
-    public bool IsInsideGrid;
-
-    public float3 IndependentForce;
-    public float3 SoftAvoidanceForce;
-    public float3 IntegratedVelocity;
-    public float3 PredictedPosition;
-    public float3 PositionCorrection;
-}
-
-[BurstCompile]
-public partial struct CalculateIndependentFlowForceJob : IJobEntity
-{
-    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
-    public float3 GridOrigin;
-    public int2 GridDimensions;
-    public float CellRadius;
-
-    public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute(
-        [EntityIndexInQuery] int entityIndex,
-        in LocalTransform transform,
-        in Velocity velocity,
-        in UnitMoveSpeed speed,
-        in UnitMovementSettings settings)
-    {
-        var state = new FlowMovementFrameState
-        {
-            CurrentPosition = transform.Position,
-            CurrentRotation = transform.Rotation,
-            CurrentVelocity = velocity.Value,
-            MoveSpeed = speed.Value,
-            MaxForce = settings.MaxForce
-        };
-
-        int2 cellPos = FlowFieldUtils.WorldToCell(transform.Position, GridOrigin, CellRadius);
-        if (cellPos.x < 0 || cellPos.x >= GridDimensions.x ||
-            cellPos.y < 0 || cellPos.y >= GridDimensions.y)
-        {
-            state.IsInsideGrid = false;
-            States[entityIndex] = state;
-            return;
-        }
-
-        int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
-        FlowFieldCell cell = Grid[flatIndex];
-        const int arrivalDistance = 2;
-        float flowWeight = 1.0f;
-        if (cell.IntegrationValue != ushort.MaxValue && cell.IntegrationValue <= arrivalDistance)
-        {
-            float linearT = (float)cell.IntegrationValue / arrivalDistance;
-            flowWeight = math.sqrt(linearT);
-        }
-
-        bool isAtDestination = cell.IntegrationValue == 0;
-        float3 moveForce = float3.zero;
-        if (!isAtDestination && cell.Cost != 0)
-        {
-            int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
-            float3 desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
-            moveForce = desiredDir * speed.Value * flowWeight - velocity.Value;
-        }
-
-        state.CellPosition = cellPos;
-        state.Cell = cell;
-        state.FlowWeight = flowWeight;
-        state.IsAtDestination = isAtDestination;
-        state.IsInsideGrid = true;
-        state.IndependentForce = moveForce;
-        States[entityIndex] = state;
-    }
-}
-
-[BurstCompile]
-public partial struct CalculateSoftAvoidanceJob : IJobEntity
-{
-    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
-    public float3 GridOrigin;
-    public int2 GridDimensions;
-    public float CellRadius;
-
-    [ReadOnly] public NativeParallelMultiHashMap<int, Entity> SpatialMap;
-    [ReadOnly] public ComponentLookup<LocalTransform> TransformLookup;
-
-    public float SeparationWeight;
-    public float SeparationRadius;
-    public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute(Entity entity, [EntityIndexInQuery] int entityIndex)
-    {
-        FlowMovementFrameState state = States[entityIndex];
-        if (!state.IsInsideGrid) return;
-
-        float3 separationForce = float3.zero;
-        int neighborCount = 0;
-
-        for (int x = -1; x <= 1; x++)
-        {
-            for (int y = -1; y <= 1; y++)
-            {
-                int2 checkCell = state.CellPosition + new int2(x, y);
-                if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                    checkCell.y < 0 || checkCell.y >= GridDimensions.y)
-                    continue;
-
-                int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                if (Grid[checkIndex].Cost == 0)
-                {
-                    float3 wallPosition = GridOrigin + new float3(
-                        checkCell.x * CellRadius * 2 + CellRadius,
-                        state.CurrentPosition.y,
-                        checkCell.y * CellRadius * 2 + CellRadius);
-
-                    AccumulateWallSoftForce(state.CurrentPosition, wallPosition, state.MoveSpeed, ref separationForce);
-                    continue;
-                }
-
-                if (!SpatialMap.TryGetFirstValue(checkIndex, out Entity neighborEntity, out var iterator))
-                    continue;
-
-                do
-                {
-                    if (neighborEntity == entity) continue;
-                    if (!TransformLookup.HasComponent(neighborEntity)) continue;
-
-                    float3 neighborPosition = TransformLookup[neighborEntity].Position;
-                    AccumulateUnitSoftForce(
-                        state.CurrentPosition,
-                        neighborPosition,
-                        state.MoveSpeed,
-                        ref separationForce,
-                        ref neighborCount);
-                } while (SpatialMap.TryGetNextValue(out neighborEntity, ref iterator));
-            }
-        }
-
-        if (neighborCount > 0)
-        {
-            separationForce /= neighborCount;
-            float currentWeight = state.IsAtDestination ? SeparationWeight * 1.5f : SeparationWeight;
-            separationForce *= currentWeight;
-        }
-
-        state.SoftAvoidanceForce = separationForce;
-        States[entityIndex] = state;
-    }
-
-    private void AccumulateWallSoftForce(
-        float3 position,
-        float3 wallPosition,
-        float moveSpeed,
-        ref float3 separationForce)
-    {
-        float3 diff = position - wallPosition;
-        diff.y = 0;
-
-        float distSq = math.lengthsq(diff);
-        float wallCheckRadius = CellRadius + 0.6f;
-        if (distSq >= wallCheckRadius * wallCheckRadius || distSq <= 0.0001f)
-            return;
-
-        float dist = math.sqrt(distSq);
-        float3 pushDirection = diff / dist;
-        float repelStrength = (wallCheckRadius - dist) / dist * 10.0f;
-        separationForce += pushDirection * repelStrength * moveSpeed;
-    }
-
-    private void AccumulateUnitSoftForce(
-        float3 position,
-        float3 neighborPosition,
-        float moveSpeed,
-        ref float3 separationForce,
-        ref int neighborCount)
-    {
-        float3 diff = position - neighborPosition;
-        diff.y = 0;
-
-        float distSq = math.lengthsq(diff);
-        float separationRadiusSq = SeparationRadius * SeparationRadius;
-        if (distSq >= separationRadiusSq || distSq <= 0.00001f)
-            return;
-
-        float dist = math.sqrt(distSq);
-        float3 pushDirection = diff / dist;
-        float softFactor = 1.0f - dist / SeparationRadius;
-        separationForce += pushDirection * softFactor * moveSpeed;
-        neighborCount++;
-    }
-}
-
-[BurstCompile]
-public partial struct IntegrateFlowForcesJob : IJobEntity
-{
-    public float DeltaTime;
-    public float3 GridOrigin;
-    public float CellRadius;
-    public NativeParallelHashMap<Entity, float3>.ParallelWriter PredictedPositions;
-    public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute(Entity entity, [EntityIndexInQuery] int entityIndex)
-    {
-        FlowMovementFrameState state = States[entityIndex];
-        if (!state.IsInsideGrid)
-        {
-            state.IntegratedVelocity = float3.zero;
-            state.PredictedPosition = state.CurrentPosition;
-            States[entityIndex] = state;
-            return;
-        }
-
-        float3 totalForce = state.IndependentForce + state.SoftAvoidanceForce;
-        if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
-        {
-            float3 cellCenter = GridOrigin + new float3(
-                state.CellPosition.x * CellRadius * 2 + CellRadius,
-                state.CurrentPosition.y,
-                state.CellPosition.y * CellRadius * 2 + CellRadius);
-            float3 escapeDirection = math.normalize(state.CurrentPosition - cellCenter);
-            if (math.lengthsq(escapeDirection) < 0.001f)
-                escapeDirection = new float3(1, 0, 0);
-            totalForce += escapeDirection * state.MoveSpeed * 5.0f;
-        }
-
-        if (math.length(totalForce) > state.MaxForce)
-            totalForce = math.normalize(totalForce) * state.MaxForce;
-
-        float3 integratedVelocity = state.CurrentVelocity + totalForce * DeltaTime;
-        if (state.IsAtDestination)
-        {
-            integratedVelocity *= math.pow(0.8f, DeltaTime * 60f);
-        }
-        else if (state.FlowWeight < 0.99f)
-        {
-            integratedVelocity *= math.pow(0.95f, DeltaTime * 60f);
-        }
-
-        if (math.length(integratedVelocity) > state.MoveSpeed)
-            integratedVelocity = math.normalize(integratedVelocity) * state.MoveSpeed;
-
-        float3 predictedPosition = state.CurrentPosition + integratedVelocity * DeltaTime;
-        predictedPosition.y = state.CurrentPosition.y;
-
-        state.IntegratedVelocity = integratedVelocity;
-        state.PredictedPosition = predictedPosition;
-        States[entityIndex] = state;
-        PredictedPositions.TryAdd(entity, predictedPosition);
-    }
-}
-
-[BurstCompile]
-public partial struct CalculateFlowConstraintsJob : IJobEntity
-{
-    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
-    public float3 GridOrigin;
-    public int2 GridDimensions;
-    public float CellRadius;
-
-    [ReadOnly] public NativeParallelMultiHashMap<int, Entity> SpatialMap;
-    [ReadOnly] public NativeParallelHashMap<Entity, float3> PredictedPositions;
-
-    public float SeparationRadius;
-    public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute(Entity entity, [EntityIndexInQuery] int entityIndex)
-    {
-        FlowMovementFrameState state = States[entityIndex];
-        if (!state.IsInsideGrid) return;
-
-        float3 positionCorrection = float3.zero;
-
-        for (int x = -1; x <= 1; x++)
-        {
-            for (int y = -1; y <= 1; y++)
-            {
-                int2 checkCell = state.CellPosition + new int2(x, y);
-                if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                    checkCell.y < 0 || checkCell.y >= GridDimensions.y)
-                    continue;
-
-                int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                if (Grid[checkIndex].Cost == 0)
-                {
-                    float3 wallPosition = GridOrigin + new float3(
-                        checkCell.x * CellRadius * 2 + CellRadius,
-                        state.PredictedPosition.y,
-                        checkCell.y * CellRadius * 2 + CellRadius);
-
-                    AccumulateWallConstraint(state.PredictedPosition, wallPosition, ref positionCorrection);
-                    continue;
-                }
-
-                if (!SpatialMap.TryGetFirstValue(checkIndex, out Entity neighborEntity, out var iterator))
-                    continue;
-
-                do
-                {
-                    if (neighborEntity == entity) continue;
-                    if (!PredictedPositions.TryGetValue(neighborEntity, out float3 neighborPosition)) continue;
-
-                    AccumulateUnitConstraint(state.PredictedPosition, neighborPosition, ref positionCorrection);
-                } while (SpatialMap.TryGetNextValue(out neighborEntity, ref iterator));
-            }
-        }
-
-        state.PositionCorrection = positionCorrection;
-        States[entityIndex] = state;
-    }
-
-    private void AccumulateWallConstraint(
-        float3 position,
-        float3 wallPosition,
-        ref float3 positionCorrection)
-    {
-        float3 diff = position - wallPosition;
-        diff.y = 0;
-
-        float distSq = math.lengthsq(diff);
-        float wallCheckRadius = CellRadius + 0.6f;
-        if (distSq >= wallCheckRadius * wallCheckRadius || distSq <= 0.0001f)
-            return;
-
-        float dist = math.sqrt(distSq);
-        float wallHardRadius = CellRadius + 0.5f;
-        if (dist >= wallHardRadius) return;
-
-        float3 pushDirection = diff / dist;
-        float penetration = wallHardRadius - dist;
-        positionCorrection += pushDirection * (penetration * 0.5f);
-    }
-
-    private void AccumulateUnitConstraint(
-        float3 position,
-        float3 neighborPosition,
-        ref float3 positionCorrection)
-    {
-        float3 diff = position - neighborPosition;
-        diff.y = 0;
-
-        float distSq = math.lengthsq(diff);
-        float separationRadiusSq = SeparationRadius * SeparationRadius;
-        if (distSq >= separationRadiusSq || distSq <= 0.00001f)
-            return;
-
-        float dist = math.sqrt(distSq);
-        const float hardRadius = 0.5f;
-        if (dist >= hardRadius) return;
-
-        float3 pushDirection = diff / dist;
-        float penetration = hardRadius - dist;
-        positionCorrection += pushDirection * (penetration * 0.4f);
-    }
-}
-
-[BurstCompile]
-public partial struct ApplyFlowMovementJob : IJobEntity
-{
-    public float DeltaTime;
-    [ReadOnly] public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute(
-        [EntityIndexInQuery] int entityIndex,
-        ref LocalTransform transform,
-        ref Velocity velocity)
-    {
-        FlowMovementFrameState state = States[entityIndex];
-        if (!state.IsInsideGrid)
-        {
-            velocity.Value = float3.zero;
-            return;
-        }
-
-        float3 integratedVelocity = state.IntegratedVelocity;
-        float3 positionCorrection = state.PositionCorrection;
-        bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
-
-        bool shouldMove = math.lengthsq(integratedVelocity) > 0.005f || isHardColliding;
-        if (shouldMove)
-        {
-            float3 newPosition = state.PredictedPosition;
-            if (isHardColliding)
-            {
-                const float maxCorrectionPerFrame = 0.15f;
-                if (math.lengthsq(positionCorrection) > maxCorrectionPerFrame * maxCorrectionPerFrame)
-                    positionCorrection = math.normalize(positionCorrection) * maxCorrectionPerFrame;
-
-                newPosition += positionCorrection;
-            }
-
-            newPosition.y = state.CurrentPosition.y;
-            transform.Position = newPosition;
-            integratedVelocity.y = 0;
-
-            if (math.lengthsq(integratedVelocity) > 0.01f)
-            {
-                quaternion targetRotation = quaternion.LookRotationSafe(math.normalize(integratedVelocity), math.up());
-                transform.Rotation = math.slerp(state.CurrentRotation, targetRotation, DeltaTime * 10.0f);
-            }
-        }
-        else if (state.IsAtDestination && !isHardColliding)
-        {
-            integratedVelocity = float3.zero;
-        }
-
-        velocity.Value = integratedVelocity;
     }
 }
