@@ -60,6 +60,23 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
             TrySelectDiagnosticUnitWithMiddleMouse();
 
+        bool shouldShowOverlay =
+            settings.EnableDiagnostics || settings.EnableShadowNeighborCacheTest;
+        _overlay.Visible = shouldShowOverlay;
+        if (!shouldShowOverlay)
+        {
+            _overlay.Text = string.Empty;
+            return;
+        }
+
+        // Singleton/Buffer API 不会自动完成生产它们的异步 Job。
+        // Presentation 需要本帧最终诊断快照，因此在读取前建立明确同步边界。
+        EntityManager.CompleteDependencyBeforeRO<PredictiveDiscContactStatistics>();
+        EntityManager.CompleteDependencyBeforeRO<ShadowNeighborCacheStatistics>();
+        EntityManager.CompleteDependencyBeforeRO<Stage3ContactIterationDiagnostic>();
+        EntityManager.CompleteDependencyBeforeRO<Stage3ContactPairDiagnostic>();
+        EntityManager.CompleteDependencyBeforeRO<Stage3SelectedBodyDiagnostic>();
+
         PredictiveDiscContactStatistics statistics =
             SystemAPI.GetSingleton<PredictiveDiscContactStatistics>();
         ShadowNeighborCacheStatistics shadowStatistics =
@@ -73,7 +90,6 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         Stage3ContactDiagnosticSelection selection =
             SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
 
-        _overlay.Visible = settings.EnableDiagnostics || settings.EnableShadowNeighborCacheTest;
         _overlay.Text = BuildOverlayText(
             settings,
             statistics,
