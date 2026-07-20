@@ -317,7 +317,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         var text = new StringBuilder(256);
         text.Append("<size=19><b>单位接触诊断</b></size>   ")
             .Append("<color=#92A3B8>F8 数据</color> ").Append(ToggleText(settings.EnableDiagnostics))
-            .Append("   <color=#92A3B8>F9 预测接触</color> ").Append(ToggleText(settings.EnablePredictiveContacts))
+            .Append("   <color=#92A3B8>F9 防换侧约束</color> ").Append(ToggleText(settings.EnablePredictiveContacts))
             .Append("   <color=#92A3B8>F10 场景线框</color> ").Append(ToggleText(settings.VisualizeSelectedContacts))
             .Append("   <color=#92A3B8>F11 Shadow</color> ").Append(ToggleText(settings.EnableShadowNeighborCacheTest))
             .AppendLine()
@@ -407,16 +407,21 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .AppendLine("<color=#71839A>这些数据真实参与单位的位置和速度结果</color>")
             .Append("<color=#91A0B7>状态　</color>").AppendLine(state)
             .Append("<color=#91A0B7>配置　</color>子步 <b>").Append(settings.SubstepCount)
-            .Append("</b>　迭代 <b>").Append(settings.IterationCount).AppendLine("</b>")
+            .Append("</b>　迭代 <b>").Append(settings.IterationCount)
+            .Append("</b>　软避让重算 <b>").Append(statistics.SoftAvoidanceEvaluationCount)
+            .AppendLine("</b>")
             .Append("<color=#91A0B7>Pair 漏斗　</color><color=#AFC4D8>候选</color> <b>")
             .Append(statistics.CandidatePairCount)
             .Append("</b>　<color=#607086>→</color>　<color=#7AD7F0>接触</color> <b>")
             .Append(statistics.ContactPairCount)
             .Append("</b>　<color=#607086>→</color>　<color=#69E39B>激活</color> <b>")
             .Append(statistics.ActiveConstraintCount).AppendLine("</b>")
-            .Append("<color=#91A0B7>预测接触　</color>潜在 <b>").Append(statistics.PotentialPredictivePairCount)
-            .Append("</b>　生成 <color=#D58CFF><b>").Append(statistics.PredictivePairCount)
-            .Append("</b></color>　激活 <color=#FF7BA8><b>").Append(statistics.PredictiveActivatedCount)
+            .Append("<color=#91A0B7>Pair 来源　</color>实际生成 <b>").Append(statistics.ActualGeneratedPairCount)
+            .Append("</b>　预测生成 <color=#D58CFF><b>").Append(statistics.PredictiveGeneratedPairCount)
+            .AppendLine("</b></color>")
+            .Append("<color=#91A0B7>防换侧约束　</color>风险 <b>").Append(statistics.PotentialPredictivePairCount)
+            .Append("</b>　启用 <b>").Append(statistics.PredictivePairCount)
+            .Append("</b>　激活 <color=#FF7BA8><b>").Append(statistics.PredictiveActivatedCount)
             .AppendLine("</b></color>")
             .Append("<color=#91A0B7>最终穿透　</color>最大 <b>").Append(statistics.MaxPenetration.ToString("F5"))
             .Append("</b>　平均 ").AppendLine(statistics.AveragePenetration.ToString("F5"))
@@ -431,7 +436,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append("</b>　平均 ").AppendLine(lastAverageResidual.ToString("F5"))
             .Append("<color=#91A0B7>收敛曲线　</color>")
             .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
-            .Append("<color=#91A0B7>耗时 μs　</color>Pair ").Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
+            .Append("<color=#91A0B7>耗时 μs　</color>软避让 ").Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
+            .Append("（单子步 ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds)).Append("）　Pair ")
+            .Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
             .Append("　单轮 ").Append(FormatMicroseconds(statistics.AverageIterationNanoseconds))
             .Append("　总计 <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds)).AppendLine("</b>")
             .Append("<color=#91A0B7>选中单位　</color>")
@@ -440,8 +447,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
                 : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>")
             .Append("　显示 Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
             .Append("<color=#91A0B7>Pair 分类　</color>宽相排除 ").Append(broadOnly)
-            .Append("　普通 ").Append(regular).Append("　预测 ").Append(predictive)
-            .Append("　预测关闭 ").AppendLine(predictiveDisabled.ToString());
+            .Append("　径向 ").Append(regular).Append("　防换侧 ").Append(predictive)
+            .Append("　防换侧关闭 ").AppendLine(predictiveDisabled.ToString());
 
         if (selectedBody.IsValid != 0)
         {
@@ -451,7 +458,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
                 .AppendLine(math.length(selectedBody.WallCorrection).ToString("F4"));
         }
 
-        text.Append("<color=#607086>场景颜色：青色轨迹　白色 Swept AABB　蓝色预测圆　绿色求解圆</color>");
+        text.Append("<color=#607086>场景颜色：黄色/橙色径向 Pair　洋红/红色防换侧 Pair　蓝色防换侧关闭</color>");
         return text.ToString();
     }
 

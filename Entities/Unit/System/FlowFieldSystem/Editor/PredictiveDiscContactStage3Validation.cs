@@ -34,6 +34,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult predictiveDisabled = ValidatePredictiveToggle();
         ScenarioResult tangent = ValidateTangentialNearMiss();
         ScenarioResult chain = ValidatePrebuiltChainContact();
+        ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
         ScenarioResult shadow = ValidateShadowNeighborCacheProbe();
@@ -49,6 +50,8 @@ public static class PredictiveDiscContactStage3Validation
             $"tangent: contacts={tangent.Statistics.ContactPairCount}, " +
             $"unactivated={tangent.Statistics.UnactivatedPairCount}\n" +
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
+            $"soft avoidance: evaluations={softAvoidance.Statistics.SoftAvoidanceEvaluationCount}, " +
+            $"time={softAvoidance.Statistics.SoftAvoidanceNanoseconds}ns\n" +
             $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
             $"{wallEightIterations.Positions[1].x:F6}\n" +
             $"shadow prev hit/miss={shadow.ShadowStatistics.PreviousFramePairHitCount}/" +
@@ -95,6 +98,8 @@ public static class PredictiveDiscContactStage3Validation
         Require(math.abs(center - 0.1f) <= PositionTolerance,
             "Equal-mass regular contact was not symmetric.");
         Require(result.Statistics.ActiveConstraintCount == 1 &&
+                result.Statistics.ActualGeneratedPairCount == 1 &&
+                result.Statistics.PredictiveGeneratedPairCount == 0 &&
                 result.Statistics.PredictivePairCount == 0,
             "Regular overlap was not classified as one active radial contact.");
         Require(result.Statistics.MaxVelocityChange > 0f &&
@@ -126,7 +131,8 @@ public static class PredictiveDiscContactStage3Validation
         Require(projectedSeparation >= 0.5f - PositionTolerance,
             "Predictive separation constraint allowed the discs to exchange sides.");
         Require(result.Statistics.PredictivePairCount == 1 &&
-                result.Statistics.PredictiveActivatedCount == 1,
+                result.Statistics.PredictiveActivatedCount == 1 &&
+                result.Statistics.PredictiveGeneratedPairCount == 1,
             "High-speed crossing was not generated and activated as Predictive.");
         return result;
     }
@@ -143,8 +149,9 @@ public static class PredictiveDiscContactStage3Validation
         float3 expectedEnd = new float3(1, 0, 0.6f);
         Require(math.distance(result.Positions[1], expectedEnd) <= PositionTolerance,
             "Tangential skin-only Pair produced an unnecessary correction.");
-        Require(result.Statistics.PredictivePairCount == 0,
-            "Tangential near miss was incorrectly frozen to the initial normal.");
+        Require(result.Statistics.PredictiveGeneratedPairCount == 1 &&
+                result.Statistics.PredictivePairCount == 0,
+            "Tangential near miss was not retained as a non-blocking generated Pair.");
         Require(result.Statistics.ContactPairCount == 1 &&
                 result.Statistics.UnactivatedPairCount == 1,
             "Tangential skin candidate was not reported as unactivated.");
@@ -166,9 +173,34 @@ public static class PredictiveDiscContactStage3Validation
             enablePredictiveContacts: false);
         Require(result.Positions[0].x > result.Positions[1].x,
             "Disabling Predictive Contact did not restore the endpoint-distance miss baseline.");
-        Require(result.Statistics.PotentialPredictivePairCount == 1 &&
+        Require(result.Statistics.PredictiveGeneratedPairCount == 1 &&
+                result.Statistics.PotentialPredictivePairCount == 1 &&
                 result.Statistics.PredictivePairCount == 0,
-            "Predictive toggle did not preserve the potential-Pair diagnostic boundary.");
+            "Predictive toggle did not preserve Pair discovery while disabling side protection.");
+        return result;
+    }
+
+    private static ScenarioResult ValidateSoftAvoidancePerSubstep()
+    {
+        FlowMovementFrameState bodyA = CreateBody(new float3(-0.4f, 0, 0), float3.zero, 0.1f);
+        FlowMovementFrameState bodyB = CreateBody(new float3(0.4f, 0, 0), float3.zero, 0.1f);
+        bodyA.MoveSpeed = 1f;
+        bodyB.MoveSpeed = 1f;
+        bodyA.MaxForce = 10f;
+        bodyB.MaxForce = 10f;
+        FlowMovementFrameState[] bodies = { bodyA, bodyB };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 1,
+            skin: 0f,
+            substepCount: 4,
+            softAvoidanceWeight: 1f,
+            softAvoidanceRadius: 1f);
+        Require(result.Statistics.SoftAvoidanceEvaluationCount == 4,
+            "Soft avoidance was not recomputed once per substep.");
+        Require(math.distance(result.Positions[0], result.Positions[1]) > 0.8f,
+            "Per-substep soft avoidance did not separate nearby units.");
         return result;
     }
 
@@ -371,7 +403,10 @@ public static class PredictiveDiscContactStage3Validation
         bool includeWall = false,
         int substepCount = 1,
         bool enableShadowTest = false,
-        float shadowMargin = 0.25f)
+        float shadowMargin = 0.25f,
+        float softAvoidanceWeight = 0f,
+        float softAvoidanceRadius = 0f,
+        float settledSoftAvoidanceMultiplier = 1.5f)
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
@@ -387,7 +422,10 @@ public static class PredictiveDiscContactStage3Validation
                 enableShadowTest,
                 shadowMargin,
                 previousProxies,
-                previousPairs);
+                previousPairs,
+                softAvoidanceWeight,
+                softAvoidanceRadius,
+                settledSoftAvoidanceMultiplier);
         }
         finally
         {
@@ -406,7 +444,10 @@ public static class PredictiveDiscContactStage3Validation
         bool enableShadowTest,
         float shadowMargin,
         NativeList<ShadowFatBodyProxy> previousProxies,
-        NativeList<ShadowEntityPair> previousPairs)
+        NativeList<ShadowEntityPair> previousPairs,
+        float softAvoidanceWeight = 0f,
+        float softAvoidanceRadius = 0f,
+        float settledSoftAvoidanceMultiplier = 1.5f)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
@@ -453,6 +494,9 @@ public static class PredictiveDiscContactStage3Validation
                 IterationCount = iterationCount,
                 Compliance = 0f,
                 PredictiveSkin = skin,
+                SoftAvoidanceWeight = softAvoidanceWeight,
+                SoftAvoidanceRadius = softAvoidanceRadius,
+                SettledSoftAvoidanceMultiplier = settledSoftAvoidanceMultiplier,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
                 EnableShadowNeighborCacheTest = enableShadowTest,

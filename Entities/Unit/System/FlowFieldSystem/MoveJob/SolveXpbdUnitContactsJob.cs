@@ -18,6 +18,9 @@ public struct SolveXpbdUnitContactsJob : IJob
     public int IterationCount;
     public float Compliance;
     public float PredictiveSkin;
+    public float SoftAvoidanceWeight;
+    public float SoftAvoidanceRadius;
+    public float SettledSoftAvoidanceMultiplier;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
     public bool EnableShadowNeighborCacheTest;
@@ -83,6 +86,12 @@ public struct SolveXpbdUnitContactsJob : IJob
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
+            long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
+            CalculateSoftAvoidanceForSubstep();
+            statistics.SoftAvoidanceEvaluationCount++;
+            statistics.SoftAvoidanceNanoseconds +=
+                TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
+
             PredictUnconstrainedPositions(substepDeltaTime);
 
             long pairGenerationStart = ProfilerUnsafeUtility.Timestamp;
@@ -180,6 +189,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             : 0f;
         statistics.AverageIterationNanoseconds =
             statistics.IterationNanoseconds / math.max(1, substepCount * iterationCount);
+        statistics.AverageSoftAvoidanceNanoseconds =
+            statistics.SoftAvoidanceNanoseconds / substepCount;
         statistics.AverageSpeedBeforeContact /= substepCount;
         statistics.AverageSpeedAfterContact /= substepCount;
         statistics.SolverNanoseconds =
@@ -199,7 +210,154 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.PreviousSubstepPosition = state.CurrentPosition;
             state.ContactPositionCorrection = float3.zero;
             state.WallPositionCorrection = float3.zero;
+            state.SoftAvoidanceForce = float3.zero;
+            state.SoftAvoidanceNeighborCount = 0;
             States[i] = state;
+        }
+    }
+
+    private void CalculateSoftAvoidanceForSubstep()
+    {
+        SweptCellEntries.Clear();
+        Pairs.Clear();
+
+        float separationRadius = math.max(0f, SoftAvoidanceRadius);
+        float cellSize = math.max(CellRadius * 2f, 0.0001f);
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            state.SoftAvoidanceForce = float3.zero;
+            state.SoftAvoidanceNeighborCount = 0;
+            if (!state.IsInsideGrid)
+            {
+                States[bodyIndex] = state;
+                continue;
+            }
+
+            float3 position = state.PredictedPosition;
+            int2 currentCell = FlowFieldUtils.WorldToCell(position, GridOrigin, CellRadius);
+            AccumulateWallSoftForce(position, currentCell, state.MoveSpeed, ref state.SoftAvoidanceForce);
+            States[bodyIndex] = state;
+
+            if (separationRadius <= 0f)
+                continue;
+
+            float2 softMin = position.xz - separationRadius;
+            float2 softMax = position.xz + separationRadius;
+            int2 minCell = (int2)math.floor((softMin - GridOrigin.xz) / cellSize);
+            int2 maxCell = (int2)math.floor((softMax - GridOrigin.xz) / cellSize);
+            if (maxCell.x < 0 || maxCell.y < 0 ||
+                minCell.x >= GridDimensions.x || minCell.y >= GridDimensions.y)
+                continue;
+
+            minCell = math.clamp(minCell, int2.zero, GridDimensions - 1);
+            maxCell = math.clamp(maxCell, int2.zero, GridDimensions - 1);
+            for (int x = minCell.x; x <= maxCell.x; x++)
+            {
+                for (int y = minCell.y; y <= maxCell.y; y++)
+                {
+                    SweptCellEntries.Add(new SweptDiscCellEntry
+                    {
+                        CellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), GridDimensions),
+                        BodyIndex = bodyIndex
+                    });
+                }
+            }
+        }
+
+        if (separationRadius > 0f)
+        {
+            SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
+            EmitCellPairs();
+            SortAndDeduplicatePairs();
+            AccumulateUnitSoftForces(separationRadius);
+        }
+
+        float separationWeight = math.max(0f, SoftAvoidanceWeight);
+        float settledMultiplier = math.max(0f, SettledSoftAvoidanceMultiplier);
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+
+            if (state.SoftAvoidanceNeighborCount > 0)
+            {
+                state.SoftAvoidanceForce /= state.SoftAvoidanceNeighborCount;
+                float currentWeight = state.IsSettled
+                    ? separationWeight * settledMultiplier
+                    : separationWeight;
+                state.SoftAvoidanceForce *= currentWeight;
+            }
+
+            States[bodyIndex] = state;
+        }
+    }
+
+    private void AccumulateUnitSoftForces(float separationRadius)
+    {
+        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
+        {
+            UnitCollisionPair pair = Pairs[pairIndex];
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            float3 forceA = SoftAvoidanceMath.CalculateUnitForce(
+                bodyA.PredictedPosition,
+                bodyB.PredictedPosition,
+                bodyA.MoveSpeed,
+                separationRadius);
+            if (math.lengthsq(forceA) <= 0f)
+                continue;
+
+            float3 forceB = SoftAvoidanceMath.CalculateUnitForce(
+                bodyB.PredictedPosition,
+                bodyA.PredictedPosition,
+                bodyB.MoveSpeed,
+                separationRadius);
+            bodyA.SoftAvoidanceForce += forceA;
+            bodyB.SoftAvoidanceForce += forceB;
+            bodyA.SoftAvoidanceNeighborCount++;
+            bodyB.SoftAvoidanceNeighborCount++;
+            States[pair.BodyA] = bodyA;
+            States[pair.BodyB] = bodyB;
+        }
+    }
+
+    private void AccumulateWallSoftForce(
+        float3 position,
+        int2 currentCell,
+        float moveSpeed,
+        ref float3 softForce)
+    {
+        if (currentCell.x < 0 || currentCell.x >= GridDimensions.x ||
+            currentCell.y < 0 || currentCell.y >= GridDimensions.y)
+            return;
+
+        for (int x = -1; x <= 1; x++)
+        {
+            for (int y = -1; y <= 1; y++)
+            {
+                int2 checkCell = currentCell + new int2(x, y);
+                if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
+                    checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                    continue;
+
+                int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
+                if (Grid[checkIndex].Cost != 0)
+                    continue;
+
+                float3 wallPosition = GridOrigin + new float3(
+                    checkCell.x * CellRadius * 2f + CellRadius,
+                    position.y,
+                    checkCell.y * CellRadius * 2f + CellRadius);
+                float wallCheckRadius = CellRadius + math.max(0f, SoftAvoidanceRadius);
+                softForce += SoftAvoidanceMath.CalculateWallForce(
+                    position,
+                    wallPosition,
+                    moveSpeed,
+                    wallCheckRadius);
+            }
         }
     }
 
@@ -707,10 +865,16 @@ public struct SolveXpbdUnitContactsJob : IJob
             float endDistanceSq = math.lengthsq(endDelta);
             float radiusSumSq = radiusSum * radiusSum;
 
-            // 只有“起终点均分离、但线性 swept path 实际穿过接触半径”的 Pair
-            // 使用初始分离平面。普通重叠和仅进入 skin 的 Pair 保持径向约束。
+            bool isActualGeneratedPair = startDistanceSq <= radiusSumSq;
+            if (isActualGeneratedPair)
+                statistics.ActualGeneratedPairCount++;
+            else
+                statistics.PredictiveGeneratedPairCount++;
+
+            // 生成来源只用于统计。求解模式仍保持原有边界：只有起终点均分离、
+            // 但 swept path 穿过接触半径的 Pair，才使用初始分离平面防止换侧。
             bool shouldPreventSideExchange =
-                startDistanceSq >= radiusSumSq &&
+                !isActualGeneratedPair &&
                 endDistanceSq >= radiusSumSq &&
                 minDistanceSq <= radiusSumSq;
 

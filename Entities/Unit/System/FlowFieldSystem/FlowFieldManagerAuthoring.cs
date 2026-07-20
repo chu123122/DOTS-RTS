@@ -17,6 +17,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Range(0f, 1f)] public float visualizationOpacity = 0.65f;
     public float visualizationHeightOffset = 0.05f;
 
+    [Header("Soft Avoidance")]
+    [Min(0f)] public float softAvoidanceWeight = 4f;
+    [Min(0f)] public float softAvoidanceRadius = 0.6f;
+    [Min(0f)] public float settledSoftAvoidanceMultiplier = 1.5f;
+
     [Header("Unit Contact XPBD")]
     [Min(1)] public int contactSubsteps = 2;
     [Min(1)] public int contactIterations = 4;
@@ -46,7 +51,12 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 GridDimensions = authoring.gridSize,
                 CellRadius = authoring.cellRadius,
-                GridOrigin = authoring.gridOrigin
+                GridOrigin = authoring.gridOrigin,
+                SoftAvoidanceWeight = math.max(0f, authoring.softAvoidanceWeight),
+                SoftAvoidanceRadius = math.max(0f, authoring.softAvoidanceRadius),
+                SettledSoftAvoidanceMultiplier = math.max(
+                    0f,
+                    authoring.settledSoftAvoidanceMultiplier)
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new MoveOrder());

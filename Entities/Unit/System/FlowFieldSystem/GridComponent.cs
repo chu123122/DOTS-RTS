@@ -23,6 +23,9 @@ public struct FlowFieldSettings : IComponentData
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
+    public float SoftAvoidanceWeight;
+    public float SoftAvoidanceRadius;
+    public float SettledSoftAvoidanceMultiplier;
 }
 
 public struct FlowFieldGlobalTarget : IComponentData
@@ -62,8 +65,11 @@ public struct PredictiveDiscContactStatistics : IComponentData
 {
     public int CandidatePairCount;
     public int ContactPairCount;
+    public int ActualGeneratedPairCount;
+    public int PredictiveGeneratedPairCount;
     public int PotentialPredictivePairCount;
     public int PredictivePairCount;
+    public int SoftAvoidanceEvaluationCount;
     public int ActiveConstraintCount;
     public int PredictiveActivatedCount;
     public int UnactivatedPairCount;
@@ -82,8 +88,10 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public float AverageSpeedBeforeContact;
     public float AverageSpeedAfterContact;
     public long PairGenerationNanoseconds;
+    public long SoftAvoidanceNanoseconds;
     public long IterationNanoseconds;
     public long SolverNanoseconds;
+    public long AverageSoftAvoidanceNanoseconds;
     public long AverageIterationNanoseconds;
 }
 

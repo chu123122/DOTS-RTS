@@ -20,7 +20,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     {
         RequireForUpdate<FlowFieldGrid>();
         RequireForUpdate<FlowFieldRuntimeState>();
-        RequireForUpdate<UnitSpatialMap>();
         RequireForUpdate<UnitContactSolverSettings>();
         RequireForUpdate<PredictiveDiscContactStatistics>();
         RequireForUpdate<ShadowNeighborCacheStatistics>();
@@ -50,7 +49,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     protected override void OnUpdate()
     {
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
-        var spatialMap = SystemAPI.GetSingleton<UnitSpatialMap>();
+        var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
         var diagnosticSelection = SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
         if (!gridComponent.Grid.IsCreated) return;
@@ -93,11 +92,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle arrivalAreaHandle = arrivalAreaJob.Schedule(footprintHandle);
 
-        // 软避让仍使用当前帧真实位置；预测位置会在所有软力计算完成后统一生成。
-        var transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(isReadOnly: true);
-        transformLookup.Update(this);
-
-        // 阶段 1：只计算流场、到达减速等不依赖其他单位的力。
+        // 阶段 1：只计算流场、到达状态等不依赖其他单位的力。
         var independentForceJob = new CalculateIndependentFlowForceJob
         {
             Grid = gridComponent.Grid,
@@ -110,22 +105,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, arrivalAreaHandle);
 
-        // 阶段 2：基于当前 SpatialMap 和当前位置累计单位/墙壁软避让力。
-        var softAvoidanceJob = new CalculateSoftAvoidanceJob
-        {
-            Grid = gridComponent.Grid,
-            GridOrigin = gridComponent.GridOrigin,
-            GridDimensions = gridComponent.GridDimensions,
-            CellRadius = gridComponent.CellRadius,
-            SpatialMap = spatialMap.Map,
-            TransformLookup = transformLookup,
-            SeparationWeight = 4f,
-            SeparationRadius = 0.6f,
-            States = states
-        };
-        JobHandle softAvoidanceHandle = softAvoidanceJob.ScheduleParallel(_movementQuery, independentForceHandle);
-
-        // 阶段 3：每个 substep 在 Job 内生成 swept disc Pair，随后全部 iteration 复用。
+        // 阶段 2：每个 substep 先按最新求解位置重算软避让，再生成 swept disc Pair，
+        // 随后的全部 XPBD iteration 复用该 Pair 快照。
         var sweptCellEntries = new NativeList<SweptDiscCellEntry>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
@@ -163,6 +144,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             IterationCount = contactSolverSettings.IterationCount,
             Compliance = contactSolverSettings.Compliance,
             PredictiveSkin = contactSolverSettings.PredictiveSkin,
+            SoftAvoidanceWeight = flowFieldSettings.SoftAvoidanceWeight,
+            SoftAvoidanceRadius = flowFieldSettings.SoftAvoidanceRadius,
+            SettledSoftAvoidanceMultiplier = flowFieldSettings.SettledSoftAvoidanceMultiplier,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableShadowNeighborCacheTest = contactSolverSettings.EnableShadowNeighborCacheTest,
@@ -187,7 +171,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PairDiagnostics = pairDiagnostics,
             SelectedBodyDiagnostic = selectedBodyDiagnostic
         };
-        JobHandle solveContactHandle = solveContactJob.Schedule(softAvoidanceHandle);
+        JobHandle solveContactHandle = solveContactJob.Schedule(independentForceHandle);
 
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
