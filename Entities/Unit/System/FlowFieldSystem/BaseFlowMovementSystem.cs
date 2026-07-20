@@ -21,6 +21,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         RequireForUpdate<UnitSpatialMap>();
         RequireForUpdate<UnitContactSolverSettings>();
         RequireForUpdate<PredictiveDiscContactStatistics>();
+        RequireForUpdate<Stage3ContactDiagnosticSelection>();
 
         _movementQuery = GetEntityQuery(
             ComponentType.ReadWrite<LocalTransform>(),
@@ -36,6 +37,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var spatialMap = SystemAPI.GetSingleton<UnitSpatialMap>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
+        var diagnosticSelection = SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
         if (!gridComponent.Grid.IsCreated) return;
         if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
 
@@ -117,6 +119,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
+        var iterationDiagnostics = new NativeList<Stage3ContactIterationDiagnostic>(
+            math.max(contactSolverSettings.SubstepCount * contactSolverSettings.IterationCount, 1),
+            Allocator.TempJob);
+        var pairDiagnostics = new NativeList<Stage3ContactPairDiagnostic>(
+            math.max(unitCount * 2, 1),
+            Allocator.TempJob);
+        var selectedBodyDiagnostic =
+            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -124,21 +134,21 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             IterationCount = contactSolverSettings.IterationCount,
             Compliance = contactSolverSettings.Compliance,
             PredictiveSkin = contactSolverSettings.PredictiveSkin,
+            EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
+            EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
+            DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
             SweptCellEntries = sweptCellEntries,
             Pairs = collisionPairs,
             States = states,
-            Statistics = contactStatistics
+            Statistics = contactStatistics,
+            IterationDiagnostics = iterationDiagnostics,
+            PairDiagnostics = pairDiagnostics,
+            SelectedBodyDiagnostic = selectedBodyDiagnostic
         };
         JobHandle solveContactHandle = solveContactJob.Schedule(softAvoidanceHandle);
-
-        var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
-        {
-            Source = contactStatistics
-        };
-        JobHandle publishStatisticsHandle = publishStatisticsJob.Schedule(solveContactHandle);
 
         // 墙壁暂时保留原有单体位置投影；Stage 2 只升级动态单位 Pair。
         var wallConstraintJob = new CalculateWallConstraintsJob
@@ -152,6 +162,27 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle wallConstraintHandle =
             wallConstraintJob.ScheduleParallel(_movementQuery, solveContactHandle);
 
+        var finalizeDiagnosticsJob = new FinalizeStage3ContactDiagnosticsJob
+        {
+            EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
+            DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
+            States = states,
+            Statistics = contactStatistics,
+            SelectedBodyDiagnostic = selectedBodyDiagnostic
+        };
+        JobHandle finalizeDiagnosticsHandle =
+            finalizeDiagnosticsJob.Schedule(wallConstraintHandle);
+
+        var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
+        {
+            Source = contactStatistics,
+            SelectedBodySource = selectedBodyDiagnostic,
+            IterationSource = iterationDiagnostics,
+            PairSource = pairDiagnostics
+        };
+        JobHandle publishStatisticsHandle =
+            publishStatisticsJob.Schedule(finalizeDiagnosticsHandle);
+
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
         World.GetExistingSystemManaged<Entities.Unit.System.FlowFieldSystem.FlowFieldBakeSystem>()
@@ -163,7 +194,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             DeltaTime = SystemAPI.Time.DeltaTime,
             States = states
         };
-        JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, wallConstraintHandle);
+        JobHandle applyMovementHandle =
+            applyMovementJob.ScheduleParallel(_movementQuery, finalizeDiagnosticsHandle);
 
         // 所有临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
@@ -172,18 +204,30 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
         JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
+        JobHandle selectedDiagnosticDisposeHandle =
+            selectedBodyDiagnostic.Dispose(publishStatisticsHandle);
+        JobHandle iterationDiagnosticDisposeHandle =
+            iterationDiagnostics.Dispose(publishStatisticsHandle);
+        JobHandle pairDiagnosticDisposeHandle = pairDiagnostics.Dispose(publishStatisticsHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
         JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
             arrivalDistanceDisposeHandle,
             statisticsDisposeHandle);
+        JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
+            selectedDiagnosticDisposeHandle,
+            iterationDiagnosticDisposeHandle,
+            pairDiagnosticDisposeHandle);
         JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
             sweptEntryDisposeHandle,
             collisionPairDisposeHandle);
-        Dependency = JobHandle.CombineDependencies(
+        JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
             frameStateDisposeHandle,
             lookupDisposeHandle,
             pairDisposeHandle);
+        Dependency = JobHandle.CombineDependencies(
+            mainDisposeHandle,
+            diagnosticDisposeHandle);
     }
 }

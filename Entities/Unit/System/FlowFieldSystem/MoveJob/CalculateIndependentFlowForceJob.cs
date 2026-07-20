@@ -23,6 +23,7 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     public NativeArray<FlowMovementFrameState> States;
 
     public void Execute(
+        Entity entity,
         [EntityIndexInQuery] int entityIndex,
         in LocalTransform transform,
         in Velocity velocity,
@@ -33,6 +34,7 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     {
         var state = new FlowMovementFrameState
         {
+            Entity = entity,
             CurrentPosition = transform.Position,
             CurrentRotation = transform.Rotation,
             CurrentVelocity = velocity.Value,

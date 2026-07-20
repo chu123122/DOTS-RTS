@@ -12,6 +12,7 @@ using 通用;
 public struct FlowMovementFrameState
 {
     // 阶段开始时的单位状态，后续阶段以此为统一基线。
+    public Entity Entity;
     public float3 CurrentPosition;
     public quaternion CurrentRotation;
     public float3 CurrentVelocity;
@@ -31,6 +32,8 @@ public struct FlowMovementFrameState
     public float3 SoftAvoidanceForce;
     public float3 IntegratedVelocity;
     public float3 StartPosition;
+    public float3 UnconstrainedPredictedPosition;
+    public float3 VelocityBeforeContact;
     public float3 PredictedPosition;
     public float3 PreviousSubstepPosition;
     public float3 PositionCorrection;

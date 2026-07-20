@@ -18,6 +18,9 @@ public struct SolveXpbdUnitContactsJob : IJob
     public int IterationCount;
     public float Compliance;
     public float PredictiveSkin;
+    public bool EnablePredictiveContacts;
+    public bool EnableDiagnostics;
+    public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -27,6 +30,9 @@ public struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> Pairs;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
+    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
+    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
 
     public void Execute()
     {
@@ -36,6 +42,9 @@ public struct SolveXpbdUnitContactsJob : IJob
         float substepDeltaTime = DeltaTime / substepCount;
         var statistics = new PredictiveDiscContactStatistics();
         float penetrationSum = 0f;
+        IterationDiagnostics.Clear();
+        PairDiagnostics.Clear();
+        SelectedBodyDiagnostic.Value = default;
 
         if (substepDeltaTime <= 0f)
         {
@@ -56,12 +65,34 @@ public struct SolveXpbdUnitContactsJob : IJob
 
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
-                SolveContactIteration(substepDeltaTime);
+            {
+                SolveContactIteration(
+                    substepDeltaTime,
+                    out float totalPositionCorrection,
+                    out float maxPositionCorrection);
+
+                statistics.TotalContactPositionCorrection += totalPositionCorrection;
+                statistics.MaxContactPositionCorrection = math.max(
+                    statistics.MaxContactPositionCorrection,
+                    maxPositionCorrection);
+
+                if (EnableDiagnostics)
+                {
+                    RecordIterationDiagnostic(
+                        substepIndex,
+                        iterationIndex,
+                        totalPositionCorrection,
+                        maxPositionCorrection);
+                }
+            }
             statistics.IterationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - iterationStart);
 
             AccumulateConstraintStatistics(ref statistics, ref penetrationSum);
-            ReconstructVelocities(substepDeltaTime);
+            ReconstructVelocities(substepDeltaTime, ref statistics);
+
+            if (EnableDiagnostics)
+                CaptureSelectedBodyAndPairs(substepIndex);
         }
 
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
@@ -79,6 +110,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             : 0f;
         statistics.AverageIterationNanoseconds =
             statistics.IterationNanoseconds / math.max(1, substepCount * iterationCount);
+        statistics.AverageSpeedBeforeContact /= substepCount;
+        statistics.AverageSpeedAfterContact /= substepCount;
         statistics.SolverNanoseconds =
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
         Statistics.Value = statistics;
@@ -135,6 +168,8 @@ public struct SolveXpbdUnitContactsJob : IJob
 
             state.PredictedPosition = state.StartPosition + velocity * substepDeltaTime;
             state.PredictedPosition.y = state.CurrentPosition.y;
+            state.UnconstrainedPredictedPosition = state.PredictedPosition;
+            state.VelocityBeforeContact = velocity;
             state.IntegratedVelocity = velocity;
             States[i] = state;
         }
@@ -144,6 +179,8 @@ public struct SolveXpbdUnitContactsJob : IJob
     {
         SweptCellEntries.Clear();
         Pairs.Clear();
+        if (EnableDiagnostics)
+            PairDiagnostics.Clear();
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
         float skin = math.max(0f, PredictiveSkin);
 
@@ -267,7 +304,19 @@ public struct SolveXpbdUnitContactsJob : IJob
             float minDistanceSq = math.lengthsq(r0 + closestTime * relativeDisplacement);
             float candidateDistance = radiusSum + skin;
             if (minDistanceSq > candidateDistance * candidateDistance)
+            {
+                if (EnableDiagnostics)
+                {
+                    AddSelectedPairDiagnostic(
+                        pair,
+                        Stage3ContactDiagnosticPairKind.BroadPhaseRejected,
+                        closestTime,
+                        math.sqrt(minDistanceSq),
+                        radiusSum,
+                        0);
+                }
                 continue;
+            }
 
             float startDistanceSq = math.lengthsq(r0);
             float3 endDelta = bodyB.PredictedPosition - bodyA.PredictedPosition;
@@ -282,9 +331,12 @@ public struct SolveXpbdUnitContactsJob : IJob
                 endDistanceSq >= radiusSumSq &&
                 minDistanceSq <= radiusSumSq;
 
+            if (shouldPreventSideExchange)
+                statistics.PotentialPredictivePairCount++;
+
             pair.Lambda = 0f;
             pair.WasActivated = 0;
-            pair.ContactMode = shouldPreventSideExchange
+            pair.ContactMode = shouldPreventSideExchange && EnablePredictiveContacts
                 ? UnitContactMode.Predictive
                 : UnitContactMode.Regular;
             Pairs[writeIndex++] = pair;
@@ -297,8 +349,13 @@ public struct SolveXpbdUnitContactsJob : IJob
         statistics.ContactPairCount += writeIndex;
     }
 
-    private void SolveContactIteration(float substepDeltaTime)
+    private void SolveContactIteration(
+        float substepDeltaTime,
+        out float totalPositionCorrection,
+        out float maxPositionCorrection)
     {
+        totalPositionCorrection = 0f;
+        maxPositionCorrection = 0f;
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
 
         for (int i = 0; i < Pairs.Length; i++)
@@ -347,6 +404,11 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (math.abs(appliedLambda) <= 0.0000001f)
                 continue;
 
+            float pairCorrection =
+                (bodyA.InverseMass + bodyB.InverseMass) * math.abs(appliedLambda);
+            totalPositionCorrection += pairCorrection;
+            maxPositionCorrection = math.max(maxPositionCorrection, pairCorrection);
+
             bodyA.PredictedPosition += normal * (bodyA.InverseMass * appliedLambda);
             bodyB.PredictedPosition -= normal * (bodyB.InverseMass * appliedLambda);
             bodyA.PredictedPosition.y = bodyA.CurrentPosition.y;
@@ -385,8 +447,225 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
-    private void ReconstructVelocities(float substepDeltaTime)
+    private void RecordIterationDiagnostic(
+        int substepIndex,
+        int iterationIndex,
+        float totalPositionCorrection,
+        float maxPositionCorrection)
     {
+        float violationSum = 0f;
+        float radialPenetrationSum = 0f;
+        float maxViolation = 0f;
+        float maxRadialPenetration = 0f;
+        int violatingCount = 0;
+        int penetratingCount = 0;
+        int activeCount = 0;
+        int predictiveActivatedCount = 0;
+
+        for (int i = 0; i < Pairs.Length; i++)
+        {
+            UnitCollisionPair pair = Pairs[i];
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            float radiusSum = bodyA.Radius + bodyB.Radius;
+            float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            currentDelta.y = 0;
+
+            float constraintValue;
+            if (pair.ContactMode == UnitContactMode.Predictive)
+            {
+                float3 initialDelta = bodyA.StartPosition - bodyB.StartPosition;
+                initialDelta.y = 0;
+                float3 normal = math.normalizesafe(
+                    initialDelta,
+                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                constraintValue = math.dot(currentDelta, normal) - radiusSum;
+            }
+            else
+            {
+                constraintValue = math.length(currentDelta) - radiusSum;
+            }
+
+            float violation = math.max(0f, -constraintValue);
+            if (violation > 0f)
+            {
+                violationSum += violation;
+                maxViolation = math.max(maxViolation, violation);
+                violatingCount++;
+            }
+
+            float radialPenetration = math.max(0f, radiusSum - math.length(currentDelta));
+            if (radialPenetration > 0f)
+            {
+                radialPenetrationSum += radialPenetration;
+                maxRadialPenetration = math.max(maxRadialPenetration, radialPenetration);
+                penetratingCount++;
+            }
+
+            if (pair.Lambda <= 0.0000001f)
+                continue;
+
+            activeCount++;
+            if (pair.ContactMode == UnitContactMode.Predictive)
+                predictiveActivatedCount++;
+        }
+
+        IterationDiagnostics.Add(new Stage3ContactIterationDiagnostic
+        {
+            SubstepIndex = substepIndex,
+            IterationIndex = iterationIndex,
+            ActiveConstraintCount = activeCount,
+            PredictiveActivatedCount = predictiveActivatedCount,
+            MaxConstraintViolation = maxViolation,
+            AverageConstraintViolation = violatingCount > 0
+                ? violationSum / violatingCount
+                : 0f,
+            MaxRadialPenetration = maxRadialPenetration,
+            AverageRadialPenetration = penetratingCount > 0
+                ? radialPenetrationSum / penetratingCount
+                : 0f,
+            TotalPositionCorrection = totalPositionCorrection,
+            MaxPositionCorrection = maxPositionCorrection
+        });
+    }
+
+    private void CaptureSelectedBodyAndPairs(int substepIndex)
+    {
+        int selectedBodyIndex = FindSelectedBodyIndex();
+        if (selectedBodyIndex < 0)
+        {
+            SelectedBodyDiagnostic.Value = default;
+            return;
+        }
+
+        FlowMovementFrameState selected = States[selectedBodyIndex];
+        SelectedBodyDiagnostic.Value = new Stage3SelectedBodyDiagnostic
+        {
+            IsValid = 1,
+            SubstepIndex = substepIndex,
+            Radius = selected.Radius,
+            Skin = math.max(0f, PredictiveSkin),
+            StartPosition = selected.StartPosition,
+            UnconstrainedPredictedPosition = selected.UnconstrainedPredictedPosition,
+            SolvedPosition = selected.PredictedPosition,
+            VelocityBeforeContact = selected.VelocityBeforeContact,
+            VelocityAfterContact = selected.IntegratedVelocity
+        };
+
+        for (int i = 0; i < Pairs.Length; i++)
+        {
+            UnitCollisionPair pair = Pairs[i];
+            if (pair.BodyA != selectedBodyIndex && pair.BodyB != selectedBodyIndex)
+                continue;
+
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            float3 r0 = bodyB.StartPosition - bodyA.StartPosition;
+            float3 relativeDisplacement =
+                (bodyB.UnconstrainedPredictedPosition - bodyB.StartPosition) -
+                (bodyA.UnconstrainedPredictedPosition - bodyA.StartPosition);
+            r0.y = 0;
+            relativeDisplacement.y = 0;
+            float relativeLengthSq = math.lengthsq(relativeDisplacement);
+            float closestTime = relativeLengthSq > 0.0000001f
+                ? math.clamp(-math.dot(r0, relativeDisplacement) / relativeLengthSq, 0f, 1f)
+                : 0f;
+            float minDistance = math.length(r0 + closestTime * relativeDisplacement);
+            float radiusSum = bodyA.Radius + bodyB.Radius;
+            float startDistanceSq = math.lengthsq(r0);
+            float3 endDelta =
+                bodyB.UnconstrainedPredictedPosition - bodyA.UnconstrainedPredictedPosition;
+            endDelta.y = 0;
+            bool potentialPredictive =
+                startDistanceSq >= radiusSum * radiusSum &&
+                math.lengthsq(endDelta) >= radiusSum * radiusSum &&
+                minDistance <= radiusSum;
+
+            Stage3ContactDiagnosticPairKind kind;
+            if (potentialPredictive)
+            {
+                kind = EnablePredictiveContacts
+                    ? Stage3ContactDiagnosticPairKind.Predictive
+                    : Stage3ContactDiagnosticPairKind.PredictiveDisabled;
+            }
+            else
+            {
+                kind = Stage3ContactDiagnosticPairKind.Regular;
+            }
+
+            AddSelectedPairDiagnostic(
+                pair,
+                kind,
+                closestTime,
+                minDistance,
+                radiusSum,
+                pair.WasActivated);
+        }
+    }
+
+    private void AddSelectedPairDiagnostic(
+        UnitCollisionPair pair,
+        Stage3ContactDiagnosticPairKind kind,
+        float closestTime,
+        float minimumDistance,
+        float radiusSum,
+        byte wasActivated)
+    {
+        int selectedBodyIndex = FindSelectedBodyIndex();
+        if (selectedBodyIndex < 0 ||
+            (pair.BodyA != selectedBodyIndex && pair.BodyB != selectedBodyIndex))
+            return;
+
+        int otherBodyIndex = pair.BodyA == selectedBodyIndex ? pair.BodyB : pair.BodyA;
+        FlowMovementFrameState selected = States[selectedBodyIndex];
+        FlowMovementFrameState other = States[otherBodyIndex];
+        float3 selectedClosest = math.lerp(
+            selected.StartPosition,
+            selected.UnconstrainedPredictedPosition,
+            closestTime);
+        float3 otherClosest = math.lerp(
+            other.StartPosition,
+            other.UnconstrainedPredictedPosition,
+            closestTime);
+
+        PairDiagnostics.Add(new Stage3ContactPairDiagnostic
+        {
+            OtherEntity = other.Entity,
+            Kind = kind,
+            WasActivated = wasActivated,
+            ClosestTime = closestTime,
+            MinimumDistance = minimumDistance,
+            RadiusSum = radiusSum,
+            OtherRadius = other.Radius,
+            OtherStartPosition = other.StartPosition,
+            OtherPredictedPosition = other.UnconstrainedPredictedPosition,
+            SelectedClosestPosition = selectedClosest,
+            OtherClosestPosition = otherClosest
+        });
+    }
+
+    private int FindSelectedBodyIndex()
+    {
+        if (DiagnosticSelectedEntity == Entity.Null)
+            return -1;
+
+        for (int i = 0; i < States.Length; i++)
+        {
+            if (States[i].Entity == DiagnosticSelectedEntity)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private void ReconstructVelocities(
+        float substepDeltaTime,
+        ref PredictiveDiscContactStatistics statistics)
+    {
+        float speedBeforeSum = 0f;
+        float speedAfterSum = 0f;
+        int simulatedBodyCount = 0;
+
         for (int i = 0; i < States.Length; i++)
         {
             FlowMovementFrameState state = States[i];
@@ -396,7 +675,23 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.IntegratedVelocity =
                 (state.PredictedPosition - state.PreviousSubstepPosition) / substepDeltaTime;
             state.IntegratedVelocity.y = 0;
+            float velocityChange = math.distance(
+                state.IntegratedVelocity,
+                state.VelocityBeforeContact);
+            statistics.TotalVelocityChange += velocityChange;
+            statistics.MaxVelocityChange = math.max(
+                statistics.MaxVelocityChange,
+                velocityChange);
+            speedBeforeSum += math.length(state.VelocityBeforeContact);
+            speedAfterSum += math.length(state.IntegratedVelocity);
+            simulatedBodyCount++;
             States[i] = state;
+        }
+
+        if (simulatedBodyCount > 0)
+        {
+            statistics.AverageSpeedBeforeContact += speedBeforeSum / simulatedBodyCount;
+            statistics.AverageSpeedAfterContact += speedAfterSum / simulatedBodyCount;
         }
     }
 
@@ -416,12 +711,62 @@ public struct SolveXpbdUnitContactsJob : IJob
 }
 
 [BurstCompile]
+public struct FinalizeStage3ContactDiagnosticsJob : IJob
+{
+    public bool EnableDiagnostics;
+    public Entity DiagnosticSelectedEntity;
+    [ReadOnly] public NativeArray<FlowMovementFrameState> States;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
+
+    public void Execute()
+    {
+        if (!EnableDiagnostics)
+            return;
+
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        Stage3SelectedBodyDiagnostic selectedDiagnostic = SelectedBodyDiagnostic.Value;
+
+        for (int i = 0; i < States.Length; i++)
+        {
+            FlowMovementFrameState state = States[i];
+            if (!state.IsInsideGrid)
+                continue;
+
+            float wallCorrection = math.length(state.PositionCorrection);
+            statistics.TotalWallPositionCorrection += wallCorrection;
+            statistics.MaxWallPositionCorrection = math.max(
+                statistics.MaxWallPositionCorrection,
+                wallCorrection);
+
+            if (state.Entity == DiagnosticSelectedEntity && selectedDiagnostic.IsValid != 0)
+                selectedDiagnostic.WallCorrection = state.PositionCorrection;
+        }
+
+        Statistics.Value = statistics;
+        SelectedBodyDiagnostic.Value = selectedDiagnostic;
+    }
+}
+
+[BurstCompile]
 public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 {
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> Source;
+    [ReadOnly] public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource;
+    [ReadOnly] public NativeList<Stage3ContactIterationDiagnostic> IterationSource;
+    [ReadOnly] public NativeList<Stage3ContactPairDiagnostic> PairSource;
 
-    public void Execute(ref PredictiveDiscContactStatistics destination)
+    public void Execute(
+        ref PredictiveDiscContactStatistics destination,
+        ref Stage3SelectedBodyDiagnostic selectedBodyDestination,
+        DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDestination,
+        DynamicBuffer<Stage3ContactPairDiagnostic> pairDestination)
     {
         destination = Source.Value;
+        selectedBodyDestination = SelectedBodySource.Value;
+        iterationDestination.Clear();
+        pairDestination.Clear();
+        iterationDestination.AddRange(IterationSource.AsArray());
+        pairDestination.AddRange(PairSource.AsArray());
     }
 }

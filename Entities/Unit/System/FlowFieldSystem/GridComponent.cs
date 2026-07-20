@@ -47,6 +47,9 @@ public struct UnitContactSolverSettings : IComponentData
     public int IterationCount;
     public float Compliance;
     public float PredictiveSkin;
+    public bool EnablePredictiveContacts;
+    public bool EnableDiagnostics;
+    public bool VisualizeSelectedContacts;
 }
 
 /// <summary>
@@ -57,6 +60,7 @@ public struct PredictiveDiscContactStatistics : IComponentData
 {
     public int CandidatePairCount;
     public int ContactPairCount;
+    public int PotentialPredictivePairCount;
     public int PredictivePairCount;
     public int ActiveConstraintCount;
     public int PredictiveActivatedCount;
@@ -67,6 +71,14 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public float AveragePenetration;
     public float UnactivatedRatio;
     public float PredictiveUnactivatedRatio;
+    public float TotalContactPositionCorrection;
+    public float MaxContactPositionCorrection;
+    public float TotalVelocityChange;
+    public float MaxVelocityChange;
+    public float TotalWallPositionCorrection;
+    public float MaxWallPositionCorrection;
+    public float AverageSpeedBeforeContact;
+    public float AverageSpeedAfterContact;
     public long PairGenerationNanoseconds;
     public long IterationNanoseconds;
     public long SolverNanoseconds;

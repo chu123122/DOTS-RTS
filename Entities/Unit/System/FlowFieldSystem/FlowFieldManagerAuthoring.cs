@@ -22,6 +22,14 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Min(1)] public int contactIterations = 4;
     [Min(0f)] public float contactCompliance;
     [Min(0f)] public float predictiveContactSkin = 0.05f;
+    [Tooltip("关闭时仍生成 swept candidate，但不会启用防换侧 Predictive 约束。")]
+    public bool enablePredictiveContacts = true;
+
+    [Header("Stage 3 Contact Diagnostic")]
+    [Tooltip("开启逐 iteration 残差、位置修正、速度变化和选中单位 Pair 采集。")]
+    public bool enableContactDiagnostics;
+    [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
+    public bool visualizeSelectedContacts = true;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
@@ -43,9 +51,19 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 SubstepCount = math.max(1, authoring.contactSubsteps),
                 IterationCount = math.max(1, authoring.contactIterations),
                 Compliance = math.max(0f, authoring.contactCompliance),
-                PredictiveSkin = math.max(0f, authoring.predictiveContactSkin)
+                PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
+                EnablePredictiveContacts = authoring.enablePredictiveContacts,
+                EnableDiagnostics = authoring.enableContactDiagnostics,
+                VisualizeSelectedContacts = authoring.visualizeSelectedContacts
             });
             AddComponent(entity, new PredictiveDiscContactStatistics());
+            AddComponent(entity, new Stage3ContactDiagnosticSelection
+            {
+                SelectedEntity = Entity.Null
+            });
+            AddComponent(entity, new Stage3SelectedBodyDiagnostic());
+            AddBuffer<Stage3ContactIterationDiagnostic>(entity);
+            AddBuffer<Stage3ContactPairDiagnostic>(entity);
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new RecalculateFlowFieldTag());

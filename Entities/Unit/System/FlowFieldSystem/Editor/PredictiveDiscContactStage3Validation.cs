@@ -1,15 +1,18 @@
 using System;
 using System.IO;
 using Unity.Collections;
+using Unity.Entities;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
 
 public static class PredictiveDiscContactStage3Validation
 {
+    // 该验证同时覆盖 Predictive 功能开关和逐 iteration 诊断输出。
     private const float PositionTolerance = 0.0001f;
-    private const string ValidationRequestPath =
-        "Temp/RunPredictiveDiscContactStage3Validation";
+    private static string ValidationRequestPath => Path.GetFullPath(Path.Combine(
+        Application.dataPath,
+        "../Temp/RunPredictiveDiscContactStage3Validation"));
 
     [InitializeOnLoadMethod]
     private static void RunRequestedValidationAfterReload()
@@ -27,8 +30,10 @@ public static class PredictiveDiscContactStage3Validation
         ValidateSeparatedStationaryDiscs();
         ValidateRegularOverlap();
         ScenarioResult crossing = ValidateHighSpeedSideExchange();
+        ScenarioResult predictiveDisabled = ValidatePredictiveToggle();
         ScenarioResult tangent = ValidateTangentialNearMiss();
         ScenarioResult chain = ValidatePrebuiltChainContact();
+        ValidateWallCorrectionDiagnostic();
         (ScenarioResult oneIteration, ScenarioResult eightIterations) =
             ValidateIterationResidualReduction();
 
@@ -36,6 +41,8 @@ public static class PredictiveDiscContactStage3Validation
             "STAGE3_VALIDATION_OK\n" +
             $"crossing: predictive={crossing.Statistics.PredictivePairCount}, " +
             $"activated={crossing.Statistics.PredictiveActivatedCount}\n" +
+            $"predictive disabled: potential={predictiveDisabled.Statistics.PotentialPredictivePairCount}, " +
+            $"active predictive={predictiveDisabled.Statistics.PredictivePairCount}\n" +
             $"tangent: contacts={tangent.Statistics.ContactPairCount}, " +
             $"unactivated={tangent.Statistics.UnactivatedPairCount}\n" +
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
@@ -82,6 +89,9 @@ public static class PredictiveDiscContactStage3Validation
         Require(result.Statistics.ActiveConstraintCount == 1 &&
                 result.Statistics.PredictivePairCount == 0,
             "Regular overlap was not classified as one active radial contact.");
+        Require(result.Statistics.MaxVelocityChange > 0f &&
+                result.Statistics.MaxContactPositionCorrection > 0f,
+            "Contact correction and velocity-change diagnostics were not recorded.");
     }
 
     private static ScenarioResult ValidateHighSpeedSideExchange()
@@ -133,6 +143,27 @@ public static class PredictiveDiscContactStage3Validation
         return result;
     }
 
+    private static ScenarioResult ValidatePredictiveToggle()
+    {
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(-1, 0, 0), new float3(2, 0, 0), 0.25f),
+            CreateBody(new float3(1, 0, 0), new float3(-2, 0, 0), 0.25f)
+        };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 4,
+            skin: 0.05f,
+            enablePredictiveContacts: false);
+        Require(result.Positions[0].x > result.Positions[1].x,
+            "Disabling Predictive Contact did not restore the endpoint-distance miss baseline.");
+        Require(result.Statistics.PotentialPredictivePairCount == 1 &&
+                result.Statistics.PredictivePairCount == 0,
+            "Predictive toggle did not preserve the potential-Pair diagnostic boundary.");
+        return result;
+    }
+
     private static ScenarioResult ValidatePrebuiltChainContact()
     {
         // Pair(0,1) 先检查且尚未重叠；Pair(1,2) 随后把 Body1 推向 Body0。
@@ -170,7 +201,48 @@ public static class PredictiveDiscContactStage3Validation
         Require(eightIterations.Statistics.AveragePenetration <=
                 oneIteration.Statistics.AveragePenetration,
             "Increasing iterations increased average dense-contact penetration.");
+        Require(eightIterations.IterationDiagnostics.Length == 8,
+            "Stage 3 diagnostics did not record one residual sample per iteration.");
         return (oneIteration, eightIterations);
+    }
+
+    private static void ValidateWallCorrectionDiagnostic()
+    {
+        var states = new NativeArray<FlowMovementFrameState>(1, Allocator.Temp);
+        var statistics =
+            new NativeReference<PredictiveDiscContactStatistics>(Allocator.Temp);
+        var selectedBody =
+            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.Temp);
+
+        try
+        {
+            states[0] = new FlowMovementFrameState
+            {
+                IsInsideGrid = true,
+                PositionCorrection = new float3(0.3f, 0, 0.4f)
+            };
+            var finalizeJob = new FinalizeStage3ContactDiagnosticsJob
+            {
+                EnableDiagnostics = true,
+                DiagnosticSelectedEntity = Entity.Null,
+                States = states,
+                Statistics = statistics,
+                SelectedBodyDiagnostic = selectedBody
+            };
+            finalizeJob.Execute();
+
+            Require(math.abs(statistics.Value.TotalWallPositionCorrection - 0.5f) <=
+                    PositionTolerance &&
+                    math.abs(statistics.Value.MaxWallPositionCorrection - 0.5f) <=
+                    PositionTolerance,
+                "Wall correction diagnostic was not accumulated from the post-contact wall pass.");
+        }
+        finally
+        {
+            selectedBody.Dispose();
+            statistics.Dispose();
+            states.Dispose();
+        }
     }
 
     private static FlowMovementFrameState CreateBody(
@@ -196,13 +268,20 @@ public static class PredictiveDiscContactStage3Validation
     private static ScenarioResult RunScenario(
         FlowMovementFrameState[] sourceBodies,
         int iterationCount,
-        float skin)
+        float skin,
+        bool enablePredictiveContacts = true)
     {
         var states = new NativeArray<FlowMovementFrameState>(sourceBodies, Allocator.Temp);
         var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.Temp);
         var pairs = new NativeList<UnitCollisionPair>(16, Allocator.Temp);
         var statistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.Temp);
+        var iterationDiagnostics =
+            new NativeList<Stage3ContactIterationDiagnostic>(16, Allocator.Temp);
+        var pairDiagnostics =
+            new NativeList<Stage3ContactPairDiagnostic>(16, Allocator.Temp);
+        var selectedBodyDiagnostic =
+            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.Temp);
 
         try
         {
@@ -213,13 +292,19 @@ public static class PredictiveDiscContactStage3Validation
                 IterationCount = iterationCount,
                 Compliance = 0f,
                 PredictiveSkin = skin,
+                EnablePredictiveContacts = enablePredictiveContacts,
+                EnableDiagnostics = true,
+                DiagnosticSelectedEntity = Entity.Null,
                 GridOrigin = new float3(-10, 0, -10),
                 GridDimensions = new int2(40, 40),
                 CellRadius = 0.5f,
                 SweptCellEntries = entries,
                 Pairs = pairs,
                 States = states,
-                Statistics = statistics
+                Statistics = statistics,
+                IterationDiagnostics = iterationDiagnostics,
+                PairDiagnostics = pairDiagnostics,
+                SelectedBodyDiagnostic = selectedBodyDiagnostic
             };
             solver.Execute();
 
@@ -230,11 +315,15 @@ public static class PredictiveDiscContactStage3Validation
             return new ScenarioResult
             {
                 Positions = positions,
-                Statistics = statistics.Value
+                Statistics = statistics.Value,
+                IterationDiagnostics = iterationDiagnostics.AsArray().ToArray()
             };
         }
         finally
         {
+            selectedBodyDiagnostic.Dispose();
+            pairDiagnostics.Dispose();
+            iterationDiagnostics.Dispose();
             statistics.Dispose();
             pairs.Dispose();
             entries.Dispose();
@@ -252,5 +341,6 @@ public static class PredictiveDiscContactStage3Validation
     {
         public float3[] Positions;
         public PredictiveDiscContactStatistics Statistics;
+        public Stage3ContactIterationDiagnostic[] IterationDiagnostics;
     }
 }
