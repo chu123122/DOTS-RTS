@@ -20,6 +20,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<UnitSpatialMap>();
         RequireForUpdate<UnitContactSolverSettings>();
+        RequireForUpdate<PredictiveDiscContactStatistics>();
 
         _movementQuery = GetEntityQuery(
             ComponentType.ReadWrite<LocalTransform>(),
@@ -56,9 +57,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             NativeArrayOptions.UninitializedMemory);
         var arrivalEnterDistance = new NativeReference<int>(Allocator.TempJob);
 
-        // Pair 生成阶段需要把 Spatial Hash 中的 Entity 映射到本帧稠密状态索引。
-        var entityToIndex = new NativeParallelHashMap<Entity, int>(unitCount, Allocator.TempJob);
-
         var physicsColliderLookup = SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
         physicsColliderLookup.Update(this);
 
@@ -90,7 +88,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
             ArrivalEnterDistance = arrivalEnterDistance,
-            EntityToIndex = entityToIndex.AsParallelWriter(),
+            CollisionFootprints = collisionFootprints,
             States = states
         };
         JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, arrivalAreaHandle);
@@ -110,41 +108,37 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle softAvoidanceHandle = softAvoidanceJob.ScheduleParallel(_movementQuery, independentForceHandle);
 
-        // 阶段 3：从当前位置 SpatialMap 并行生成唯一单位 Pair 候选快照。
-        var pairStream = new NativeStream(unitCount, Allocator.TempJob);
-        var collisionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
-        var buildPairJob = new BuildUniqueUnitCollisionPairsJob
-        {
-            Grid = gridComponent.Grid,
-            GridDimensions = gridComponent.GridDimensions,
-            SpatialMap = spatialMap.Map,
-            EntityToIndex = entityToIndex,
-            States = states,
-            PairWriter = pairStream.AsWriter()
-        };
-        JobHandle buildPairHandle = buildPairJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
-
-        var collectPairJob = new CollectUnitCollisionPairsJob
-        {
-            PairReader = pairStream.AsReader(),
-            Pairs = collisionPairs
-        };
-        JobHandle collectPairHandle = collectPairJob.Schedule(buildPairHandle);
-
-        // 阶段 4：按照 PointConstraints 的生命周期执行 XPBD 动态接触求解。
+        // 阶段 3：每个 substep 在 Job 内生成 swept disc Pair，随后全部 iteration 复用。
+        var sweptCellEntries = new NativeList<SweptDiscCellEntry>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
+        var collisionPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
+        var contactStatistics =
+            new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
             SubstepCount = contactSolverSettings.SubstepCount,
             IterationCount = contactSolverSettings.IterationCount,
             Compliance = contactSolverSettings.Compliance,
+            PredictiveSkin = contactSolverSettings.PredictiveSkin,
             GridOrigin = gridComponent.GridOrigin,
+            GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
-            Pairs = collisionPairs.AsDeferredJobArray(),
-            CollisionFootprints = collisionFootprints,
-            States = states
+            SweptCellEntries = sweptCellEntries,
+            Pairs = collisionPairs,
+            States = states,
+            Statistics = contactStatistics
         };
-        JobHandle solveContactHandle = solveContactJob.Schedule(collectPairHandle);
+        JobHandle solveContactHandle = solveContactJob.Schedule(softAvoidanceHandle);
+
+        var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
+        {
+            Source = contactStatistics
+        };
+        JobHandle publishStatisticsHandle = publishStatisticsJob.Schedule(solveContactHandle);
 
         // 墙壁暂时保留原有单体位置投影；Stage 2 只升级动态单位 Pair。
         var wallConstraintJob = new CalculateWallConstraintsJob
@@ -175,17 +169,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
         JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
         JobHandle arrivalDistanceDisposeHandle = arrivalEnterDistance.Dispose(applyMovementHandle);
-        JobHandle entityIndexDisposeHandle = entityToIndex.Dispose(applyMovementHandle);
-        JobHandle pairStreamDisposeHandle = pairStream.Dispose(applyMovementHandle);
+        JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
+        JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
         JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
             arrivalDistanceDisposeHandle,
-            entityIndexDisposeHandle);
+            statisticsDisposeHandle);
         JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
-            pairStreamDisposeHandle,
+            sweptEntryDisposeHandle,
             collisionPairDisposeHandle);
         Dependency = JobHandle.CombineDependencies(
             frameStateDisposeHandle,

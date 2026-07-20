@@ -18,12 +18,11 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     public float CellRadius;
 
     [ReadOnly] public NativeReference<int> ArrivalEnterDistance;
+    [ReadOnly] public NativeArray<float2> CollisionFootprints;
 
-    public NativeParallelHashMap<Entity, int>.ParallelWriter EntityToIndex;
     public NativeArray<FlowMovementFrameState> States;
 
     public void Execute(
-        Entity entity,
         [EntityIndexInQuery] int entityIndex,
         in LocalTransform transform,
         in Velocity velocity,
@@ -32,8 +31,6 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         in UnitContactBody contactBody,
         ref FlowArrivalState arrivalState)
     {
-        EntityToIndex.TryAdd(entity, entityIndex);
-
         var state = new FlowMovementFrameState
         {
             CurrentPosition = transform.Position,
@@ -41,7 +38,8 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
             CurrentVelocity = velocity.Value,
             MoveSpeed = speed.Value,
             MaxForce = settings.MaxForce,
-            InverseMass = math.max(0f, contactBody.InverseMass)
+            InverseMass = math.max(0f, contactBody.InverseMass),
+            Radius = math.cmax(CollisionFootprints[entityIndex]) * 0.5f
         };
 
         // 越界单位不参与本帧后续求解，并在最终阶段停止速度。

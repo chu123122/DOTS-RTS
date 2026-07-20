@@ -18,6 +18,7 @@ public struct FlowMovementFrameState
     public float MoveSpeed;
     public float MaxForce;
     public float InverseMass;
+    public float Radius;
 
     // 当前所在流场格及带滞回的到达状态，由独立力阶段计算。
     public int2 CellPosition;
@@ -29,6 +30,7 @@ public struct FlowMovementFrameState
     public float3 IndependentForce;
     public float3 SoftAvoidanceForce;
     public float3 IntegratedVelocity;
+    public float3 StartPosition;
     public float3 PredictedPosition;
     public float3 PreviousSubstepPosition;
     public float3 PositionCorrection;

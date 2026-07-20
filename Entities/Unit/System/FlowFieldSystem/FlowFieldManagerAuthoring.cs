@@ -21,6 +21,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Min(1)] public int contactSubsteps = 2;
     [Min(1)] public int contactIterations = 4;
     [Min(0f)] public float contactCompliance;
+    [Min(0f)] public float predictiveContactSkin = 0.05f;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
@@ -41,8 +42,10 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 SubstepCount = math.max(1, authoring.contactSubsteps),
                 IterationCount = math.max(1, authoring.contactIterations),
-                Compliance = math.max(0f, authoring.contactCompliance)
+                Compliance = math.max(0f, authoring.contactCompliance),
+                PredictiveSkin = math.max(0f, authoring.predictiveContactSkin)
             });
+            AddComponent(entity, new PredictiveDiscContactStatistics());
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new RecalculateFlowFieldTag());

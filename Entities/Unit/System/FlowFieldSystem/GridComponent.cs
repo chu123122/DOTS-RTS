@@ -46,6 +46,31 @@ public struct UnitContactSolverSettings : IComponentData
     public int SubstepCount;
     public int IterationCount;
     public float Compliance;
+    public float PredictiveSkin;
+}
+
+/// <summary>
+/// 最近一帧 Predictive Disc Contact 求解统计。
+/// 时间字段由 Job 内 Profiler 时间戳换算为纳秒，不引入主线程 Complete。
+/// </summary>
+public struct PredictiveDiscContactStatistics : IComponentData
+{
+    public int CandidatePairCount;
+    public int ContactPairCount;
+    public int PredictivePairCount;
+    public int ActiveConstraintCount;
+    public int PredictiveActivatedCount;
+    public int UnactivatedPairCount;
+    public int PredictiveUnactivatedCount;
+    public int PenetratingPairCount;
+    public float MaxPenetration;
+    public float AveragePenetration;
+    public float UnactivatedRatio;
+    public float PredictiveUnactivatedRatio;
+    public long PairGenerationNanoseconds;
+    public long IterationNanoseconds;
+    public long SolverNanoseconds;
+    public long AverageIterationNanoseconds;
 }
 
 /// <summary>
