@@ -69,7 +69,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         _overlay.Visible = shouldShowOverlay;
         if (!shouldShowOverlay)
         {
-            _overlay.Text = string.Empty;
+            _overlay.HeaderText = string.Empty;
+            _overlay.Stage3Text = string.Empty;
+            _overlay.ShadowText = string.Empty;
             return;
         }
 
@@ -94,15 +96,18 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         Stage3ContactDiagnosticSelection selection =
             SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
 
-        _overlay.Text = BuildOverlayText(
+        _overlay.HeaderText = BuildHeaderText(settings, _overlay.Scale);
+        _overlay.Stage3Text = BuildStage3PanelText(
             settings,
             statistics,
-            shadowStatistics,
             iterationDiagnostics,
             pairDiagnostics,
             selection.SelectedEntity,
-            selectedBody,
-            _overlay.Scale);
+            selectedBody);
+        _overlay.ShadowText = BuildShadowPanelText(
+            settings,
+            statistics,
+            shadowStatistics);
 
         if (!settings.EnableDiagnostics ||
             !settings.VisualizeSelectedContacts ||
@@ -305,115 +310,30 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             false);
     }
 
-    private static string BuildOverlayText(
+    private static string BuildHeaderText(
+        UnitContactSolverSettings settings,
+        float overlayScale)
+    {
+        var text = new StringBuilder(256);
+        text.Append("<size=19><b>单位接触诊断</b></size>   ")
+            .Append("<color=#92A3B8>F8 数据</color> ").Append(ToggleText(settings.EnableDiagnostics))
+            .Append("   <color=#92A3B8>F9 预测接触</color> ").Append(ToggleText(settings.EnablePredictiveContacts))
+            .Append("   <color=#92A3B8>F10 场景线框</color> ").Append(ToggleText(settings.VisualizeSelectedContacts))
+            .Append("   <color=#92A3B8>F11 Shadow</color> ").Append(ToggleText(settings.EnableShadowNeighborCacheTest))
+            .AppendLine()
+            .Append("<color=#74849A>PageUp / PageDown 调整面板：")
+            .Append(overlayScale.ToString("F1")).Append("x　·　中键选择单位</color>");
+        return text.ToString();
+    }
+
+    private static string BuildStage3PanelText(
         UnitContactSolverSettings settings,
         PredictiveDiscContactStatistics statistics,
-        ShadowNeighborCacheStatistics shadow,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
         DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
         Entity selectedEntity,
-        Stage3SelectedBodyDiagnostic selectedBody,
-        float overlayScale)
+        Stage3SelectedBodyDiagnostic selectedBody)
     {
-        var text = new StringBuilder(1024);
-        text.AppendLine("Stage 3 Contact / Shadow Cache Diagnostic");
-        text.Append("F8 Diagnostic: ").Append(settings.EnableDiagnostics ? "ON" : "OFF");
-        text.Append("    F9 Predictive: ").AppendLine(settings.EnablePredictiveContacts ? "ON" : "OFF");
-        text.Append("F10 World lines: ")
-            .AppendLine(settings.VisualizeSelectedContacts ? "ON" : "OFF");
-        text.Append("F11 Shadow cache: ")
-            .Append(settings.EnableShadowNeighborCacheTest ? "ON" : "OFF")
-            .Append("    margin: ")
-            .AppendLine(settings.ShadowCacheMargin.ToString("F3"));
-        text.Append("PageUp/PageDown panel scale: ")
-            .Append(overlayScale.ToString("F1")).AppendLine("x");
-
-        text.AppendLine("[Authoritative Predictive Contact Solver]");
-        text.Append("Substeps / Iterations: ").Append(settings.SubstepCount).Append(" / ")
-            .AppendLine(settings.IterationCount.ToString());
-        text.Append("Pairs candidate/contact/potentialPredictive/predictive: ")
-            .Append(statistics.CandidatePairCount).Append(" / ")
-            .Append(statistics.ContactPairCount).Append(" / ")
-            .Append(statistics.PotentialPredictivePairCount).Append(" / ")
-            .AppendLine(statistics.PredictivePairCount.ToString());
-        text.Append("Active / predictive active: ")
-            .Append(statistics.ActiveConstraintCount).Append(" / ")
-            .AppendLine(statistics.PredictiveActivatedCount.ToString());
-        text.Append("Final penetration max/avg: ")
-            .Append(statistics.MaxPenetration.ToString("F5")).Append(" / ")
-            .AppendLine(statistics.AveragePenetration.ToString("F5"));
-        text.Append("Contact correction total/max: ")
-            .Append(statistics.TotalContactPositionCorrection.ToString("F4")).Append(" / ")
-            .AppendLine(statistics.MaxContactPositionCorrection.ToString("F4"));
-        text.Append("Wall correction total/max: ")
-            .Append(statistics.TotalWallPositionCorrection.ToString("F4")).Append(" / ")
-            .AppendLine(statistics.MaxWallPositionCorrection.ToString("F4"));
-        text.Append("Speed before/after; max delta: ")
-            .Append(statistics.AverageSpeedBeforeContact.ToString("F3")).Append(" / ")
-            .Append(statistics.AverageSpeedAfterContact.ToString("F3")).Append("; ")
-            .AppendLine(statistics.MaxVelocityChange.ToString("F3"));
-
-        if (settings.EnableShadowNeighborCacheTest)
-        {
-            text.AppendLine("[Shadow Fat-AABB Cache Probe - does not affect solving]");
-            text.Append("Shadow previous-frame ready/bodies/pairs/checks: ")
-                .Append(shadow.PreviousFrameCacheAvailable).Append(" / ")
-                .Append(shadow.PreviousFrameCacheBodyCount).Append(" / ")
-                .Append(shadow.PreviousFrameCachePairCount).Append(" / ")
-                .AppendLine(shadow.PreviousFrameCheckCount.ToString());
-            text.Append("Shadow prev pair hit/miss; active/predictive miss: ")
-                .Append(shadow.PreviousFramePairHitCount).Append(" / ")
-                .Append(shadow.PreviousFramePairMissCount).Append("; ")
-                .Append(shadow.PreviousFrameActivePairMissCount).Append(" / ")
-                .AppendLine(shadow.PreviousFramePredictivePairMissCount.ToString());
-            text.Append("Shadow first-substep cache bodies/pairs/later-checks: ")
-                .Append(shadow.CurrentFrameCacheBodyCount).Append(" / ")
-                .Append(shadow.CurrentFrameCachePairCount).Append(" / ")
-                .AppendLine(shadow.CurrentFrameCheckCount.ToString());
-            text.Append("Shadow current pair hit/miss; active/predictive miss: ")
-                .Append(shadow.CurrentFramePairHitCount).Append(" / ")
-                .Append(shadow.CurrentFramePairMissCount).Append("; ")
-                .Append(shadow.CurrentFrameActivePairMissCount).Append(" / ")
-                .AppendLine(shadow.CurrentFramePredictivePairMissCount.ToString());
-            text.Append("Shadow escape pre/final/contact/wall (prev | current): ")
-                .Append(shadow.PreviousFramePreSolveEscapeBodyCount).Append("/")
-                .Append(shadow.PreviousFrameFinalEscapeBodyCount).Append("/")
-                .Append(shadow.PreviousFrameContactDrivenEscapeBodyCount).Append("/")
-                .Append(shadow.PreviousFrameWallDrivenEscapeBodyCount).Append(" | ")
-                .Append(shadow.CurrentFramePreSolveEscapeBodyCount).Append("/")
-                .Append(shadow.CurrentFrameFinalEscapeBodyCount).Append("/")
-                .Append(shadow.CurrentFrameContactDrivenEscapeBodyCount).Append("/")
-                .AppendLine(shadow.CurrentFrameWallDrivenEscapeBodyCount.ToString());
-            text.Append("Shadow build/validate ns: ")
-                .Append(shadow.CacheBuildNanoseconds).Append(" / ")
-                .AppendLine(shadow.ValidationNanoseconds.ToString());
-        }
-
-        if (iterations.Length > 0)
-        {
-            Stage3ContactIterationDiagnostic last = iterations[iterations.Length - 1];
-            text.Append("Last residual max/avg: ")
-                .Append(last.MaxConstraintViolation.ToString("F5")).Append(" / ")
-                .AppendLine(last.AverageConstraintViolation.ToString("F5"));
-
-            text.Append("Last substep residual curve: ");
-            int displayed = 0;
-            for (int i = 0; i < iterations.Length && displayed < 12; i++)
-            {
-                Stage3ContactIterationDiagnostic iteration = iterations[i];
-                if (iteration.SubstepIndex != last.SubstepIndex)
-                    continue;
-
-                if (displayed > 0)
-                    text.Append(" > ");
-                text.Append(iteration.MaxConstraintViolation.ToString("F4"));
-                displayed++;
-            }
-            if (displayed < settings.IterationCount)
-                text.Append(" ...");
-            text.AppendLine();
-        }
-
         int broadOnly = 0;
         int regular = 0;
         int predictive = 0;
@@ -437,61 +357,316 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             }
         }
 
-        text.Append("Selected: ").Append(selectedEntity == Entity.Null
-            ? "none"
-            : $"{selectedEntity.Index}:{selectedEntity.Version}");
-        text.Append("    shown pairs: ").AppendLine(selectedPairs.Length.ToString());
-        text.Append("Selected broad/regular/predictive/disabled: ")
-            .Append(broadOnly).Append(" / ")
-            .Append(regular).Append(" / ")
-            .Append(predictive).Append(" / ")
-            .AppendLine(predictiveDisabled.ToString());
+        var residualCurve = new StringBuilder(128);
+        float firstResidual = 0f;
+        float lastResidual = 0f;
+        float lastAverageResidual = 0f;
+        int residualSamples = 0;
+        if (iterations.Length > 0)
+        {
+            Stage3ContactIterationDiagnostic last = iterations[iterations.Length - 1];
+            lastResidual = last.MaxConstraintViolation;
+            lastAverageResidual = last.AverageConstraintViolation;
+            for (int i = 0; i < iterations.Length && residualSamples < 10; i++)
+            {
+                Stage3ContactIterationDiagnostic iteration = iterations[i];
+                if (iteration.SubstepIndex != last.SubstepIndex)
+                    continue;
+                if (residualSamples == 0)
+                    firstResidual = iteration.MaxConstraintViolation;
+                else
+                    residualCurve.Append(" <color=#607086>›</color> ");
+                residualCurve.Append(iteration.MaxConstraintViolation.ToString("F4"));
+                residualSamples++;
+            }
+            if (residualSamples < settings.IterationCount)
+                residualCurve.Append(" …");
+        }
+
+        string state;
+        if (statistics.ActiveConstraintCount == 0 &&
+            statistics.TotalWallPositionCorrection <= 0.000001f)
+        {
+            state = StatusText("空闲样本：本帧没有有效约束", "#91A0B4");
+        }
+        else if (residualSamples > 1 && lastResidual > firstResidual + 0.00001f)
+        {
+            state = StatusText("注意：单位接触残差正在上升", "#FF6B78");
+        }
+        else if (statistics.MaxPenetration > 0.0001f)
+        {
+            state = StatusText("求解已生效，但仍有剩余穿透", "#FFC857");
+        }
+        else
+        {
+            state = StatusText("当前约束结果稳定", "#69E39B");
+        }
+
+        var text = new StringBuilder(1024);
+        text.AppendLine("<size=18><color=#62D8FF><b>Stage 3 · 权威接触求解</b></color></size>")
+            .AppendLine("<color=#71839A>这些数据真实参与单位的位置和速度结果</color>")
+            .Append("<color=#91A0B7>状态　</color>").AppendLine(state)
+            .Append("<color=#91A0B7>配置　</color>子步 <b>").Append(settings.SubstepCount)
+            .Append("</b>　迭代 <b>").Append(settings.IterationCount).AppendLine("</b>")
+            .Append("<color=#91A0B7>Pair 漏斗　</color><color=#AFC4D8>候选</color> <b>")
+            .Append(statistics.CandidatePairCount)
+            .Append("</b>　<color=#607086>→</color>　<color=#7AD7F0>接触</color> <b>")
+            .Append(statistics.ContactPairCount)
+            .Append("</b>　<color=#607086>→</color>　<color=#69E39B>激活</color> <b>")
+            .Append(statistics.ActiveConstraintCount).AppendLine("</b>")
+            .Append("<color=#91A0B7>预测接触　</color>潜在 <b>").Append(statistics.PotentialPredictivePairCount)
+            .Append("</b>　生成 <color=#D58CFF><b>").Append(statistics.PredictivePairCount)
+            .Append("</b></color>　激活 <color=#FF7BA8><b>").Append(statistics.PredictiveActivatedCount)
+            .AppendLine("</b></color>")
+            .Append("<color=#91A0B7>最终穿透　</color>最大 <b>").Append(statistics.MaxPenetration.ToString("F5"))
+            .Append("</b>　平均 ").AppendLine(statistics.AveragePenetration.ToString("F5"))
+            .Append("<color=#91A0B7>单位修正　</color>累计 ").Append(statistics.TotalContactPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxContactPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>墙壁修正　</color>累计 ").Append(statistics.TotalWallPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxWallPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>平均速度　</color>").Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
+            .Append(" <color=#607086>→</color> ").Append(statistics.AverageSpeedAfterContact.ToString("F3"))
+            .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
+            .Append("<color=#91A0B7>最终残差　</color>最大 <b>").Append(lastResidual.ToString("F5"))
+            .Append("</b>　平均 ").AppendLine(lastAverageResidual.ToString("F5"))
+            .Append("<color=#91A0B7>收敛曲线　</color>")
+            .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
+            .Append("<color=#91A0B7>耗时 μs　</color>Pair ").Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
+            .Append("　单轮 ").Append(FormatMicroseconds(statistics.AverageIterationNanoseconds))
+            .Append("　总计 <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds)).AppendLine("</b>")
+            .Append("<color=#91A0B7>选中单位　</color>")
+            .Append(selectedEntity == Entity.Null
+                ? "<color=#607086>未选择</color>"
+                : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>")
+            .Append("　显示 Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
+            .Append("<color=#91A0B7>Pair 分类　</color>宽相排除 ").Append(broadOnly)
+            .Append("　普通 ").Append(regular).Append("　预测 ").Append(predictive)
+            .Append("　预测关闭 ").AppendLine(predictiveDisabled.ToString());
+
         if (selectedBody.IsValid != 0)
         {
-            text.Append("Selected contact delta / wall delta: ")
+            text.Append("<color=#91A0B7>选中单位修正　</color>接触 ")
                 .Append(math.length(selectedBody.ContactCorrection).ToString("F4"))
-                .Append(" / ")
+                .Append("　墙壁 ")
                 .AppendLine(math.length(selectedBody.WallCorrection).ToString("F4"));
         }
 
-        text.AppendLine("Middle click: select diagnostic unit");
-        text.AppendLine("Gray broad-only | Yellow/Orange regular | Magenta/Red predictive | Blue disabled");
-        text.Append("Cyan sweep | White swept AABB | Yellow/Red shadow fat AABB | Blue predicted disc | Green solved disc");
+        text.Append("<color=#607086>场景颜色：青色轨迹　白色 Swept AABB　蓝色预测圆　绿色求解圆</color>");
         return text.ToString();
+    }
+
+    private static string BuildShadowPanelText(
+        UnitContactSolverSettings settings,
+        PredictiveDiscContactStatistics statistics,
+        ShadowNeighborCacheStatistics shadow)
+    {
+        if (!settings.EnableShadowNeighborCacheTest)
+        {
+            return "<size=18><color=#C99BFF><b>Shadow · Fat AABB 缓存实验</b></color></size>\n" +
+                   "<color=#71839A>只和权威结果对照，不会改变求解</color>\n\n" +
+                   StatusText("当前未启用", "#91A0B4") + "\n\n" +
+                   "<color=#91A0B7>按 <b>F11</b> 开始采集跨帧和跨子步覆盖数据。</color>";
+        }
+
+        int criticalMisses =
+            shadow.PreviousFrameActivePairMissCount +
+            shadow.PreviousFramePredictivePairMissCount +
+            shadow.CurrentFrameActivePairMissCount +
+            shadow.CurrentFramePredictivePairMissCount;
+        int pairMisses = shadow.PreviousFramePairMissCount + shadow.CurrentFramePairMissCount;
+        int totalChecks = shadow.PreviousFrameCheckCount + shadow.CurrentFrameCheckCount;
+        int finalEscapes =
+            shadow.PreviousFrameFinalEscapeBodyCount +
+            shadow.CurrentFrameFinalEscapeBodyCount;
+
+        string state;
+        if (totalChecks == 0)
+            state = StatusText("等待复用样本", "#91A0B4");
+        else if (criticalMisses > 0)
+            state = StatusText("不安全：漏掉了实际激活或预测 Pair", "#FF6B78");
+        else if (pairMisses > 0)
+            state = StatusText("注意：缓存存在普通 Pair 漏失", "#FFC857");
+        else if (finalEscapes > 0)
+            state = StatusText("覆盖完整，但有单位逃出 Fat AABB", "#FFC857");
+        else
+            state = StatusText("当前样本覆盖完整", "#69E39B");
+
+        float averageCandidates =
+            (float)statistics.CandidatePairCount / math.max(1, settings.SubstepCount);
+        string inflation = averageCandidates > 0.0001f
+            ? (shadow.CurrentFrameCachePairCount / averageCandidates).ToString("F2") + "x"
+            : "--";
+
+        var text = new StringBuilder(1024);
+        text.AppendLine("<size=18><color=#C99BFF><b>Shadow · Fat AABB 缓存实验</b></color></size>")
+            .AppendLine("<color=#71839A>验证缓存能否覆盖未来真实 Contact Pair</color>")
+            .Append("<color=#A999BA>状态　</color>").AppendLine(state)
+            .Append("<color=#A999BA>额外边界　</color><b>").Append(settings.ShadowCacheMargin.ToString("F3"))
+            .Append("</b>　粗略膨胀率 <b>").Append(inflation).AppendLine("</b>")
+            .AppendLine("<color=#BBA6D0><b>上一帧缓存 → 当前首子步</b></color>")
+            .Append("<color=#A999BA>缓存规模　</color>就绪 ").Append(shadow.PreviousFrameCacheAvailable)
+            .Append("　单位 ").Append(shadow.PreviousFrameCacheBodyCount)
+            .Append("　Pair <b>").Append(shadow.PreviousFrameCachePairCount)
+            .Append("</b>　检查 ").AppendLine(shadow.PreviousFrameCheckCount.ToString())
+            .Append("<color=#A999BA>覆盖结果　</color>命中 <color=#69E39B><b>").Append(shadow.PreviousFramePairHitCount)
+            .Append("</b></color>　漏失 <color=#FFB65C><b>").Append(shadow.PreviousFramePairMissCount)
+            .Append("</b></color>　覆盖率 <b>")
+            .Append(FormatCoverage(shadow.PreviousFramePairHitCount, shadow.PreviousFramePairMissCount))
+            .AppendLine("</b>")
+            .Append("<color=#A999BA>关键漏失　</color>实际激活 <color=#FF6B78><b>")
+            .Append(shadow.PreviousFrameActivePairMissCount)
+            .Append("</b></color>　预测 <color=#FF6B78><b>")
+            .Append(shadow.PreviousFramePredictivePairMissCount).AppendLine("</b></color>")
+            .AppendLine("<color=#BBA6D0><b>首子步缓存 → 后续子步</b></color>")
+            .Append("<color=#A999BA>缓存规模　</color>单位 ").Append(shadow.CurrentFrameCacheBodyCount)
+            .Append("　Pair <b>").Append(shadow.CurrentFrameCachePairCount)
+            .Append("</b>　后续检查 ").AppendLine(shadow.CurrentFrameCheckCount.ToString())
+            .Append("<color=#A999BA>覆盖结果　</color>命中 <color=#69E39B><b>").Append(shadow.CurrentFramePairHitCount)
+            .Append("</b></color>　漏失 <color=#FFB65C><b>").Append(shadow.CurrentFramePairMissCount)
+            .Append("</b></color>　覆盖率 <b>")
+            .Append(FormatCoverage(shadow.CurrentFramePairHitCount, shadow.CurrentFramePairMissCount))
+            .AppendLine("</b>")
+            .Append("<color=#A999BA>关键漏失　</color>实际激活 <color=#FF6B78><b>")
+            .Append(shadow.CurrentFrameActivePairMissCount)
+            .Append("</b></color>　预测 <color=#FF6B78><b>")
+            .Append(shadow.CurrentFramePredictivePairMissCount).AppendLine("</b></color>")
+            .AppendLine("<color=#BBA6D0><b>Fat AABB 逃逸来源</b></color>")
+            .Append("<color=#A999BA>上一帧　</color>预测前 ").Append(shadow.PreviousFramePreSolveEscapeBodyCount)
+            .Append("　最终 ").Append(shadow.PreviousFrameFinalEscapeBodyCount)
+            .Append("　接触 ").Append(shadow.PreviousFrameContactDrivenEscapeBodyCount)
+            .Append("　墙壁 ").AppendLine(shadow.PreviousFrameWallDrivenEscapeBodyCount.ToString())
+            .Append("<color=#A999BA>首子步　</color>预测前 ").Append(shadow.CurrentFramePreSolveEscapeBodyCount)
+            .Append("　最终 ").Append(shadow.CurrentFrameFinalEscapeBodyCount)
+            .Append("　接触 ").Append(shadow.CurrentFrameContactDrivenEscapeBodyCount)
+            .Append("　墙壁 ").AppendLine(shadow.CurrentFrameWallDrivenEscapeBodyCount.ToString())
+            .Append("<color=#A999BA>实验耗时 μs　</color>构建 ")
+            .Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
+            .Append("　验证 <b>").Append(FormatMicroseconds(shadow.ValidationNanoseconds)).AppendLine("</b>")
+            .Append("<color=#607086>判定顺序：关键漏失必须为 0，其次观察逃逸和 Pair 膨胀。</color>");
+        return text.ToString();
+    }
+
+    private static string ToggleText(bool enabled)
+    {
+        return enabled
+            ? "<color=#69E39B><b>开启</b></color>"
+            : "<color=#758397>关闭</color>";
+    }
+
+    private static string StatusText(string value, string color)
+    {
+        return $"<color={color}><b>{value}</b></color>";
+    }
+
+    private static string FormatMicroseconds(long nanoseconds)
+    {
+        return (nanoseconds / 1000f).ToString("F1");
+    }
+
+    private static string FormatCoverage(int hits, int misses)
+    {
+        int total = hits + misses;
+        return total > 0
+            ? ((float)hits / total * 100f).ToString("F1") + "%"
+            : "--";
     }
 }
 
 public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
 {
     public bool Visible;
-    public string Text = string.Empty;
+    public string HeaderText = string.Empty;
+    public string Stage3Text = string.Empty;
+    public string ShadowText = string.Empty;
     public float Scale = 1.25f;
 
-    private GUIStyle _labelStyle;
+    private GUIStyle _headerStyle;
+    private GUIStyle _panelStyle;
 
     private void OnGUI()
     {
         if (!Visible)
             return;
 
-        _labelStyle ??= new GUIStyle(GUI.skin.label)
+        _headerStyle ??= new GUIStyle(GUI.skin.label)
         {
-            normal = { textColor = Color.white }
+            richText = true,
+            wordWrap = true,
+            fontSize = 16,
+            normal = { textColor = new Color(0.92f, 0.96f, 1f) }
         };
-        _labelStyle.fontSize = 15;
+        _panelStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            richText = true,
+            wordWrap = true,
+            fontSize = 16,
+            normal = { textColor = new Color(0.9f, 0.94f, 0.98f) }
+        };
 
-        const float logicalWidth = 900f;
-        float logicalHeight = math.max(
-            455f,
-            _labelStyle.CalcHeight(new GUIContent(Text), logicalWidth - 36f) + 40f);
+        const float cardWidth = 510f;
+        const float gap = 12f;
+        const float logicalWidth = cardWidth * 2f + gap;
+        float headerHeight = math.max(
+            58f,
+            _headerStyle.CalcHeight(new GUIContent(HeaderText), logicalWidth - 28f) + 20f);
+        float stage3Height = _panelStyle.CalcHeight(
+            new GUIContent(Stage3Text),
+            cardWidth - 32f) + 28f;
+        float shadowHeight = _panelStyle.CalcHeight(
+            new GUIContent(ShadowText),
+            cardWidth - 32f) + 28f;
+        float cardHeight = math.max(390f, math.max(stage3Height, shadowHeight));
+        float logicalHeight = headerHeight + gap + cardHeight;
         float fitScale = math.min(
             (Screen.width - 24f) / logicalWidth,
             (Screen.height - 24f) / logicalHeight);
         float effectiveScale = math.clamp(math.min(Scale, fitScale), 0.5f, 2f);
         Matrix4x4 previousMatrix = GUI.matrix;
         GUI.matrix = Matrix4x4.Scale(new Vector3(effectiveScale, effectiveScale, 1f));
-        GUI.Box(new Rect(12, 12, logicalWidth, logicalHeight), GUIContent.none);
-        GUI.Label(new Rect(24, 20, logicalWidth - 36f, logicalHeight - 28f), Text, _labelStyle);
+
+        var headerRect = new Rect(12f, 12f, logicalWidth, headerHeight);
+        DrawCardBackground(
+            headerRect,
+            new Color(0.025f, 0.035f, 0.055f, 0.96f),
+            new Color(0.26f, 0.38f, 0.52f, 1f));
+        GUI.Label(
+            new Rect(headerRect.x + 14f, headerRect.y + 8f, headerRect.width - 28f, headerRect.height - 14f),
+            HeaderText,
+            _headerStyle);
+
+        float cardY = headerRect.yMax + gap;
+        var stage3Rect = new Rect(12f, cardY, cardWidth, cardHeight);
+        var shadowRect = new Rect(stage3Rect.xMax + gap, cardY, cardWidth, cardHeight);
+        DrawCardBackground(
+            stage3Rect,
+            new Color(0.025f, 0.065f, 0.09f, 0.95f),
+            new Color(0.18f, 0.68f, 0.88f, 1f));
+        DrawCardBackground(
+            shadowRect,
+            new Color(0.065f, 0.04f, 0.085f, 0.95f),
+            new Color(0.65f, 0.42f, 0.88f, 1f));
+        GUI.Label(
+            new Rect(stage3Rect.x + 16f, stage3Rect.y + 12f, stage3Rect.width - 32f, stage3Rect.height - 24f),
+            Stage3Text,
+            _panelStyle);
+        GUI.Label(
+            new Rect(shadowRect.x + 16f, shadowRect.y + 12f, shadowRect.width - 32f, shadowRect.height - 24f),
+            ShadowText,
+            _panelStyle);
+
         GUI.matrix = previousMatrix;
+    }
+
+    private static void DrawCardBackground(Rect rect, Color background, Color accent)
+    {
+        Color previousColor = GUI.color;
+        GUI.color = background;
+        GUI.DrawTexture(rect, Texture2D.whiteTexture);
+        GUI.color = accent;
+        GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, 4f), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(rect.x, rect.y, 1f, rect.height), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(rect.xMax - 1f, rect.y, 1f, rect.height), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(rect.x, rect.yMax - 1f, rect.width, 1f), Texture2D.whiteTexture);
+        GUI.color = previousColor;
     }
 }
