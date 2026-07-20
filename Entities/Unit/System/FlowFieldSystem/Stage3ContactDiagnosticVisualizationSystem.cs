@@ -55,6 +55,10 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             settings.VisualizeSelectedContacts = !settings.VisualizeSelectedContacts;
         if (keyboard != null && keyboard.f11Key.wasPressedThisFrame)
             settings.EnableShadowNeighborCacheTest = !settings.EnableShadowNeighborCacheTest;
+        if (keyboard != null && keyboard.pageUpKey.wasPressedThisFrame)
+            _overlay.Scale = math.min(2f, _overlay.Scale + 0.1f);
+        if (keyboard != null && keyboard.pageDownKey.wasPressedThisFrame)
+            _overlay.Scale = math.max(0.8f, _overlay.Scale - 0.1f);
         settingsReference.ValueRW = settings;
 
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
@@ -97,7 +101,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             iterationDiagnostics,
             pairDiagnostics,
             selection.SelectedEntity,
-            selectedBody);
+            selectedBody,
+            _overlay.Scale);
 
         if (!settings.EnableDiagnostics ||
             !settings.VisualizeSelectedContacts ||
@@ -307,10 +312,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
         DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
         Entity selectedEntity,
-        Stage3SelectedBodyDiagnostic selectedBody)
+        Stage3SelectedBodyDiagnostic selectedBody,
+        float overlayScale)
     {
-        var text = new StringBuilder(768);
-        text.AppendLine("Stage 3 Predictive Disc Diagnostic");
+        var text = new StringBuilder(1024);
+        text.AppendLine("Stage 3 Contact / Shadow Cache Diagnostic");
         text.Append("F8 Diagnostic: ").Append(settings.EnableDiagnostics ? "ON" : "OFF");
         text.Append("    F9 Predictive: ").AppendLine(settings.EnablePredictiveContacts ? "ON" : "OFF");
         text.Append("F10 World lines: ")
@@ -319,6 +325,10 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append(settings.EnableShadowNeighborCacheTest ? "ON" : "OFF")
             .Append("    margin: ")
             .AppendLine(settings.ShadowCacheMargin.ToString("F3"));
+        text.Append("PageUp/PageDown panel scale: ")
+            .Append(overlayScale.ToString("F1")).AppendLine("x");
+
+        text.AppendLine("[Authoritative Predictive Contact Solver]");
         text.Append("Substeps / Iterations: ").Append(settings.SubstepCount).Append(" / ")
             .AppendLine(settings.IterationCount.ToString());
         text.Append("Pairs candidate/contact/potentialPredictive/predictive: ")
@@ -345,7 +355,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
         if (settings.EnableShadowNeighborCacheTest)
         {
-            text.Append("Shadow prev cache bodies/pairs/checks: ")
+            text.AppendLine("[Shadow Fat-AABB Cache Probe - does not affect solving]");
+            text.Append("Shadow previous-frame ready/bodies/pairs/checks: ")
+                .Append(shadow.PreviousFrameCacheAvailable).Append(" / ")
                 .Append(shadow.PreviousFrameCacheBodyCount).Append(" / ")
                 .Append(shadow.PreviousFrameCachePairCount).Append(" / ")
                 .AppendLine(shadow.PreviousFrameCheckCount.ToString());
@@ -354,7 +366,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
                 .Append(shadow.PreviousFramePairMissCount).Append("; ")
                 .Append(shadow.PreviousFrameActivePairMissCount).Append(" / ")
                 .AppendLine(shadow.PreviousFramePredictivePairMissCount.ToString());
-            text.Append("Shadow current cache bodies/pairs/checks: ")
+            text.Append("Shadow first-substep cache bodies/pairs/later-checks: ")
                 .Append(shadow.CurrentFrameCacheBodyCount).Append(" / ")
                 .Append(shadow.CurrentFrameCachePairCount).Append(" / ")
                 .AppendLine(shadow.CurrentFrameCheckCount.ToString());
@@ -453,6 +465,7 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
 {
     public bool Visible;
     public string Text = string.Empty;
+    public float Scale = 1.25f;
 
     private GUIStyle _labelStyle;
 
@@ -463,10 +476,22 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
 
         _labelStyle ??= new GUIStyle(GUI.skin.label)
         {
-            fontSize = 13,
             normal = { textColor = Color.white }
         };
-        GUI.Box(new Rect(12, 12, 650, 345), GUIContent.none);
-        GUI.Label(new Rect(24, 20, 625, 330), Text, _labelStyle);
+        _labelStyle.fontSize = 15;
+
+        const float logicalWidth = 900f;
+        float logicalHeight = math.max(
+            455f,
+            _labelStyle.CalcHeight(new GUIContent(Text), logicalWidth - 36f) + 40f);
+        float fitScale = math.min(
+            (Screen.width - 24f) / logicalWidth,
+            (Screen.height - 24f) / logicalHeight);
+        float effectiveScale = math.clamp(math.min(Scale, fitScale), 0.5f, 2f);
+        Matrix4x4 previousMatrix = GUI.matrix;
+        GUI.matrix = Matrix4x4.Scale(new Vector3(effectiveScale, effectiveScale, 1f));
+        GUI.Box(new Rect(12, 12, logicalWidth, logicalHeight), GUIContent.none);
+        GUI.Label(new Rect(24, 20, logicalWidth - 36f, logicalHeight - 28f), Text, _labelStyle);
+        GUI.matrix = previousMatrix;
     }
 }
