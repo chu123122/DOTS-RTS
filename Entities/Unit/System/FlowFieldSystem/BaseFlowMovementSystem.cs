@@ -140,6 +140,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
+            Grid = gridComponent.Grid,
             SweptCellEntries = sweptCellEntries,
             Pairs = collisionPairs,
             States = states,
@@ -150,29 +151,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle solveContactHandle = solveContactJob.Schedule(softAvoidanceHandle);
 
-        // 墙壁暂时保留原有单体位置投影；Stage 2 只升级动态单位 Pair。
-        var wallConstraintJob = new CalculateWallConstraintsJob
-        {
-            Grid = gridComponent.Grid,
-            GridOrigin = gridComponent.GridOrigin,
-            GridDimensions = gridComponent.GridDimensions,
-            CellRadius = gridComponent.CellRadius,
-            States = states
-        };
-        JobHandle wallConstraintHandle =
-            wallConstraintJob.ScheduleParallel(_movementQuery, solveContactHandle);
-
-        var finalizeDiagnosticsJob = new FinalizeStage3ContactDiagnosticsJob
-        {
-            EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
-            DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
-            States = states,
-            Statistics = contactStatistics,
-            SelectedBodyDiagnostic = selectedBodyDiagnostic
-        };
-        JobHandle finalizeDiagnosticsHandle =
-            finalizeDiagnosticsJob.Schedule(wallConstraintHandle);
-
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
             Source = contactStatistics,
@@ -181,12 +159,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PairSource = pairDiagnostics
         };
         JobHandle publishStatisticsHandle =
-            publishStatisticsJob.Schedule(finalizeDiagnosticsHandle);
+            publishStatisticsJob.Schedule(solveContactHandle);
 
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
         World.GetExistingSystemManaged<Entities.Unit.System.FlowFieldSystem.FlowFieldBakeSystem>()
-            ?.RegisterActiveGridReader(wallConstraintHandle);
+            ?.RegisterActiveGridReader(solveContactHandle);
 
         // 阶段 5：应用预测位置和约束修正，写回最终 Transform/Velocity。
         var applyMovementJob = new ApplyFlowMovementJob
@@ -195,7 +173,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             States = states
         };
         JobHandle applyMovementHandle =
-            applyMovementJob.ScheduleParallel(_movementQuery, finalizeDiagnosticsHandle);
+            applyMovementJob.ScheduleParallel(_movementQuery, solveContactHandle);
 
         // 所有临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);

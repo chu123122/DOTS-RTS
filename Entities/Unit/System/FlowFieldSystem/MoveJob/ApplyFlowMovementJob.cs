@@ -6,8 +6,7 @@ using Unity.Transforms;
 using 通用;
 
 /// <summary>
-/// 将预测位置和位置约束修正写回单位，并按积分速度更新朝向。
-/// 当前只应用位置投影，约束产生的位移不会反推并修正 Velocity。
+/// 将已经完成单位/墙壁约束迭代的最终位置与回算速度写回单位。
 /// </summary>
 [BurstCompile]
 public partial struct ApplyFlowMovementJob : IJobEntity
@@ -28,8 +27,9 @@ public partial struct ApplyFlowMovementJob : IJobEntity
         }
 
         float3 integratedVelocity = state.IntegratedVelocity;
-        float3 positionCorrection = state.PositionCorrection;
-        bool isHardColliding = math.lengthsq(positionCorrection) > 0.0001f;
+        bool isHardColliding =
+            math.lengthsq(state.ContactPositionCorrection) > 0.0001f ||
+            math.lengthsq(state.WallPositionCorrection) > 0.0001f;
 
         // 停车与位置约束解耦：到达区域内速度足够低时直接归零，
         // 即使仍有穿透修正，也只应用位置投影，不重新产生运动速度。
@@ -40,20 +40,9 @@ public partial struct ApplyFlowMovementJob : IJobEntity
         if (shouldMove)
         {
             float3 newPosition = state.PredictedPosition;
-            if (isHardColliding)
-            {
-                // 限制单帧最大投影距离，避免深度穿透时出现明显位置跳变。
-                const float maxCorrectionPerFrame = 0.15f;
-                if (math.lengthsq(positionCorrection) > maxCorrectionPerFrame * maxCorrectionPerFrame)
-                    positionCorrection = math.normalize(positionCorrection) * maxCorrectionPerFrame;
-
-                newPosition += positionCorrection;
-            }
-
             newPosition.y = state.CurrentPosition.y;
             transform.Position = newPosition;
 
-            // 速度保持力积分结果；若以后需要物理一致性，应增加投影后的速度回写。
             integratedVelocity.y = 0;
 
             if (math.lengthsq(integratedVelocity) > 0.01f)

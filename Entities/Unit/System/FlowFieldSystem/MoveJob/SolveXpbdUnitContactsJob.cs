@@ -26,6 +26,7 @@ public struct SolveXpbdUnitContactsJob : IJob
     public int2 GridDimensions;
     public float CellRadius;
 
+    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
     public NativeList<UnitCollisionPair> Pairs;
     public NativeArray<FlowMovementFrameState> States;
@@ -66,6 +67,9 @@ public struct SolveXpbdUnitContactsJob : IJob
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
             {
+                SolveWallConstraintIteration(
+                    out float totalWallPositionCorrection,
+                    out float maxWallPositionCorrection);
                 SolveContactIteration(
                     substepDeltaTime,
                     out float totalPositionCorrection,
@@ -75,6 +79,10 @@ public struct SolveXpbdUnitContactsJob : IJob
                 statistics.MaxContactPositionCorrection = math.max(
                     statistics.MaxContactPositionCorrection,
                     maxPositionCorrection);
+                statistics.TotalWallPositionCorrection += totalWallPositionCorrection;
+                statistics.MaxWallPositionCorrection = math.max(
+                    statistics.MaxWallPositionCorrection,
+                    maxWallPositionCorrection);
 
                 if (EnableDiagnostics)
                 {
@@ -82,7 +90,9 @@ public struct SolveXpbdUnitContactsJob : IJob
                         substepIndex,
                         iterationIndex,
                         totalPositionCorrection,
-                        maxPositionCorrection);
+                        maxPositionCorrection,
+                        totalWallPositionCorrection,
+                        maxWallPositionCorrection);
                 }
             }
             statistics.IterationNanoseconds +=
@@ -126,7 +136,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.StartPosition = state.CurrentPosition;
             state.PredictedPosition = state.CurrentPosition;
             state.PreviousSubstepPosition = state.CurrentPosition;
-            state.PositionCorrection = float3.zero;
+            state.ContactPositionCorrection = float3.zero;
+            state.WallPositionCorrection = float3.zero;
             States[i] = state;
         }
     }
@@ -142,6 +153,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             // StartPosition 保存本 substep 的可信相对分离关系，不冻结实体位置。
             state.StartPosition = state.PredictedPosition;
             state.PreviousSubstepPosition = state.StartPosition;
+            state.ContactPositionCorrection = float3.zero;
+            state.WallPositionCorrection = float3.zero;
 
             float3 totalForce = state.IndependentForce + state.SoftAvoidanceForce;
             if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
@@ -411,6 +424,8 @@ public struct SolveXpbdUnitContactsJob : IJob
 
             bodyA.PredictedPosition += normal * (bodyA.InverseMass * appliedLambda);
             bodyB.PredictedPosition -= normal * (bodyB.InverseMass * appliedLambda);
+            bodyA.ContactPositionCorrection += normal * (bodyA.InverseMass * appliedLambda);
+            bodyB.ContactPositionCorrection -= normal * (bodyB.InverseMass * appliedLambda);
             bodyA.PredictedPosition.y = bodyA.CurrentPosition.y;
             bodyB.PredictedPosition.y = bodyB.CurrentPosition.y;
             States[pair.BodyA] = bodyA;
@@ -447,11 +462,75 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
+    private void SolveWallConstraintIteration(
+        out float totalPositionCorrection,
+        out float maxPositionCorrection)
+    {
+        totalPositionCorrection = 0f;
+        maxPositionCorrection = 0f;
+        if (!Grid.IsCreated)
+            return;
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid || state.InverseMass <= 0f)
+                continue;
+
+            int2 currentCell = FlowFieldUtils.WorldToCell(
+                state.PredictedPosition,
+                GridOrigin,
+                CellRadius);
+
+            for (int x = -1; x <= 1; x++)
+            {
+                for (int y = -1; y <= 1; y++)
+                {
+                    int2 checkCell = currentCell + new int2(x, y);
+                    if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
+                        checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                        continue;
+
+                    int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
+                    if (Grid[checkIndex].Cost != 0)
+                        continue;
+
+                    float3 wallPosition = GridOrigin + new float3(
+                        checkCell.x * CellRadius * 2f + CellRadius,
+                        state.PredictedPosition.y,
+                        checkCell.y * CellRadius * 2f + CellRadius);
+                    float3 delta = state.PredictedPosition - wallPosition;
+                    delta.y = 0f;
+                    float distance = math.length(delta);
+                    float hardDistance = CellRadius + math.max(0f, state.Radius);
+                    if (distance >= hardDistance)
+                        continue;
+
+                    float3 normal = distance > 0.00001f
+                        ? delta / distance
+                        : DeterministicFallbackNormal(bodyIndex, checkIndex);
+                    float3 correction = normal * ((hardDistance - distance) * 0.5f);
+                    state.PredictedPosition += correction;
+                    state.PredictedPosition.y = state.CurrentPosition.y;
+                    state.WallPositionCorrection += correction;
+
+                    float correctionLength = math.length(correction);
+                    totalPositionCorrection += correctionLength;
+                    maxPositionCorrection = math.max(maxPositionCorrection, correctionLength);
+                }
+            }
+
+            States[bodyIndex] = state;
+        }
+    }
+
     private void RecordIterationDiagnostic(
         int substepIndex,
         int iterationIndex,
         float totalPositionCorrection,
-        float maxPositionCorrection)
+        float maxPositionCorrection,
+        float totalWallPositionCorrection,
+        float maxWallPositionCorrection)
     {
         float violationSum = 0f;
         float radialPenetrationSum = 0f;
@@ -525,7 +604,9 @@ public struct SolveXpbdUnitContactsJob : IJob
                 ? radialPenetrationSum / penetratingCount
                 : 0f,
             TotalPositionCorrection = totalPositionCorrection,
-            MaxPositionCorrection = maxPositionCorrection
+            MaxPositionCorrection = maxPositionCorrection,
+            TotalWallPositionCorrection = totalWallPositionCorrection,
+            MaxWallPositionCorrection = maxWallPositionCorrection
         });
     }
 
@@ -548,6 +629,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             StartPosition = selected.StartPosition,
             UnconstrainedPredictedPosition = selected.UnconstrainedPredictedPosition,
             SolvedPosition = selected.PredictedPosition,
+            ContactCorrection = selected.ContactPositionCorrection,
+            WallCorrection = selected.WallPositionCorrection,
             VelocityBeforeContact = selected.VelocityBeforeContact,
             VelocityAfterContact = selected.IntegratedVelocity
         };
@@ -707,44 +790,6 @@ public struct SolveXpbdUnitContactsJob : IJob
     {
         var ratio = ProfilerUnsafeUtility.TimestampToNanosecondsConversionRatio;
         return timestampDelta * ratio.Numerator / ratio.Denominator;
-    }
-}
-
-[BurstCompile]
-public struct FinalizeStage3ContactDiagnosticsJob : IJob
-{
-    public bool EnableDiagnostics;
-    public Entity DiagnosticSelectedEntity;
-    [ReadOnly] public NativeArray<FlowMovementFrameState> States;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
-
-    public void Execute()
-    {
-        if (!EnableDiagnostics)
-            return;
-
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        Stage3SelectedBodyDiagnostic selectedDiagnostic = SelectedBodyDiagnostic.Value;
-
-        for (int i = 0; i < States.Length; i++)
-        {
-            FlowMovementFrameState state = States[i];
-            if (!state.IsInsideGrid)
-                continue;
-
-            float wallCorrection = math.length(state.PositionCorrection);
-            statistics.TotalWallPositionCorrection += wallCorrection;
-            statistics.MaxWallPositionCorrection = math.max(
-                statistics.MaxWallPositionCorrection,
-                wallCorrection);
-
-            if (state.Entity == DiagnosticSelectedEntity && selectedDiagnostic.IsValid != 0)
-                selectedDiagnostic.WallCorrection = state.PositionCorrection;
-        }
-
-        Statistics.Value = statistics;
-        SelectedBodyDiagnostic.Value = selectedDiagnostic;
     }
 }
 

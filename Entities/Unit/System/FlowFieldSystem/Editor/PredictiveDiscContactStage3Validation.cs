@@ -33,7 +33,8 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult predictiveDisabled = ValidatePredictiveToggle();
         ScenarioResult tangent = ValidateTangentialNearMiss();
         ScenarioResult chain = ValidatePrebuiltChainContact();
-        ValidateWallCorrectionDiagnostic();
+        (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
+            ValidateWallAndUnitConstraintsIterateTogether();
         (ScenarioResult oneIteration, ScenarioResult eightIterations) =
             ValidateIterationResidualReduction();
 
@@ -46,6 +47,8 @@ public static class PredictiveDiscContactStage3Validation
             $"tangent: contacts={tangent.Statistics.ContactPairCount}, " +
             $"unactivated={tangent.Statistics.UnactivatedPairCount}\n" +
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
+            $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
+            $"{wallEightIterations.Positions[1].x:F6}\n" +
             $"iterations 1->8: maxPenetration " +
             $"{oneIteration.Statistics.MaxPenetration:F6} -> " +
             $"{eightIterations.Statistics.MaxPenetration:F6}\n" +
@@ -206,43 +209,38 @@ public static class PredictiveDiscContactStage3Validation
         return (oneIteration, eightIterations);
     }
 
-    private static void ValidateWallCorrectionDiagnostic()
+    private static (ScenarioResult, ScenarioResult)
+        ValidateWallAndUnitConstraintsIterateTogether()
     {
-        var states = new NativeArray<FlowMovementFrameState>(1, Allocator.Temp);
-        var statistics =
-            new NativeReference<PredictiveDiscContactStatistics>(Allocator.Temp);
-        var selectedBody =
-            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.Temp);
-
-        try
+        // A 起初未和 B 重叠，但位于墙壁硬半径内。Pair(A,B) 由 skin 提前生成，
+        // 墙壁先推 A，随后同一轮单位约束应激活并把 B 向右推开。
+        FlowMovementFrameState[] bodies =
         {
-            states[0] = new FlowMovementFrameState
-            {
-                IsInsideGrid = true,
-                PositionCorrection = new float3(0.3f, 0, 0.4f)
-            };
-            var finalizeJob = new FinalizeStage3ContactDiagnosticsJob
-            {
-                EnableDiagnostics = true,
-                DiagnosticSelectedEntity = Entity.Null,
-                States = states,
-                Statistics = statistics,
-                SelectedBodyDiagnostic = selectedBody
-            };
-            finalizeJob.Execute();
+            CreateBody(new float3(1.4f, 0, 0.5f), float3.zero, 0.5f),
+            CreateBody(new float3(2.42f, 0, 0.5f), float3.zero, 0.5f)
+        };
 
-            Require(math.abs(statistics.Value.TotalWallPositionCorrection - 0.5f) <=
-                    PositionTolerance &&
-                    math.abs(statistics.Value.MaxWallPositionCorrection - 0.5f) <=
-                    PositionTolerance,
-                "Wall correction diagnostic was not accumulated from the post-contact wall pass.");
-        }
-        finally
-        {
-            selectedBody.Dispose();
-            statistics.Dispose();
-            states.Dispose();
-        }
+        ScenarioResult oneIteration = RunScenario(
+            bodies,
+            iterationCount: 1,
+            skin: 0.1f,
+            includeWall: true);
+        ScenarioResult eightIterations = RunScenario(
+            bodies,
+            iterationCount: 8,
+            skin: 0.1f,
+            includeWall: true);
+
+        Require(oneIteration.Statistics.TotalWallPositionCorrection > 0f &&
+                oneIteration.Statistics.ActiveConstraintCount >= 1,
+            "Wall correction did not activate the prebuilt unit Pair in the same iteration.");
+        Require(oneIteration.Positions[1].x > bodies[1].CurrentPosition.x,
+            "Wall-to-unit correction was not propagated to the neighboring body.");
+        Require(eightIterations.Positions[1].x > oneIteration.Positions[1].x,
+            "Additional unified iterations did not continue resolving the wall-unit chain.");
+        Require(eightIterations.IterationDiagnostics[0].TotalWallPositionCorrection > 0f,
+            "Per-iteration diagnostics did not record the wall projection.");
+        return (oneIteration, eightIterations);
     }
 
     private static FlowMovementFrameState CreateBody(
@@ -269,9 +267,15 @@ public static class PredictiveDiscContactStage3Validation
         FlowMovementFrameState[] sourceBodies,
         int iterationCount,
         float skin,
-        bool enablePredictiveContacts = true)
+        bool enablePredictiveContacts = true,
+        bool includeWall = false)
     {
+        int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
+        float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
         var states = new NativeArray<FlowMovementFrameState>(sourceBodies, Allocator.Temp);
+        var grid = new NativeArray<FlowFieldCell>(
+            gridDimensions.x * gridDimensions.y,
+            Allocator.Temp);
         var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.Temp);
         var pairs = new NativeList<UnitCollisionPair>(16, Allocator.Temp);
         var statistics =
@@ -285,6 +289,12 @@ public static class PredictiveDiscContactStage3Validation
 
         try
         {
+            for (int i = 0; i < grid.Length; i++)
+                grid[i] = new FlowFieldCell { Cost = 1 };
+            if (includeWall)
+                grid[FlowFieldUtils.GetFlatIndex(int2.zero, gridDimensions)] =
+                    new FlowFieldCell { Cost = 0 };
+
             var solver = new SolveXpbdUnitContactsJob
             {
                 DeltaTime = 1f,
@@ -295,9 +305,10 @@ public static class PredictiveDiscContactStage3Validation
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
                 DiagnosticSelectedEntity = Entity.Null,
-                GridOrigin = new float3(-10, 0, -10),
-                GridDimensions = new int2(40, 40),
+                GridOrigin = gridOrigin,
+                GridDimensions = gridDimensions,
                 CellRadius = 0.5f,
+                Grid = grid,
                 SweptCellEntries = entries,
                 Pairs = pairs,
                 States = states,
@@ -327,6 +338,7 @@ public static class PredictiveDiscContactStage3Validation
             statistics.Dispose();
             pairs.Dispose();
             entries.Dispose();
+            grid.Dispose();
             states.Dispose();
         }
     }

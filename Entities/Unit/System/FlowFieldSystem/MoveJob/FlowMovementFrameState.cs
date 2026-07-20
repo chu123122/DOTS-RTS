@@ -36,5 +36,6 @@ public struct FlowMovementFrameState
     public float3 VelocityBeforeContact;
     public float3 PredictedPosition;
     public float3 PreviousSubstepPosition;
-    public float3 PositionCorrection;
+    public float3 ContactPositionCorrection;
+    public float3 WallPositionCorrection;
 }

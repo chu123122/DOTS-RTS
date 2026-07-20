@@ -32,6 +32,8 @@ public struct Stage3ContactIterationDiagnostic : IBufferElementData
     public float AverageRadialPenetration;
     public float TotalPositionCorrection;
     public float MaxPositionCorrection;
+    public float TotalWallPositionCorrection;
+    public float MaxWallPositionCorrection;
 }
 
 /// <summary>
@@ -64,6 +66,7 @@ public struct Stage3SelectedBodyDiagnostic : IComponentData
     public float3 StartPosition;
     public float3 UnconstrainedPredictedPosition;
     public float3 SolvedPosition;
+    public float3 ContactCorrection;
     public float3 WallCorrection;
     public float3 VelocityBeforeContact;
     public float3 VelocityAfterContact;

@@ -141,8 +141,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (math.lengthsq(selected.WallCorrection) > 0.0000001f)
         {
             Debug.DrawLine(
+                solved - selected.WallCorrection,
                 solved,
-                solved + selected.WallCorrection,
                 Color.white,
                 0f,
                 false);
@@ -356,9 +356,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (selectedBody.IsValid != 0)
         {
             text.Append("Selected contact delta / wall delta: ")
-                .Append(math.distance(
-                    selectedBody.UnconstrainedPredictedPosition,
-                    selectedBody.SolvedPosition).ToString("F4"))
+                .Append(math.length(selectedBody.ContactCorrection).ToString("F4"))
                 .Append(" / ")
                 .AppendLine(math.length(selectedBody.WallCorrection).ToString("F4"));
         }
