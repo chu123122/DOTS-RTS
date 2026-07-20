@@ -53,8 +53,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             NativeArrayOptions.UninitializedMemory);
         var arrivalEnterDistance = new NativeReference<int>(Allocator.TempJob);
 
-        // 约束阶段需要按邻居 Entity 查询其预测位置，因此额外建立 Entity -> 预测位置快照。
-        var predictedPositions = new NativeParallelHashMap<Entity, float3>(unitCount, Allocator.TempJob);
+        // Pair 生成阶段需要把 Spatial Hash 中的 Entity 映射到本帧稠密状态索引。
+        var entityToIndex = new NativeParallelHashMap<Entity, int>(unitCount, Allocator.TempJob);
 
         var physicsColliderLookup = SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
         physicsColliderLookup.Update(this);
@@ -87,6 +87,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
             ArrivalEnterDistance = arrivalEnterDistance,
+            EntityToIndex = entityToIndex.AsParallelWriter(),
             States = states
         };
         JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, arrivalAreaHandle);
@@ -112,24 +113,51 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             DeltaTime = SystemAPI.Time.DeltaTime,
             GridOrigin = gridComponent.GridOrigin,
             CellRadius = gridComponent.CellRadius,
-            PredictedPositions = predictedPositions.AsParallelWriter(),
             States = states
         };
         JobHandle integrateForcesHandle = integrateForcesJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
 
-        // 阶段 4：SpatialMap 只负责筛选候选，实际穿透检测使用双方预测位置。
-        var constraintJob = new CalculateFlowConstraintsJob
+        // 阶段 4：从 SpatialMap 并行生成唯一单位 Pair 快照。
+        var pairStream = new NativeStream(unitCount, Allocator.TempJob);
+        var collisionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
+        var buildPairJob = new BuildUniqueUnitCollisionPairsJob
+        {
+            Grid = gridComponent.Grid,
+            GridDimensions = gridComponent.GridDimensions,
+            SpatialMap = spatialMap.Map,
+            EntityToIndex = entityToIndex,
+            States = states,
+            PairWriter = pairStream.AsWriter()
+        };
+        JobHandle buildPairHandle = buildPairJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
+
+        var collectPairJob = new CollectUnitCollisionPairsJob
+        {
+            PairReader = pairStream.AsReader(),
+            Pairs = collisionPairs
+        };
+        JobHandle collectPairHandle = collectPairJob.Schedule(buildPairHandle);
+
+        // 墙壁仍保留原有单体位置投影，与单位 Pair 快照相互独立。
+        var wallConstraintJob = new CalculateWallConstraintsJob
         {
             Grid = gridComponent.Grid,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
-            SpatialMap = spatialMap.Map,
-            PredictedPositions = predictedPositions,
-            SeparationRadius = 0.6f,
             States = states
         };
-        JobHandle constraintHandle = constraintJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
+        JobHandle wallConstraintHandle =
+            wallConstraintJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
+
+        var solvePairJob = new SolveUnitCollisionPairsJob
+        {
+            Pairs = collisionPairs.AsDeferredJobArray(),
+            CollisionFootprints = collisionFootprints,
+            States = states
+        };
+        JobHandle constraintHandle = solvePairJob.Schedule(
+            JobHandle.CombineDependencies(collectPairHandle, wallConstraintHandle));
 
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
@@ -148,13 +176,21 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
         JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
         JobHandle arrivalDistanceDisposeHandle = arrivalEnterDistance.Dispose(applyMovementHandle);
-        JobHandle predictedPositionDisposeHandle = predictedPositions.Dispose(applyMovementHandle);
+        JobHandle entityIndexDisposeHandle = entityToIndex.Dispose(applyMovementHandle);
+        JobHandle pairStreamDisposeHandle = pairStream.Dispose(applyMovementHandle);
+        JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
         JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
             arrivalDistanceDisposeHandle,
-            predictedPositionDisposeHandle);
-        Dependency = JobHandle.CombineDependencies(frameStateDisposeHandle, lookupDisposeHandle);
+            entityIndexDisposeHandle);
+        JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
+            pairStreamDisposeHandle,
+            collisionPairDisposeHandle);
+        Dependency = JobHandle.CombineDependencies(
+            frameStateDisposeHandle,
+            lookupDisposeHandle,
+            pairDisposeHandle);
     }
 }

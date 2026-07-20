@@ -19,9 +19,11 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
 
     [ReadOnly] public NativeReference<int> ArrivalEnterDistance;
 
+    public NativeParallelHashMap<Entity, int>.ParallelWriter EntityToIndex;
     public NativeArray<FlowMovementFrameState> States;
 
     public void Execute(
+        Entity entity,
         [EntityIndexInQuery] int entityIndex,
         in LocalTransform transform,
         in Velocity velocity,
@@ -29,6 +31,8 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         in UnitMovementSettings settings,
         ref FlowArrivalState arrivalState)
     {
+        EntityToIndex.TryAdd(entity, entityIndex);
+
         var state = new FlowMovementFrameState
         {
             CurrentPosition = transform.Position,

@@ -15,10 +15,9 @@ public partial struct IntegrateFlowForcesJob : IJobEntity
     public float DeltaTime;
     public float3 GridOrigin;
     public float CellRadius;
-    public NativeParallelHashMap<Entity, float3>.ParallelWriter PredictedPositions;
     public NativeArray<FlowMovementFrameState> States;
 
-    public void Execute(Entity entity, [EntityIndexInQuery] int entityIndex)
+    public void Execute([EntityIndexInQuery] int entityIndex)
     {
         FlowMovementFrameState state = States[entityIndex];
         if (!state.IsInsideGrid)
@@ -63,8 +62,5 @@ public partial struct IntegrateFlowForcesJob : IJobEntity
         state.IntegratedVelocity = integratedVelocity;
         state.PredictedPosition = predictedPosition;
         States[entityIndex] = state;
-
-        // ParallelWriter 保证各单位可以并行写入自身唯一的 Entity 键。
-        PredictedPositions.TryAdd(entity, predictedPosition);
     }
 }
