@@ -50,6 +50,7 @@ public struct UnitContactSolverSettings : IComponentData
     public int IterationCount;
     public float Compliance;
     public float PredictiveSkin;
+    public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
     public bool VisualizeSelectedContacts;

@@ -21,6 +21,7 @@ public struct SolveXpbdUnitContactsJob : IJob
     public float SoftAvoidanceWeight;
     public float SoftAvoidanceRadius;
     public float SettledSoftAvoidanceMultiplier;
+    public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
     public bool EnableShadowNeighborCacheTest;
@@ -422,9 +423,13 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (!state.IsInsideGrid)
                 continue;
 
-            float sweptExtent = math.max(0f, state.Radius) + skin;
-            float2 sweptMin = math.min(state.StartPosition.xz, state.PredictedPosition.xz) - sweptExtent;
-            float2 sweptMax = math.max(state.StartPosition.xz, state.PredictedPosition.xz) + sweptExtent;
+            float sweptExtent = math.max(0f, state.Radius) +
+                                (EnablePredictivePairGeneration ? skin : 0f);
+            float2 pathEnd = EnablePredictivePairGeneration
+                ? state.PredictedPosition.xz
+                : state.StartPosition.xz;
+            float2 sweptMin = math.min(state.StartPosition.xz, pathEnd) - sweptExtent;
+            float2 sweptMax = math.max(state.StartPosition.xz, pathEnd) + sweptExtent;
             int2 minCell = (int2)math.floor((sweptMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((sweptMax - GridOrigin.xz) / cellSize);
 
@@ -866,6 +871,9 @@ public struct SolveXpbdUnitContactsJob : IJob
             float radiusSumSq = radiusSum * radiusSum;
 
             bool isActualGeneratedPair = startDistanceSq <= radiusSumSq;
+            if (!isActualGeneratedPair && !EnablePredictivePairGeneration)
+                continue;
+
             if (isActualGeneratedPair)
                 statistics.ActualGeneratedPairCount++;
             else

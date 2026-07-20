@@ -32,6 +32,7 @@ public static class PredictiveDiscContactStage3Validation
         ValidateRegularOverlap();
         ScenarioResult crossing = ValidateHighSpeedSideExchange();
         ScenarioResult predictiveDisabled = ValidatePredictiveToggle();
+        ScenarioResult generationDisabled = ValidatePredictiveGenerationToggle();
         ScenarioResult tangent = ValidateTangentialNearMiss();
         ScenarioResult chain = ValidatePrebuiltChainContact();
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
@@ -47,6 +48,8 @@ public static class PredictiveDiscContactStage3Validation
             $"activated={crossing.Statistics.PredictiveActivatedCount}\n" +
             $"predictive disabled: potential={predictiveDisabled.Statistics.PotentialPredictivePairCount}, " +
             $"active predictive={predictiveDisabled.Statistics.PredictivePairCount}\n" +
+            $"generation disabled: contacts={generationDisabled.Statistics.ContactPairCount}, " +
+            $"predicted={generationDisabled.Statistics.PredictiveGeneratedPairCount}\n" +
             $"tangent: contacts={tangent.Statistics.ContactPairCount}, " +
             $"unactivated={tangent.Statistics.UnactivatedPairCount}\n" +
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
@@ -246,6 +249,28 @@ public static class PredictiveDiscContactStage3Validation
         return (oneIteration, eightIterations);
     }
 
+    private static ScenarioResult ValidatePredictiveGenerationToggle()
+    {
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(-1, 0, 0), new float3(2, 0, 0), 0.25f),
+            CreateBody(new float3(1, 0, 0), new float3(-2, 0, 0), 0.25f)
+        };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 4,
+            skin: 0.05f,
+            enablePredictivePairGeneration: false);
+        Require(result.Positions[0].x > result.Positions[1].x,
+            "Disabling Predictive Pair generation did not restore the crossing baseline.");
+        Require(result.Statistics.ContactPairCount == 0 &&
+                result.Statistics.PredictiveGeneratedPairCount == 0 &&
+                result.Statistics.PredictivePairCount == 0,
+            "Disabling Predictive Pair generation still retained a swept Pair.");
+        return result;
+    }
+
     private static (ScenarioResult, ScenarioResult)
         ValidateWallAndUnitConstraintsIterateTogether()
     {
@@ -406,7 +431,8 @@ public static class PredictiveDiscContactStage3Validation
         float shadowMargin = 0.25f,
         float softAvoidanceWeight = 0f,
         float softAvoidanceRadius = 0f,
-        float settledSoftAvoidanceMultiplier = 1.5f)
+        float settledSoftAvoidanceMultiplier = 1.5f,
+        bool enablePredictivePairGeneration = true)
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
@@ -425,7 +451,8 @@ public static class PredictiveDiscContactStage3Validation
                 previousPairs,
                 softAvoidanceWeight,
                 softAvoidanceRadius,
-                settledSoftAvoidanceMultiplier);
+                settledSoftAvoidanceMultiplier,
+                enablePredictivePairGeneration);
         }
         finally
         {
@@ -447,7 +474,8 @@ public static class PredictiveDiscContactStage3Validation
         NativeList<ShadowEntityPair> previousPairs,
         float softAvoidanceWeight = 0f,
         float softAvoidanceRadius = 0f,
-        float settledSoftAvoidanceMultiplier = 1.5f)
+        float settledSoftAvoidanceMultiplier = 1.5f,
+        bool enablePredictivePairGeneration = true)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
@@ -497,6 +525,7 @@ public static class PredictiveDiscContactStage3Validation
                 SoftAvoidanceWeight = softAvoidanceWeight,
                 SoftAvoidanceRadius = softAvoidanceRadius,
                 SettledSoftAvoidanceMultiplier = settledSoftAvoidanceMultiplier,
+                EnablePredictivePairGeneration = enablePredictivePairGeneration,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
                 EnableShadowNeighborCacheTest = enableShadowTest,

@@ -27,6 +27,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Min(1)] public int contactIterations = 4;
     [Min(0f)] public float contactCompliance;
     [Min(0f)] public float predictiveContactSkin = 0.05f;
+    [Tooltip("关闭时只生成 substep 起点已经接触的实际 Pair，不再使用 swept path 提前生成 Pair。")]
+    public bool enablePredictivePairGeneration = true;
     [Tooltip("关闭时仍生成 swept candidate，但不会启用防换侧 Predictive 约束。")]
     public bool enablePredictiveContacts = true;
 
@@ -67,6 +69,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 IterationCount = math.max(1, authoring.contactIterations),
                 Compliance = math.max(0f, authoring.contactCompliance),
                 PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
+                EnablePredictivePairGeneration = authoring.enablePredictivePairGeneration,
                 EnablePredictiveContacts = authoring.enablePredictiveContacts,
                 EnableDiagnostics = authoring.enableContactDiagnostics,
                 VisualizeSelectedContacts = authoring.visualizeSelectedContacts,

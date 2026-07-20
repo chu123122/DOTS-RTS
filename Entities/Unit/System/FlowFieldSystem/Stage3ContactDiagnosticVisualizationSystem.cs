@@ -47,6 +47,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         UnitContactSolverSettings settings = settingsReference.ValueRO;
 
         Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && keyboard.f7Key.wasPressedThisFrame)
+            settings.EnablePredictivePairGeneration = !settings.EnablePredictivePairGeneration;
         if (keyboard != null && keyboard.f8Key.wasPressedThisFrame)
             settings.EnableDiagnostics = !settings.EnableDiagnostics;
         if (keyboard != null && keyboard.f9Key.wasPressedThisFrame)
@@ -316,6 +318,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     {
         var text = new StringBuilder(256);
         text.Append("<size=19><b>单位接触诊断</b></size>   ")
+            .Append("<color=#92A3B8>F7 预测生成</color> ").Append(ToggleText(settings.EnablePredictivePairGeneration))
+            .Append("   ")
             .Append("<color=#92A3B8>F8 数据</color> ").Append(ToggleText(settings.EnableDiagnostics))
             .Append("   <color=#92A3B8>F9 防换侧约束</color> ").Append(ToggleText(settings.EnablePredictiveContacts))
             .Append("   <color=#92A3B8>F10 场景线框</color> ").Append(ToggleText(settings.VisualizeSelectedContacts))

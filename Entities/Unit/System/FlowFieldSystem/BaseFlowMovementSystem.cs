@@ -144,6 +144,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             IterationCount = contactSolverSettings.IterationCount,
             Compliance = contactSolverSettings.Compliance,
             PredictiveSkin = contactSolverSettings.PredictiveSkin,
+            EnablePredictivePairGeneration = contactSolverSettings.EnablePredictivePairGeneration,
             SoftAvoidanceWeight = flowFieldSettings.SoftAvoidanceWeight,
             SoftAvoidanceRadius = flowFieldSettings.SoftAvoidanceRadius,
             SettledSoftAvoidanceMultiplier = flowFieldSettings.SettledSoftAvoidanceMultiplier,
