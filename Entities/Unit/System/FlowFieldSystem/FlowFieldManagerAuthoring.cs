@@ -31,6 +31,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
     public bool visualizeSelectedContacts = true;
 
+    [Header("Shadow Neighbor Cache Test")]
+    [Tooltip("只旁路评估 Fat Swept AABB 邻居表；不会替换当前权威 Broad/Narrow Phase。")]
+    public bool enableShadowNeighborCacheTest;
+    [Min(0f)] public float shadowCacheMargin = 0.25f;
+
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
         public override void Bake(FlowFieldManagerAuthoring authoring)
@@ -54,9 +59,12 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
                 EnablePredictiveContacts = authoring.enablePredictiveContacts,
                 EnableDiagnostics = authoring.enableContactDiagnostics,
-                VisualizeSelectedContacts = authoring.visualizeSelectedContacts
+                VisualizeSelectedContacts = authoring.visualizeSelectedContacts,
+                EnableShadowNeighborCacheTest = authoring.enableShadowNeighborCacheTest,
+                ShadowCacheMargin = math.max(0f, authoring.shadowCacheMargin)
             });
             AddComponent(entity, new PredictiveDiscContactStatistics());
+            AddComponent(entity, new ShadowNeighborCacheStatistics());
             AddComponent(entity, new Stage3ContactDiagnosticSelection
             {
                 SelectedEntity = Entity.Null

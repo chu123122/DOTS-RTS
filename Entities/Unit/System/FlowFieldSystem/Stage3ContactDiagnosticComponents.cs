@@ -70,4 +70,8 @@ public struct Stage3SelectedBodyDiagnostic : IComponentData
     public float3 WallCorrection;
     public float3 VelocityBeforeContact;
     public float3 VelocityAfterContact;
+    public byte ShadowReferenceAvailable;
+    public byte ShadowEscaped;
+    public float2 ShadowFatMin;
+    public float2 ShadowFatMax;
 }

@@ -20,6 +20,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     {
         RequireForUpdate<UnitContactSolverSettings>();
         RequireForUpdate<PredictiveDiscContactStatistics>();
+        RequireForUpdate<ShadowNeighborCacheStatistics>();
         RequireForUpdate<Stage3ContactDiagnosticSelection>();
         RequireForUpdate<Stage3SelectedBodyDiagnostic>();
         RequireForUpdate<PhysicsWorldSingleton>();
@@ -52,6 +53,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             settings.EnablePredictiveContacts = !settings.EnablePredictiveContacts;
         if (keyboard != null && keyboard.f10Key.wasPressedThisFrame)
             settings.VisualizeSelectedContacts = !settings.VisualizeSelectedContacts;
+        if (keyboard != null && keyboard.f11Key.wasPressedThisFrame)
+            settings.EnableShadowNeighborCacheTest = !settings.EnableShadowNeighborCacheTest;
         settingsReference.ValueRW = settings;
 
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
@@ -59,6 +62,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
         PredictiveDiscContactStatistics statistics =
             SystemAPI.GetSingleton<PredictiveDiscContactStatistics>();
+        ShadowNeighborCacheStatistics shadowStatistics =
+            SystemAPI.GetSingleton<ShadowNeighborCacheStatistics>();
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDiagnostics =
             SystemAPI.GetSingletonBuffer<Stage3ContactIterationDiagnostic>(true);
         DynamicBuffer<Stage3ContactPairDiagnostic> pairDiagnostics =
@@ -68,10 +73,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         Stage3ContactDiagnosticSelection selection =
             SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
 
-        _overlay.Visible = settings.EnableDiagnostics;
+        _overlay.Visible = settings.EnableDiagnostics || settings.EnableShadowNeighborCacheTest;
         _overlay.Text = BuildOverlayText(
             settings,
             statistics,
+            shadowStatistics,
             iterationDiagnostics,
             pairDiagnostics,
             selection.SelectedEntity,
@@ -135,6 +141,14 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         DrawWireCircle(solved, selected.Radius, Color.green);
         DrawSweptCapsule(start, predicted, sweptRadius, new Color(0f, 1f, 1f));
         DrawSweptAabb(start, predicted, sweptRadius, Color.white);
+        if (selected.ShadowReferenceAvailable != 0)
+        {
+            DrawAabb(
+                selected.ShadowFatMin,
+                selected.ShadowFatMax,
+                start.y + 0.02f,
+                selected.ShadowEscaped != 0 ? Color.red : Color.yellow);
+        }
 
         Debug.DrawLine(start, predicted, Color.blue, 0f, false);
         Debug.DrawLine(predicted, solved, Color.green, 0f, false);
@@ -147,6 +161,18 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
                 0f,
                 false);
         }
+    }
+
+    private static void DrawAabb(float2 min, float2 max, float height, Color color)
+    {
+        float3 a = new float3(min.x, height, min.y);
+        float3 b = new float3(max.x, height, min.y);
+        float3 c = new float3(max.x, height, max.y);
+        float3 d = new float3(min.x, height, max.y);
+        Debug.DrawLine(a, b, color, 0f, false);
+        Debug.DrawLine(b, c, color, 0f, false);
+        Debug.DrawLine(c, d, color, 0f, false);
+        Debug.DrawLine(d, a, color, 0f, false);
     }
 
     private static void DrawPair(Stage3ContactPairDiagnostic pair)
@@ -261,6 +287,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     private static string BuildOverlayText(
         UnitContactSolverSettings settings,
         PredictiveDiscContactStatistics statistics,
+        ShadowNeighborCacheStatistics shadow,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
         DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
         Entity selectedEntity,
@@ -272,6 +299,10 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         text.Append("    F9 Predictive: ").AppendLine(settings.EnablePredictiveContacts ? "ON" : "OFF");
         text.Append("F10 World lines: ")
             .AppendLine(settings.VisualizeSelectedContacts ? "ON" : "OFF");
+        text.Append("F11 Shadow cache: ")
+            .Append(settings.EnableShadowNeighborCacheTest ? "ON" : "OFF")
+            .Append("    margin: ")
+            .AppendLine(settings.ShadowCacheMargin.ToString("F3"));
         text.Append("Substeps / Iterations: ").Append(settings.SubstepCount).Append(" / ")
             .AppendLine(settings.IterationCount.ToString());
         text.Append("Pairs candidate/contact/potentialPredictive/predictive: ")
@@ -295,6 +326,40 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append(statistics.AverageSpeedBeforeContact.ToString("F3")).Append(" / ")
             .Append(statistics.AverageSpeedAfterContact.ToString("F3")).Append("; ")
             .AppendLine(statistics.MaxVelocityChange.ToString("F3"));
+
+        if (settings.EnableShadowNeighborCacheTest)
+        {
+            text.Append("Shadow prev cache bodies/pairs/checks: ")
+                .Append(shadow.PreviousFrameCacheBodyCount).Append(" / ")
+                .Append(shadow.PreviousFrameCachePairCount).Append(" / ")
+                .AppendLine(shadow.PreviousFrameCheckCount.ToString());
+            text.Append("Shadow prev pair hit/miss; active/predictive miss: ")
+                .Append(shadow.PreviousFramePairHitCount).Append(" / ")
+                .Append(shadow.PreviousFramePairMissCount).Append("; ")
+                .Append(shadow.PreviousFrameActivePairMissCount).Append(" / ")
+                .AppendLine(shadow.PreviousFramePredictivePairMissCount.ToString());
+            text.Append("Shadow current cache bodies/pairs/checks: ")
+                .Append(shadow.CurrentFrameCacheBodyCount).Append(" / ")
+                .Append(shadow.CurrentFrameCachePairCount).Append(" / ")
+                .AppendLine(shadow.CurrentFrameCheckCount.ToString());
+            text.Append("Shadow current pair hit/miss; active/predictive miss: ")
+                .Append(shadow.CurrentFramePairHitCount).Append(" / ")
+                .Append(shadow.CurrentFramePairMissCount).Append("; ")
+                .Append(shadow.CurrentFrameActivePairMissCount).Append(" / ")
+                .AppendLine(shadow.CurrentFramePredictivePairMissCount.ToString());
+            text.Append("Shadow escape pre/final/contact/wall (prev | current): ")
+                .Append(shadow.PreviousFramePreSolveEscapeBodyCount).Append("/")
+                .Append(shadow.PreviousFrameFinalEscapeBodyCount).Append("/")
+                .Append(shadow.PreviousFrameContactDrivenEscapeBodyCount).Append("/")
+                .Append(shadow.PreviousFrameWallDrivenEscapeBodyCount).Append(" | ")
+                .Append(shadow.CurrentFramePreSolveEscapeBodyCount).Append("/")
+                .Append(shadow.CurrentFrameFinalEscapeBodyCount).Append("/")
+                .Append(shadow.CurrentFrameContactDrivenEscapeBodyCount).Append("/")
+                .AppendLine(shadow.CurrentFrameWallDrivenEscapeBodyCount.ToString());
+            text.Append("Shadow build/validate ns: ")
+                .Append(shadow.CacheBuildNanoseconds).Append(" / ")
+                .AppendLine(shadow.ValidationNanoseconds.ToString());
+        }
 
         if (iterations.Length > 0)
         {
@@ -363,7 +428,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
         text.AppendLine("Middle click: select diagnostic unit");
         text.AppendLine("Gray broad-only | Yellow/Orange regular | Magenta/Red predictive | Blue disabled");
-        text.Append("Cyan sweep | White swept AABB | Blue predicted disc | Green solved disc");
+        text.Append("Cyan sweep | White swept AABB | Yellow/Red shadow fat AABB | Blue predicted disc | Green solved disc");
         return text.ToString();
     }
 }

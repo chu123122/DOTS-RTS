@@ -20,6 +20,8 @@ public struct SolveXpbdUnitContactsJob : IJob
     public float PredictiveSkin;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
+    public bool EnableShadowNeighborCacheTest;
+    public float ShadowCacheMargin;
     public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
@@ -29,8 +31,15 @@ public struct SolveXpbdUnitContactsJob : IJob
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
     public NativeList<UnitCollisionPair> Pairs;
+    public NativeList<SweptDiscCellEntry> ShadowCellEntries;
+    public NativeList<UnitCollisionPair> ShadowBodyPairs;
+    public NativeList<ShadowFatBodyProxy> ShadowCurrentProxies;
+    public NativeList<ShadowEntityPair> ShadowCurrentPairs;
+    public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
+    public NativeList<ShadowEntityPair> ShadowPreviousPairs;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
@@ -42,6 +51,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         int iterationCount = math.max(1, IterationCount);
         float substepDeltaTime = DeltaTime / substepCount;
         var statistics = new PredictiveDiscContactStatistics();
+        var shadowStatistics = new ShadowNeighborCacheStatistics();
         float penetrationSum = 0f;
         IterationDiagnostics.Clear();
         PairDiagnostics.Clear();
@@ -50,7 +60,23 @@ public struct SolveXpbdUnitContactsJob : IJob
         if (substepDeltaTime <= 0f)
         {
             Statistics.Value = statistics;
+            ShadowStatistics.Value = shadowStatistics;
             return;
+        }
+
+        if (!EnableShadowNeighborCacheTest)
+        {
+            ShadowPreviousProxies.Clear();
+            ShadowPreviousPairs.Clear();
+            ShadowCurrentProxies.Clear();
+            ShadowCurrentPairs.Clear();
+        }
+        else
+        {
+            shadowStatistics.PreviousFrameCacheAvailable =
+                (byte)(ShadowPreviousProxies.Length > 0 ? 1 : 0);
+            shadowStatistics.PreviousFrameCacheBodyCount = ShadowPreviousProxies.Length;
+            shadowStatistics.PreviousFrameCachePairCount = ShadowPreviousPairs.Length;
         }
 
         InitializeSolverState();
@@ -63,6 +89,14 @@ public struct SolveXpbdUnitContactsJob : IJob
             BuildSweptContactPairs(ref statistics);
             statistics.PairGenerationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - pairGenerationStart);
+
+            if (EnableShadowNeighborCacheTest && substepIndex == 0)
+            {
+                long shadowBuildStart = ProfilerUnsafeUtility.Timestamp;
+                BuildCurrentShadowCache(ref shadowStatistics);
+                shadowStatistics.CacheBuildNanoseconds +=
+                    TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - shadowBuildStart);
+            }
 
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
@@ -101,9 +135,35 @@ public struct SolveXpbdUnitContactsJob : IJob
             AccumulateConstraintStatistics(ref statistics, ref penetrationSum);
             ReconstructVelocities(substepDeltaTime, ref statistics);
 
+            if (EnableShadowNeighborCacheTest)
+            {
+                long shadowValidationStart = ProfilerUnsafeUtility.Timestamp;
+                if (substepIndex == 0 && shadowStatistics.PreviousFrameCacheAvailable != 0)
+                {
+                    ValidateShadowReference(
+                        ShadowPreviousProxies,
+                        ShadowPreviousPairs,
+                        true,
+                        true,
+                        ref shadowStatistics);
+                }
+
+                ValidateShadowReference(
+                    ShadowCurrentProxies,
+                    ShadowCurrentPairs,
+                    false,
+                    substepIndex > 0,
+                    ref shadowStatistics);
+                shadowStatistics.ValidationNanoseconds +=
+                    TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - shadowValidationStart);
+            }
+
             if (EnableDiagnostics)
                 CaptureSelectedBodyAndPairs(substepIndex);
         }
+
+        if (EnableShadowNeighborCacheTest)
+            PromoteCurrentShadowCache();
 
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
             ? penetrationSum / statistics.PenetratingPairCount
@@ -125,6 +185,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         statistics.SolverNanoseconds =
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
         Statistics.Value = statistics;
+        ShadowStatistics.Value = shadowStatistics;
     }
 
     private void InitializeSolverState()
@@ -234,6 +295,315 @@ public struct SolveXpbdUnitContactsJob : IJob
         SortAndDeduplicatePairs();
         statistics.CandidatePairCount += Pairs.Length;
         FilterAndClassifyPairs(ref statistics, skin);
+    }
+
+    private void BuildCurrentShadowCache(ref ShadowNeighborCacheStatistics statistics)
+    {
+        ShadowCellEntries.Clear();
+        ShadowBodyPairs.Clear();
+        ShadowCurrentProxies.Clear();
+        ShadowCurrentPairs.Clear();
+
+        float cellSize = math.max(CellRadius * 2f, 0.0001f);
+        float extentMargin = math.max(0f, PredictiveSkin) + math.max(0f, ShadowCacheMargin);
+        int validBodyCount = 0;
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            var proxy = new ShadowFatBodyProxy { Entity = state.Entity };
+            if (!state.IsInsideGrid)
+            {
+                ShadowCurrentProxies.Add(proxy);
+                continue;
+            }
+
+            float extent = math.max(0f, state.Radius) + extentMargin;
+            proxy.FatMin = math.min(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) - extent;
+            proxy.FatMax = math.max(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) + extent;
+            proxy.IsValid = 1;
+            ShadowCurrentProxies.Add(proxy);
+            validBodyCount++;
+
+            int2 minCell = (int2)math.floor((proxy.FatMin - GridOrigin.xz) / cellSize);
+            int2 maxCell = (int2)math.floor((proxy.FatMax - GridOrigin.xz) / cellSize);
+            if (maxCell.x < 0 || maxCell.y < 0 ||
+                minCell.x >= GridDimensions.x || minCell.y >= GridDimensions.y)
+                continue;
+
+            minCell = math.clamp(minCell, int2.zero, GridDimensions - 1);
+            maxCell = math.clamp(maxCell, int2.zero, GridDimensions - 1);
+            for (int x = minCell.x; x <= maxCell.x; x++)
+            {
+                for (int y = minCell.y; y <= maxCell.y; y++)
+                {
+                    ShadowCellEntries.Add(new SweptDiscCellEntry
+                    {
+                        CellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), GridDimensions),
+                        BodyIndex = bodyIndex
+                    });
+                }
+            }
+        }
+
+        ShadowCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
+        int cellStart = 0;
+        while (cellStart < ShadowCellEntries.Length)
+        {
+            int cellIndex = ShadowCellEntries[cellStart].CellIndex;
+            int cellEnd = cellStart + 1;
+            while (cellEnd < ShadowCellEntries.Length &&
+                   ShadowCellEntries[cellEnd].CellIndex == cellIndex)
+                cellEnd++;
+
+            for (int first = cellStart; first < cellEnd; first++)
+            {
+                int bodyA = ShadowCellEntries[first].BodyIndex;
+                for (int second = first + 1; second < cellEnd; second++)
+                {
+                    int bodyB = ShadowCellEntries[second].BodyIndex;
+                    if (bodyA == bodyB)
+                        continue;
+                    ShadowBodyPairs.Add(new UnitCollisionPair
+                    {
+                        BodyA = math.min(bodyA, bodyB),
+                        BodyB = math.max(bodyA, bodyB)
+                    });
+                }
+            }
+
+            cellStart = cellEnd;
+        }
+
+        SortAndDeduplicateBodyPairs(ShadowBodyPairs);
+        for (int i = 0; i < ShadowBodyPairs.Length; i++)
+        {
+            UnitCollisionPair bodyPair = ShadowBodyPairs[i];
+            ShadowFatBodyProxy proxyA = ShadowCurrentProxies[bodyPair.BodyA];
+            ShadowFatBodyProxy proxyB = ShadowCurrentProxies[bodyPair.BodyB];
+            if (proxyA.IsValid == 0 || proxyB.IsValid == 0 ||
+                !AabbOverlaps(proxyA.FatMin, proxyA.FatMax, proxyB.FatMin, proxyB.FatMax))
+                continue;
+
+            ShadowCurrentPairs.Add(ShadowEntityOrdering.CreatePair(proxyA.Entity, proxyB.Entity));
+        }
+
+        SortAndDeduplicateEntityPairs(ShadowCurrentPairs);
+        ShadowCurrentProxies.AsArray().Sort(new ShadowFatBodyProxyComparer());
+        statistics.CurrentFrameCacheBodyCount = validBodyCount;
+        statistics.CurrentFrameCachePairCount = ShadowCurrentPairs.Length;
+    }
+
+    private static void SortAndDeduplicateBodyPairs(NativeList<UnitCollisionPair> pairs)
+    {
+        if (pairs.Length <= 1)
+            return;
+
+        pairs.AsArray().Sort(new UnitCollisionPairComparer());
+        int writeIndex = 1;
+        UnitCollisionPair previous = pairs[0];
+        for (int readIndex = 1; readIndex < pairs.Length; readIndex++)
+        {
+            UnitCollisionPair current = pairs[readIndex];
+            if (current.BodyA == previous.BodyA && current.BodyB == previous.BodyB)
+                continue;
+            pairs[writeIndex++] = current;
+            previous = current;
+        }
+        pairs.ResizeUninitialized(writeIndex);
+    }
+
+    private static void SortAndDeduplicateEntityPairs(NativeList<ShadowEntityPair> pairs)
+    {
+        if (pairs.Length <= 1)
+            return;
+
+        pairs.AsArray().Sort(new ShadowEntityPairComparer());
+        int writeIndex = 1;
+        ShadowEntityPair previous = pairs[0];
+        for (int readIndex = 1; readIndex < pairs.Length; readIndex++)
+        {
+            ShadowEntityPair current = pairs[readIndex];
+            if (current.EntityA == previous.EntityA && current.EntityB == previous.EntityB)
+                continue;
+            pairs[writeIndex++] = current;
+            previous = current;
+        }
+        pairs.ResizeUninitialized(writeIndex);
+    }
+
+    private void ValidateShadowReference(
+        NativeList<ShadowFatBodyProxy> referenceProxies,
+        NativeList<ShadowEntityPair> referencePairs,
+        bool isPreviousFrame,
+        bool countPairCoverage,
+        ref ShadowNeighborCacheStatistics statistics)
+    {
+        int authoritativePairs = 0;
+        int pairHits = 0;
+        int pairMisses = 0;
+        int activePairMisses = 0;
+        int predictivePairMisses = 0;
+        int preSolveEscapes = 0;
+        int finalEscapes = 0;
+        int contactDrivenEscapes = 0;
+        int wallDrivenEscapes = 0;
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+
+            bool hasProxy = TryFindProxy(referenceProxies, state.Entity, out ShadowFatBodyProxy proxy);
+            float coreExtent = math.max(0f, state.Radius) + math.max(0f, PredictiveSkin);
+            float2 coreMin = math.min(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) - coreExtent;
+            float2 coreMax = math.max(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) + coreExtent;
+            bool preSolveEscaped = !hasProxy || !AabbContains(proxy.FatMin, proxy.FatMax, coreMin, coreMax);
+            if (preSolveEscaped)
+                preSolveEscapes++;
+
+            float2 finalMin = state.PredictedPosition.xz - coreExtent;
+            float2 finalMax = state.PredictedPosition.xz + coreExtent;
+            bool finalEscaped = !hasProxy || !AabbContains(proxy.FatMin, proxy.FatMax, finalMin, finalMax);
+            if (!finalEscaped)
+                continue;
+
+            finalEscapes++;
+            if (math.lengthsq(state.ContactPositionCorrection) > 0.0000001f)
+                contactDrivenEscapes++;
+            if (math.lengthsq(state.WallPositionCorrection) > 0.0000001f)
+                wallDrivenEscapes++;
+        }
+
+        if (countPairCoverage)
+        {
+            for (int i = 0; i < Pairs.Length; i++)
+            {
+                UnitCollisionPair pair = Pairs[i];
+                ShadowEntityPair entityPair = ShadowEntityOrdering.CreatePair(
+                    States[pair.BodyA].Entity,
+                    States[pair.BodyB].Entity);
+                bool hit = ContainsPair(referencePairs, entityPair);
+                authoritativePairs++;
+                if (hit)
+                {
+                    pairHits++;
+                    continue;
+                }
+
+                pairMisses++;
+                if (pair.WasActivated != 0)
+                    activePairMisses++;
+                if (pair.ContactMode == UnitContactMode.Predictive)
+                    predictivePairMisses++;
+            }
+        }
+
+        if (isPreviousFrame)
+        {
+            if (countPairCoverage)
+                statistics.PreviousFrameCheckCount++;
+            statistics.PreviousFrameAuthoritativePairCount += authoritativePairs;
+            statistics.PreviousFramePairHitCount += pairHits;
+            statistics.PreviousFramePairMissCount += pairMisses;
+            statistics.PreviousFrameActivePairMissCount += activePairMisses;
+            statistics.PreviousFramePredictivePairMissCount += predictivePairMisses;
+            statistics.PreviousFramePreSolveEscapeBodyCount += preSolveEscapes;
+            statistics.PreviousFrameFinalEscapeBodyCount += finalEscapes;
+            statistics.PreviousFrameContactDrivenEscapeBodyCount += contactDrivenEscapes;
+            statistics.PreviousFrameWallDrivenEscapeBodyCount += wallDrivenEscapes;
+        }
+        else
+        {
+            if (countPairCoverage)
+                statistics.CurrentFrameCheckCount++;
+            statistics.CurrentFrameAuthoritativePairCount += authoritativePairs;
+            statistics.CurrentFramePairHitCount += pairHits;
+            statistics.CurrentFramePairMissCount += pairMisses;
+            statistics.CurrentFrameActivePairMissCount += activePairMisses;
+            statistics.CurrentFramePredictivePairMissCount += predictivePairMisses;
+            statistics.CurrentFramePreSolveEscapeBodyCount += preSolveEscapes;
+            statistics.CurrentFrameFinalEscapeBodyCount += finalEscapes;
+            statistics.CurrentFrameContactDrivenEscapeBodyCount += contactDrivenEscapes;
+            statistics.CurrentFrameWallDrivenEscapeBodyCount += wallDrivenEscapes;
+        }
+    }
+
+    private void PromoteCurrentShadowCache()
+    {
+        ShadowPreviousProxies.Clear();
+        ShadowPreviousPairs.Clear();
+        ShadowPreviousProxies.AddRange(ShadowCurrentProxies.AsArray());
+        ShadowPreviousPairs.AddRange(ShadowCurrentPairs.AsArray());
+    }
+
+    private static bool TryFindProxy(
+        NativeList<ShadowFatBodyProxy> proxies,
+        Entity entity,
+        out ShadowFatBodyProxy proxy)
+    {
+        int low = 0;
+        int high = proxies.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            ShadowFatBodyProxy candidate = proxies[middle];
+            int comparison = ShadowEntityOrdering.Compare(candidate.Entity, entity);
+            if (comparison == 0)
+            {
+                proxy = candidate;
+                return candidate.IsValid != 0;
+            }
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        proxy = default;
+        return false;
+    }
+
+    private static bool ContainsPair(
+        NativeList<ShadowEntityPair> pairs,
+        ShadowEntityPair target)
+    {
+        int low = 0;
+        int high = pairs.Length - 1;
+        var comparer = new ShadowEntityPairComparer();
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            int comparison = comparer.Compare(pairs[middle], target);
+            if (comparison == 0)
+                return true;
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return false;
+    }
+
+    private static bool AabbContains(
+        float2 outerMin,
+        float2 outerMax,
+        float2 innerMin,
+        float2 innerMax)
+    {
+        const float tolerance = 0.00001f;
+        return math.all(innerMin >= outerMin - tolerance) &&
+               math.all(innerMax <= outerMax + tolerance);
+    }
+
+    private static bool AabbOverlaps(
+        float2 minA,
+        float2 maxA,
+        float2 minB,
+        float2 maxB)
+    {
+        return math.all(maxA >= minB) && math.all(maxB >= minA);
     }
 
     private void EmitCellPairs()
@@ -620,7 +990,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
 
         FlowMovementFrameState selected = States[selectedBodyIndex];
-        SelectedBodyDiagnostic.Value = new Stage3SelectedBodyDiagnostic
+        var selectedDiagnostic = new Stage3SelectedBodyDiagnostic
         {
             IsValid = 1,
             SubstepIndex = substepIndex,
@@ -634,6 +1004,27 @@ public struct SolveXpbdUnitContactsJob : IJob
             VelocityBeforeContact = selected.VelocityBeforeContact,
             VelocityAfterContact = selected.IntegratedVelocity
         };
+
+        if (EnableShadowNeighborCacheTest)
+        {
+            NativeList<ShadowFatBodyProxy> referenceProxies =
+                substepIndex == 0 && ShadowPreviousProxies.Length > 0
+                    ? ShadowPreviousProxies
+                    : ShadowCurrentProxies;
+            if (TryFindProxy(referenceProxies, selected.Entity, out ShadowFatBodyProxy proxy))
+            {
+                float coreExtent = math.max(0f, selected.Radius) + math.max(0f, PredictiveSkin);
+                float2 finalMin = selected.PredictedPosition.xz - coreExtent;
+                float2 finalMax = selected.PredictedPosition.xz + coreExtent;
+                selectedDiagnostic.ShadowReferenceAvailable = 1;
+                selectedDiagnostic.ShadowEscaped =
+                    (byte)(AabbContains(proxy.FatMin, proxy.FatMax, finalMin, finalMax) ? 0 : 1);
+                selectedDiagnostic.ShadowFatMin = proxy.FatMin;
+                selectedDiagnostic.ShadowFatMax = proxy.FatMax;
+            }
+        }
+
+        SelectedBodyDiagnostic.Value = selectedDiagnostic;
 
         for (int i = 0; i < Pairs.Length; i++)
         {
@@ -797,17 +1188,20 @@ public struct SolveXpbdUnitContactsJob : IJob
 public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 {
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> Source;
+    [ReadOnly] public NativeReference<ShadowNeighborCacheStatistics> ShadowSource;
     [ReadOnly] public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource;
     [ReadOnly] public NativeList<Stage3ContactIterationDiagnostic> IterationSource;
     [ReadOnly] public NativeList<Stage3ContactPairDiagnostic> PairSource;
 
     public void Execute(
         ref PredictiveDiscContactStatistics destination,
+        ref ShadowNeighborCacheStatistics shadowDestination,
         ref Stage3SelectedBodyDiagnostic selectedBodyDestination,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDestination,
         DynamicBuffer<Stage3ContactPairDiagnostic> pairDestination)
     {
         destination = Source.Value;
+        shadowDestination = ShadowSource.Value;
         selectedBodyDestination = SelectedBodySource.Value;
         iterationDestination.Clear();
         pairDestination.Clear();

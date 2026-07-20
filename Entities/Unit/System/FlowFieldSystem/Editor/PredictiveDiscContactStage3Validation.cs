@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
@@ -35,6 +36,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult chain = ValidatePrebuiltChainContact();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
+        ScenarioResult shadow = ValidateShadowNeighborCacheProbe();
         (ScenarioResult oneIteration, ScenarioResult eightIterations) =
             ValidateIterationResidualReduction();
 
@@ -49,6 +51,9 @@ public static class PredictiveDiscContactStage3Validation
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
             $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
             $"{wallEightIterations.Positions[1].x:F6}\n" +
+            $"shadow prev hit/miss={shadow.ShadowStatistics.PreviousFramePairHitCount}/" +
+            $"{shadow.ShadowStatistics.PreviousFramePairMissCount}, " +
+            $"current wall escapes={shadow.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount}\n" +
             $"iterations 1->8: maxPenetration " +
             $"{oneIteration.Statistics.MaxPenetration:F6} -> " +
             $"{eightIterations.Statistics.MaxPenetration:F6}\n" +
@@ -243,6 +248,101 @@ public static class PredictiveDiscContactStage3Validation
         return (oneIteration, eightIterations);
     }
 
+    private static ScenarioResult ValidateShadowNeighborCacheProbe()
+    {
+        FlowMovementFrameState[] denseBodies =
+        {
+            CreateBody(new float3(0f, 0, 0f), float3.zero, 0.5f),
+            CreateBody(new float3(0.9f, 0, 0f), float3.zero, 0.5f),
+            CreateBody(new float3(1.8f, 0, 0f), float3.zero, 0.5f),
+            CreateBody(new float3(2.7f, 0, 0f), float3.zero, 0.5f)
+        };
+        var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
+        var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
+
+        ScenarioResult secondFrame;
+        try
+        {
+            RunScenarioWithCache(
+                denseBodies,
+                iterationCount: 4,
+                skin: 0.05f,
+                enablePredictiveContacts: true,
+                includeWall: false,
+                substepCount: 2,
+                enableShadowTest: true,
+                shadowMargin: 0.25f,
+                previousProxies: previousProxies,
+                previousPairs: previousPairs);
+            secondFrame = RunScenarioWithCache(
+                denseBodies,
+                iterationCount: 4,
+                skin: 0.05f,
+                enablePredictiveContacts: true,
+                includeWall: false,
+                substepCount: 2,
+                enableShadowTest: true,
+                shadowMargin: 0.25f,
+                previousProxies: previousProxies,
+                previousPairs: previousPairs);
+        }
+        finally
+        {
+            previousPairs.Dispose();
+            previousProxies.Dispose();
+        }
+
+        Require(secondFrame.ShadowStatistics.PreviousFrameCacheAvailable != 0 &&
+                secondFrame.ShadowStatistics.PreviousFrameCheckCount == 1,
+            "Shadow Test did not reuse the previous frame Fat AABB neighbor list.");
+        Require(secondFrame.ShadowStatistics.PreviousFramePairMissCount == 0 &&
+                secondFrame.ShadowStatistics.CurrentFramePairMissCount == 0,
+            "Stable dense contacts were not covered by the shadow neighbor lists.");
+        Require(secondFrame.ShadowStatistics.CurrentFrameCheckCount == 1,
+            "Shadow Test did not compare the first-substep cache with the later substep.");
+
+        FlowMovementFrameState[] wallBodies =
+        {
+            CreateBody(new float3(1.4f, 0, 0.5f), float3.zero, 0.5f),
+            CreateBody(new float3(2.42f, 0, 0.5f), float3.zero, 0.5f)
+        };
+        ScenarioResult shadowOff = RunScenario(
+            wallBodies,
+            iterationCount: 8,
+            skin: 0.1f,
+            includeWall: true,
+            enableShadowTest: false);
+        ScenarioResult shadowOn = RunScenario(
+            wallBodies,
+            iterationCount: 8,
+            skin: 0.1f,
+            includeWall: true,
+            enableShadowTest: true,
+            shadowMargin: 0.001f);
+        for (int i = 0; i < shadowOff.Positions.Length; i++)
+        {
+            Require(math.distance(shadowOff.Positions[i], shadowOn.Positions[i]) <=
+                    PositionTolerance,
+                "Enabling Shadow Test changed an authoritative solver position.");
+        }
+        Require(shadowOn.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount > 0,
+            "Small shadow margin did not expose the wall-driven Fat AABB escape.");
+        return new ScenarioResult
+        {
+            Positions = shadowOn.Positions,
+            Statistics = shadowOn.Statistics,
+            ShadowStatistics = new ShadowNeighborCacheStatistics
+            {
+                PreviousFramePairHitCount =
+                    secondFrame.ShadowStatistics.PreviousFramePairHitCount,
+                PreviousFramePairMissCount =
+                    secondFrame.ShadowStatistics.PreviousFramePairMissCount,
+                CurrentFrameWallDrivenEscapeBodyCount =
+                    shadowOn.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount
+            }
+        };
+    }
+
     private static FlowMovementFrameState CreateBody(
         float3 position,
         float3 velocity,
@@ -268,24 +368,75 @@ public static class PredictiveDiscContactStage3Validation
         int iterationCount,
         float skin,
         bool enablePredictiveContacts = true,
-        bool includeWall = false)
+        bool includeWall = false,
+        int substepCount = 1,
+        bool enableShadowTest = false,
+        float shadowMargin = 0.25f)
+    {
+        var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
+        var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
+        try
+        {
+            return RunScenarioWithCache(
+                sourceBodies,
+                iterationCount,
+                skin,
+                enablePredictiveContacts,
+                includeWall,
+                substepCount,
+                enableShadowTest,
+                shadowMargin,
+                previousProxies,
+                previousPairs);
+        }
+        finally
+        {
+            previousPairs.Dispose();
+            previousProxies.Dispose();
+        }
+    }
+
+    private static ScenarioResult RunScenarioWithCache(
+        FlowMovementFrameState[] sourceBodies,
+        int iterationCount,
+        float skin,
+        bool enablePredictiveContacts,
+        bool includeWall,
+        int substepCount,
+        bool enableShadowTest,
+        float shadowMargin,
+        NativeList<ShadowFatBodyProxy> previousProxies,
+        NativeList<ShadowEntityPair> previousPairs)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
-        var states = new NativeArray<FlowMovementFrameState>(sourceBodies, Allocator.Temp);
+        var preparedBodies = (FlowMovementFrameState[])sourceBodies.Clone();
+        for (int i = 0; i < preparedBodies.Length; i++)
+        {
+            FlowMovementFrameState body = preparedBodies[i];
+            body.Entity = new Entity { Index = i + 1, Version = 1 };
+            preparedBodies[i] = body;
+        }
+        var states = new NativeArray<FlowMovementFrameState>(preparedBodies, Allocator.TempJob);
         var grid = new NativeArray<FlowFieldCell>(
             gridDimensions.x * gridDimensions.y,
-            Allocator.Temp);
-        var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.Temp);
-        var pairs = new NativeList<UnitCollisionPair>(16, Allocator.Temp);
+            Allocator.TempJob);
+        var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.TempJob);
+        var pairs = new NativeList<UnitCollisionPair>(16, Allocator.TempJob);
+        var shadowEntries = new NativeList<SweptDiscCellEntry>(32, Allocator.TempJob);
+        var shadowBodyPairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
+        var shadowCurrentProxies = new NativeList<ShadowFatBodyProxy>(16, Allocator.TempJob);
+        var shadowCurrentPairs = new NativeList<ShadowEntityPair>(32, Allocator.TempJob);
         var statistics =
-            new NativeReference<PredictiveDiscContactStatistics>(Allocator.Temp);
+            new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
+        var shadowStatistics =
+            new NativeReference<ShadowNeighborCacheStatistics>(Allocator.TempJob);
         var iterationDiagnostics =
-            new NativeList<Stage3ContactIterationDiagnostic>(16, Allocator.Temp);
+            new NativeList<Stage3ContactIterationDiagnostic>(16, Allocator.TempJob);
         var pairDiagnostics =
-            new NativeList<Stage3ContactPairDiagnostic>(16, Allocator.Temp);
+            new NativeList<Stage3ContactPairDiagnostic>(16, Allocator.TempJob);
         var selectedBodyDiagnostic =
-            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.Temp);
+            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
 
         try
         {
@@ -298,12 +449,14 @@ public static class PredictiveDiscContactStage3Validation
             var solver = new SolveXpbdUnitContactsJob
             {
                 DeltaTime = 1f,
-                SubstepCount = 1,
+                SubstepCount = substepCount,
                 IterationCount = iterationCount,
                 Compliance = 0f,
                 PredictiveSkin = skin,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
+                EnableShadowNeighborCacheTest = enableShadowTest,
+                ShadowCacheMargin = shadowMargin,
                 DiagnosticSelectedEntity = Entity.Null,
                 GridOrigin = gridOrigin,
                 GridDimensions = gridDimensions,
@@ -311,13 +464,20 @@ public static class PredictiveDiscContactStage3Validation
                 Grid = grid,
                 SweptCellEntries = entries,
                 Pairs = pairs,
+                ShadowCellEntries = shadowEntries,
+                ShadowBodyPairs = shadowBodyPairs,
+                ShadowCurrentProxies = shadowCurrentProxies,
+                ShadowCurrentPairs = shadowCurrentPairs,
+                ShadowPreviousProxies = previousProxies,
+                ShadowPreviousPairs = previousPairs,
                 States = states,
                 Statistics = statistics,
+                ShadowStatistics = shadowStatistics,
                 IterationDiagnostics = iterationDiagnostics,
                 PairDiagnostics = pairDiagnostics,
                 SelectedBodyDiagnostic = selectedBodyDiagnostic
             };
-            solver.Execute();
+            solver.Run();
 
             var positions = new float3[states.Length];
             for (int i = 0; i < states.Length; i++)
@@ -327,6 +487,7 @@ public static class PredictiveDiscContactStage3Validation
             {
                 Positions = positions,
                 Statistics = statistics.Value,
+                ShadowStatistics = shadowStatistics.Value,
                 IterationDiagnostics = iterationDiagnostics.AsArray().ToArray()
             };
         }
@@ -335,7 +496,12 @@ public static class PredictiveDiscContactStage3Validation
             selectedBodyDiagnostic.Dispose();
             pairDiagnostics.Dispose();
             iterationDiagnostics.Dispose();
+            shadowStatistics.Dispose();
             statistics.Dispose();
+            shadowCurrentPairs.Dispose();
+            shadowCurrentProxies.Dispose();
+            shadowBodyPairs.Dispose();
+            shadowEntries.Dispose();
             pairs.Dispose();
             entries.Dispose();
             grid.Dispose();
@@ -353,6 +519,7 @@ public static class PredictiveDiscContactStage3Validation
     {
         public float3[] Positions;
         public PredictiveDiscContactStatistics Statistics;
+        public ShadowNeighborCacheStatistics ShadowStatistics;
         public Stage3ContactIterationDiagnostic[] IterationDiagnostics;
     }
 }

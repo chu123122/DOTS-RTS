@@ -13,6 +13,8 @@ using 通用;
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     private EntityQuery _movementQuery;
+    private NativeList<ShadowFatBodyProxy> _shadowPreviousProxies;
+    private NativeList<ShadowEntityPair> _shadowPreviousPairs;
 
     protected override void OnCreate()
     {
@@ -21,6 +23,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         RequireForUpdate<UnitSpatialMap>();
         RequireForUpdate<UnitContactSolverSettings>();
         RequireForUpdate<PredictiveDiscContactStatistics>();
+        RequireForUpdate<ShadowNeighborCacheStatistics>();
         RequireForUpdate<Stage3ContactDiagnosticSelection>();
 
         _movementQuery = GetEntityQuery(
@@ -30,6 +33,18 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadOnly<UnitMoveSpeed>(),
             ComponentType.ReadOnly<UnitMovementSettings>(),
             ComponentType.ReadOnly<UnitContactBody>());
+
+        _shadowPreviousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.Persistent);
+        _shadowPreviousPairs = new NativeList<ShadowEntityPair>(Allocator.Persistent);
+    }
+
+    protected override void OnDestroy()
+    {
+        Dependency.Complete();
+        if (_shadowPreviousProxies.IsCreated)
+            _shadowPreviousProxies.Dispose();
+        if (_shadowPreviousPairs.IsCreated)
+            _shadowPreviousPairs.Dispose();
     }
 
     protected override void OnUpdate()
@@ -117,8 +132,22 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var collisionPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
+        var shadowCellEntries = new NativeList<SweptDiscCellEntry>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
+        var shadowBodyPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
+        var shadowCurrentProxies = new NativeList<ShadowFatBodyProxy>(
+            math.max(unitCount, 1),
+            Allocator.TempJob);
+        var shadowCurrentPairs = new NativeList<ShadowEntityPair>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
+        var shadowStatistics =
+            new NativeReference<ShadowNeighborCacheStatistics>(Allocator.TempJob);
         var iterationDiagnostics = new NativeList<Stage3ContactIterationDiagnostic>(
             math.max(contactSolverSettings.SubstepCount * contactSolverSettings.IterationCount, 1),
             Allocator.TempJob);
@@ -136,6 +165,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PredictiveSkin = contactSolverSettings.PredictiveSkin,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
+            EnableShadowNeighborCacheTest = contactSolverSettings.EnableShadowNeighborCacheTest,
+            ShadowCacheMargin = contactSolverSettings.ShadowCacheMargin,
             DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -143,8 +174,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Grid = gridComponent.Grid,
             SweptCellEntries = sweptCellEntries,
             Pairs = collisionPairs,
+            ShadowCellEntries = shadowCellEntries,
+            ShadowBodyPairs = shadowBodyPairs,
+            ShadowCurrentProxies = shadowCurrentProxies,
+            ShadowCurrentPairs = shadowCurrentPairs,
+            ShadowPreviousProxies = _shadowPreviousProxies,
+            ShadowPreviousPairs = _shadowPreviousPairs,
             States = states,
             Statistics = contactStatistics,
+            ShadowStatistics = shadowStatistics,
             IterationDiagnostics = iterationDiagnostics,
             PairDiagnostics = pairDiagnostics,
             SelectedBodyDiagnostic = selectedBodyDiagnostic
@@ -154,6 +192,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
             Source = contactStatistics,
+            ShadowSource = shadowStatistics,
             SelectedBodySource = selectedBodyDiagnostic,
             IterationSource = iterationDiagnostics,
             PairSource = pairDiagnostics
@@ -181,7 +220,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle arrivalDistanceDisposeHandle = arrivalEnterDistance.Dispose(applyMovementHandle);
         JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
+        JobHandle shadowCellDisposeHandle = shadowCellEntries.Dispose(applyMovementHandle);
+        JobHandle shadowBodyPairDisposeHandle = shadowBodyPairs.Dispose(applyMovementHandle);
+        JobHandle shadowProxyDisposeHandle = shadowCurrentProxies.Dispose(applyMovementHandle);
+        JobHandle shadowPairDisposeHandle = shadowCurrentPairs.Dispose(applyMovementHandle);
         JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
+        JobHandle shadowStatisticsDisposeHandle = shadowStatistics.Dispose(publishStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle =
             selectedBodyDiagnostic.Dispose(publishStatisticsHandle);
         JobHandle iterationDiagnosticDisposeHandle =
@@ -192,18 +236,29 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             footprintDisposeHandle);
         JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
             arrivalDistanceDisposeHandle,
-            statisticsDisposeHandle);
+            statisticsDisposeHandle,
+            shadowStatisticsDisposeHandle);
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
             selectedDiagnosticDisposeHandle,
             iterationDiagnosticDisposeHandle,
             pairDiagnosticDisposeHandle);
-        JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
+        JobHandle broadPhaseDisposeHandle = JobHandle.CombineDependencies(
             sweptEntryDisposeHandle,
-            collisionPairDisposeHandle);
-        JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
+            collisionPairDisposeHandle,
+            shadowCellDisposeHandle);
+        JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
+            broadPhaseDisposeHandle,
+            shadowBodyPairDisposeHandle);
+        JobHandle shadowCacheDisposeHandle = JobHandle.CombineDependencies(
+            shadowProxyDisposeHandle,
+            shadowPairDisposeHandle);
+        JobHandle mainDisposeWithoutShadowCache = JobHandle.CombineDependencies(
             frameStateDisposeHandle,
             lookupDisposeHandle,
             pairDisposeHandle);
+        JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
+            mainDisposeWithoutShadowCache,
+            shadowCacheDisposeHandle);
         Dependency = JobHandle.CombineDependencies(
             mainDisposeHandle,
             diagnosticDisposeHandle);
