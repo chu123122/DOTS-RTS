@@ -39,6 +39,16 @@ public struct MoveOrder : IComponentData, IEnableableComponent
 }
 
 /// <summary>
+/// 单位动态接触 XPBD 求解配置。lambda 在每个 substep 开始时清零。
+/// </summary>
+public struct UnitContactSolverSettings : IComponentData
+{
+    public int SubstepCount;
+    public int IterationCount;
+    public float Compliance;
+}
+
+/// <summary>
 /// 只在一份完整流场发布后递增，移动和可视化系统据此读取稳定快照。
 /// </summary>
 public struct FlowFieldRuntimeState : IComponentData

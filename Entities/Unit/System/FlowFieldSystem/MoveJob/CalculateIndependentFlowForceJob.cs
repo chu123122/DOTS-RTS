@@ -29,6 +29,7 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         in Velocity velocity,
         in UnitMoveSpeed speed,
         in UnitMovementSettings settings,
+        in UnitContactBody contactBody,
         ref FlowArrivalState arrivalState)
     {
         EntityToIndex.TryAdd(entity, entityIndex);
@@ -39,7 +40,8 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
             CurrentRotation = transform.Rotation,
             CurrentVelocity = velocity.Value,
             MoveSpeed = speed.Value,
-            MaxForce = settings.MaxForce
+            MaxForce = settings.MaxForce,
+            InverseMass = math.max(0f, contactBody.InverseMass)
         };
 
         // 越界单位不参与本帧后续求解，并在最终阶段停止速度。

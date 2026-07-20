@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -11,6 +12,18 @@ public struct UnitCollisionPair
 {
     public int BodyA;
     public int BodyB;
+    public float Lambda;
+}
+
+public struct UnitCollisionPairComparer : IComparer<UnitCollisionPair>
+{
+    public int Compare(UnitCollisionPair x, UnitCollisionPair y)
+    {
+        int bodyAComparison = x.BodyA.CompareTo(y.BodyA);
+        return bodyAComparison != 0
+            ? bodyAComparison
+            : x.BodyB.CompareTo(y.BodyB);
+    }
 }
 
 /// <summary>
@@ -65,7 +78,8 @@ public partial struct BuildUniqueUnitCollisionPairsJob : IJobEntity
                     PairWriter.Write(new UnitCollisionPair
                     {
                         BodyA = entityIndex,
-                        BodyB = neighborIndex
+                        BodyB = neighborIndex,
+                        Lambda = 0f
                     });
                 } while (SpatialMap.TryGetNextValue(out neighborEntity, ref iterator));
             }
@@ -93,6 +107,10 @@ public struct CollectUnitCollisionPairsJob : IJob
                 Pairs.Add(PairReader.Read<UnitCollisionPair>());
             PairReader.EndForEachIndex();
         }
+
+        // NativeStream 每段内的 HashMap 枚举顺序不构成求解顺序合同。
+        // 固定排序后，后续顺序 XPBD 投影不受并行 Pair 生产时序影响。
+        Pairs.AsArray().Sort(new UnitCollisionPairComparer());
     }
 }
 
@@ -160,50 +178,5 @@ public partial struct CalculateWallConstraintsJob : IJobEntity
         float3 pushDirection = diff / dist;
         float penetration = wallHardRadius - dist;
         positionCorrection += pushDirection * (penetration * 0.5f);
-    }
-}
-
-/// <summary>
-/// 单轮 Jacobi 单位接触投影。
-/// 所有约束都读取同一份预测位置，只向双方累计修正，因此结果不依赖 Pair 遍历顺序。
-/// </summary>
-[BurstCompile]
-public struct SolveUnitCollisionPairsJob : IJob
-{
-    [ReadOnly] public NativeArray<UnitCollisionPair> Pairs;
-    [ReadOnly] public NativeArray<float2> CollisionFootprints;
-    public NativeArray<FlowMovementFrameState> States;
-
-    public void Execute()
-    {
-        for (int i = 0; i < Pairs.Length; i++)
-        {
-            UnitCollisionPair pair = Pairs[i];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-
-            float3 diff = bodyA.PredictedPosition - bodyB.PredictedPosition;
-            diff.y = 0;
-
-            float distSq = math.lengthsq(diff);
-            if (distSq <= 0.00001f)
-                continue;
-
-            float radiusA = math.cmax(CollisionFootprints[pair.BodyA]) * 0.5f;
-            float radiusB = math.cmax(CollisionFootprints[pair.BodyB]) * 0.5f;
-            float targetDistance = radiusA + radiusB;
-            if (distSq >= targetDistance * targetDistance)
-                continue;
-
-            float distance = math.sqrt(distSq);
-            float3 normal = diff / distance;
-            float penetration = targetDistance - distance;
-            float3 correction = normal * (penetration * 0.4f);
-
-            bodyA.PositionCorrection += correction;
-            bodyB.PositionCorrection -= correction;
-            States[pair.BodyA] = bodyA;
-            States[pair.BodyB] = bodyB;
-        }
     }
 }

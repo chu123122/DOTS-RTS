@@ -9,6 +9,7 @@ namespace 通用
     public class BasicUnitAuthoring : MonoBehaviour
     {
         public float moveSpeed;
+        [Min(0f)] public float contactInverseMass = 1f;
 
         public class Baker : Baker<BasicUnitAuthoring>
         {
@@ -23,6 +24,10 @@ namespace 通用
                 AddComponent(entity, new FlowArrivalState { IsSettled = false });
                 AddComponent(entity, new UnitMovementSettings { MaxForce = 20f, RotationSpeed = 10f });
                 AddComponent(entity, new UnitMoveSpeed { Value = authoring.moveSpeed });
+                AddComponent(entity, new UnitContactBody
+                {
+                    InverseMass = math.max(0f, authoring.contactInverseMass)
+                });
                 AddComponent(entity, new UnitSelected { Value = false });
 
                 AddComponent<IsUserUnitTag>(entity);

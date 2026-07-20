@@ -17,6 +17,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Range(0f, 1f)] public float visualizationOpacity = 0.65f;
     public float visualizationHeightOffset = 0.05f;
 
+    [Header("Unit Contact XPBD")]
+    [Min(1)] public int contactSubsteps = 2;
+    [Min(1)] public int contactIterations = 4;
+    [Min(0f)] public float contactCompliance;
+
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
         public override void Bake(FlowFieldManagerAuthoring authoring)
@@ -32,6 +37,12 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new MoveOrder());
             SetComponentEnabled<MoveOrder>(entity, false);
+            AddComponent(entity, new UnitContactSolverSettings
+            {
+                SubstepCount = math.max(1, authoring.contactSubsteps),
+                IterationCount = math.max(1, authoring.contactIterations),
+                Compliance = math.max(0f, authoring.contactCompliance)
+            });
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new RecalculateFlowFieldTag());

@@ -8,7 +8,7 @@ using 通用;
 
 /// <summary>
 /// 单位流场移动的分阶段调度基类。
-/// 每帧依次计算独立流场力、软避让力、半隐式欧拉预测位置、位置约束和最终位姿。
+/// 每帧依次计算驱动力、生成唯一动态接触 Pair、执行 XPBD substep/iteration，并写回位姿。
 /// </summary>
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
@@ -19,19 +19,22 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         RequireForUpdate<FlowFieldGrid>();
         RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<UnitSpatialMap>();
+        RequireForUpdate<UnitContactSolverSettings>();
 
         _movementQuery = GetEntityQuery(
             ComponentType.ReadWrite<LocalTransform>(),
             ComponentType.ReadWrite<Velocity>(),
             ComponentType.ReadWrite<FlowArrivalState>(),
             ComponentType.ReadOnly<UnitMoveSpeed>(),
-            ComponentType.ReadOnly<UnitMovementSettings>());
+            ComponentType.ReadOnly<UnitMovementSettings>(),
+            ComponentType.ReadOnly<UnitContactBody>());
     }
 
     protected override void OnUpdate()
     {
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var spatialMap = SystemAPI.GetSingleton<UnitSpatialMap>();
+        var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
         if (!gridComponent.Grid.IsCreated) return;
         if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
 
@@ -107,17 +110,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle softAvoidanceHandle = softAvoidanceJob.ScheduleParallel(_movementQuery, independentForceHandle);
 
-        // 阶段 3：合力积分得到速度，并为所有单位生成同一时刻的预测位置快照。
-        var integrateForcesJob = new IntegrateFlowForcesJob
-        {
-            DeltaTime = SystemAPI.Time.DeltaTime,
-            GridOrigin = gridComponent.GridOrigin,
-            CellRadius = gridComponent.CellRadius,
-            States = states
-        };
-        JobHandle integrateForcesHandle = integrateForcesJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
-
-        // 阶段 4：从 SpatialMap 并行生成唯一单位 Pair 快照。
+        // 阶段 3：从当前位置 SpatialMap 并行生成唯一单位 Pair 候选快照。
         var pairStream = new NativeStream(unitCount, Allocator.TempJob);
         var collisionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
         var buildPairJob = new BuildUniqueUnitCollisionPairsJob
@@ -129,7 +122,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             States = states,
             PairWriter = pairStream.AsWriter()
         };
-        JobHandle buildPairHandle = buildPairJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
+        JobHandle buildPairHandle = buildPairJob.ScheduleParallel(_movementQuery, softAvoidanceHandle);
 
         var collectPairJob = new CollectUnitCollisionPairsJob
         {
@@ -138,7 +131,22 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle collectPairHandle = collectPairJob.Schedule(buildPairHandle);
 
-        // 墙壁仍保留原有单体位置投影，与单位 Pair 快照相互独立。
+        // 阶段 4：按照 PointConstraints 的生命周期执行 XPBD 动态接触求解。
+        var solveContactJob = new SolveXpbdUnitContactsJob
+        {
+            DeltaTime = SystemAPI.Time.DeltaTime,
+            SubstepCount = contactSolverSettings.SubstepCount,
+            IterationCount = contactSolverSettings.IterationCount,
+            Compliance = contactSolverSettings.Compliance,
+            GridOrigin = gridComponent.GridOrigin,
+            CellRadius = gridComponent.CellRadius,
+            Pairs = collisionPairs.AsDeferredJobArray(),
+            CollisionFootprints = collisionFootprints,
+            States = states
+        };
+        JobHandle solveContactHandle = solveContactJob.Schedule(collectPairHandle);
+
+        // 墙壁暂时保留原有单体位置投影；Stage 2 只升级动态单位 Pair。
         var wallConstraintJob = new CalculateWallConstraintsJob
         {
             Grid = gridComponent.Grid,
@@ -148,21 +156,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             States = states
         };
         JobHandle wallConstraintHandle =
-            wallConstraintJob.ScheduleParallel(_movementQuery, integrateForcesHandle);
-
-        var solvePairJob = new SolveUnitCollisionPairsJob
-        {
-            Pairs = collisionPairs.AsDeferredJobArray(),
-            CollisionFootprints = collisionFootprints,
-            States = states
-        };
-        JobHandle constraintHandle = solvePairJob.Schedule(
-            JobHandle.CombineDependencies(collectPairHandle, wallConstraintHandle));
+            wallConstraintJob.ScheduleParallel(_movementQuery, solveContactHandle);
 
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
         World.GetExistingSystemManaged<Entities.Unit.System.FlowFieldSystem.FlowFieldBakeSystem>()
-            ?.RegisterActiveGridReader(constraintHandle);
+            ?.RegisterActiveGridReader(wallConstraintHandle);
 
         // 阶段 5：应用预测位置和约束修正，写回最终 Transform/Velocity。
         var applyMovementJob = new ApplyFlowMovementJob
@@ -170,7 +169,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             DeltaTime = SystemAPI.Time.DeltaTime,
             States = states
         };
-        JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, constraintHandle);
+        JobHandle applyMovementHandle = applyMovementJob.ScheduleParallel(_movementQuery, wallConstraintHandle);
 
         // 所有临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);

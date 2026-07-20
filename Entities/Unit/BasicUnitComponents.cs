@@ -51,6 +51,15 @@ namespace 通用
         public float RotationSpeed; // 转身速度 (建议 10-20)
     }
 
+    /// <summary>
+    /// 自定义单位接触求解质量。Unity Physics 中的单位保持 Kinematic，
+    /// XPBD 接触只读取这里的逆质量。
+    /// </summary>
+    public struct UnitContactBody : IComponentData
+    {
+        public float InverseMass;
+    }
+
    
     
    
