@@ -149,7 +149,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
             bool useFatCandidatesForSoftAvoidance = EnableFatAabbCache &&
-                                                    !AdaptiveFatAabbRequested &&
+                                                    !HasActiveAdaptiveFatRegions &&
                                                     SoftAvoidanceShell > 0f &&
                                                     SoftAvoidanceResponseRate > 0f &&
                                                     EnsureFatAabbRawCandidates(
