@@ -105,6 +105,8 @@ def summarize_file(path: Path) -> RunSummary:
     inflations: list[float] = []
     for sample in samples:
         sample_substeps = max(1.0, number(sample, "Substeps"))
+        # ContactPairs 是 timestep 唯一集合；将其除以 substep 后，得到的比值表示
+        # 同一 Fat 候选列表在整帧各 substep 重复扫描的总倍率，而不是缓存存储膨胀。
         contacts_per_substep = number(sample, "ContactPairs") / sample_substeps
         if contacts_per_substep > 0.0:
             inflations.append(
@@ -266,7 +268,7 @@ def analyze_configuration(
         f"P95 最终残差: OFF {residual_off:.6f} -> ON {residual_on:.6f} "
         f"[{'稳定' if residual_stable else '退化'}]",
         f"缓存健康度: reuse={reuse_rate:.1%}, fallback={fallback_rate:.1%}, "
-        f"rebuilds={rebuilds}, candidate/contact={inflation:.2f}x",
+        f"rebuilds={rebuilds}, substep-scan/contact={inflation:.2f}x",
         f"优化计数: Pair 映射构建={mapping_builds}, 帧内复用={mapping_reuses}, "
         f"修正单位 AABB 检查={corrected_body_checks}",
     ]
@@ -293,7 +295,7 @@ def analyze_configuration(
         notes.append("判定: Solver 总耗时回退超过 10%。")
     if not cache_healthy:
         notes.append(
-            "判定: 缓存复用率、回退率或候选膨胀未达到继续扫描 margin 的门槛。"
+            "判定: 缓存复用率、回退率或 substep 扫描倍率未达到继续扫描 margin 的门槛。"
         )
     if not (penetration_stable and velocity_stable and residual_stable):
         notes.append("判定: 物理结果相对 OFF 基线出现退化。")
@@ -341,7 +343,7 @@ def analyze(
 
 def print_runs(runs: list[RunSummary]) -> None:
     print("\n录制明细")
-    print("label                           config mode samples pair_us solver_us reuse fallback inflation")
+    print("label                           config mode samples pair_us solver_us reuse fallback scan/contact")
     for run in sorted(runs, key=lambda item: item.label):
         reuse_rate = run.cache_reuses / run.cache_uses if run.cache_uses else 0.0
         fallback_rate = run.cache_fallbacks / run.cache_uses if run.cache_uses else 0.0

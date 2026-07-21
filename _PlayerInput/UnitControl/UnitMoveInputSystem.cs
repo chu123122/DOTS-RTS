@@ -21,6 +21,7 @@ namespace 客户端
         protected override void OnCreate()
         {
             RequireForUpdate<FlowFieldGlobalTarget>();
+            RequireForUpdate<MoveOrderSelectionElement>();
         }
 
         protected override void OnUpdate()
@@ -45,30 +46,34 @@ namespace 客户端
             var groundPlane = new Plane(Vector3.up, Vector3.zero);
             if (groundPlane.Raycast(ray, out float enter))
             {
-                bool hasSelectedUnit = false;
-                foreach (var unitSelected in
-                         SystemAPI.Query<RefRO<UnitSelected>>())
+                Entity flowFieldEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
+                DynamicBuffer<MoveOrderSelectionElement> recipients =
+                    EntityManager.GetBuffer<MoveOrderSelectionElement>(flowFieldEntity);
+                recipients.Clear();
+                foreach (var (unitSelected, entity) in
+                         SystemAPI.Query<RefRO<UnitSelected>>()
+                             .WithAll<BasicUnitTag, UnitMoveDestination>()
+                             .WithEntityAccess())
                 {
                     if (unitSelected.ValueRO.Value)
-                    {
-                        hasSelectedUnit = true;
-                        break;
-                    }
+                        recipients.Add(new MoveOrderSelectionElement { Entity = entity });
                 }
 
-                if (!hasSelectedUnit)
+                if (recipients.Length == 0)
                 {
                     Debug.LogWarning("移动命令未发送：当前没有选中的单位。");
                     return;
                 }
 
-                Entity flowFieldEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
                 float3 targetPosition = ray.GetPoint(enter);
                 EntityManager.SetComponentData(flowFieldEntity, new MoveOrder
                 {
                     TargetPosition = targetPosition
                 });
                 EntityManager.SetComponentEnabled<MoveOrder>(flowFieldEntity, true);
+                Debug.Log(
+                    $"移动命令已发送：右键快照 {recipients.Length} 个单位，" +
+                    $"目标 {targetPosition}。");
 
                 RequestCommandRpcSystem requestCommandRpcSystem =
                     this.GetService<RequestCommandRpcSystem>();

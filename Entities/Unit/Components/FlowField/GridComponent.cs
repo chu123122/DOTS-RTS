@@ -60,6 +60,15 @@ public struct MoveOrder : IComponentData, IEnableableComponent
 }
 
 /// <summary>
+/// 下达 MoveOrder 时的选中单位快照。命令消费阶段不得重新查询实时 UnitSelected，
+/// 否则输入与预测更新之间的时序差会让订单绑定到后续选择。
+/// </summary>
+public struct MoveOrderSelectionElement : IBufferElementData
+{
+    public Entity Entity;
+}
+
+/// <summary>
 /// 单位动态接触 XPBD 求解配置。lambda 在每个 substep 开始时清零。
 /// </summary>
 public struct UnitContactSolverSettings : IComponentData

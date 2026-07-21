@@ -95,6 +95,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new MoveOrder());
+            AddBuffer<MoveOrderSelectionElement>(entity);
             SetComponentEnabled<MoveOrder>(entity, false);
             AddComponent(entity, new UnitContactSolverSettings
             {

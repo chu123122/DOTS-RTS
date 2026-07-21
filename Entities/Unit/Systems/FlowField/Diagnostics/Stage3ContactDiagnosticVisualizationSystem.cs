@@ -182,8 +182,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         {
             SetHeatmapVisible(false);
             _overlay.HeaderText = string.Empty;
-            _overlay.Stage3Text = string.Empty;
-            _overlay.ShadowText = string.Empty;
+            _overlay.GlobalText = string.Empty;
+            _overlay.SubstepText = string.Empty;
+            _overlay.TimestepText = string.Empty;
             return;
         }
 
@@ -235,18 +236,23 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             _automaticCapture,
             simulationTime,
             UnityEngine.Time.timeScale);
-        _overlay.Stage3Text = BuildStage3PanelText(
+        _overlay.GlobalText = BuildGlobalPanelText(
+            settings,
+            statistics,
+            iterationDiagnostics,
+            selection.SelectedEntity,
+            selectedBody);
+        _overlay.SubstepText = BuildSubstepPanelText(
             settings,
             flowSettings,
             statistics,
-            iterationDiagnostics,
+            shadowStatistics);
+        _overlay.TimestepText = BuildTimestepPanelText(
+            settings,
+            statistics,
             pairDiagnostics,
             selection.SelectedEntity,
             selectedBody);
-        _overlay.ShadowText = BuildShadowPanelText(
-            settings,
-            statistics,
-            shadowStatistics);
 
         if (!settings.EnableDiagnostics ||
             !settings.VisualizeSelectedContacts ||
@@ -817,11 +823,226 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         return text.ToString();
     }
 
-    private static string BuildStage3PanelText(
+    private static string BuildGlobalPanelText(
+        UnitContactSolverSettings settings,
+        PredictiveDiscContactStatistics statistics,
+        DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
+        Entity selectedEntity,
+        Stage3SelectedBodyDiagnostic selectedBody)
+    {
+        var residualCurve = new StringBuilder(192);
+        float firstResidual = 0f;
+        float lastResidual = 0f;
+        float lastAverageResidual = 0f;
+        float lastRadialPenetration = 0f;
+        float lastAverageRadialPenetration = 0f;
+        int residualSamples = 0;
+        if (iterations.Length > 0)
+        {
+            Stage3ContactIterationDiagnostic last = iterations[iterations.Length - 1];
+            lastResidual = last.MaxConstraintViolation;
+            lastAverageResidual = last.AverageConstraintViolation;
+            lastRadialPenetration = last.MaxRadialPenetration;
+            lastAverageRadialPenetration = last.AverageRadialPenetration;
+            for (int i = 0; i < iterations.Length && residualSamples < 10; i++)
+            {
+                Stage3ContactIterationDiagnostic iteration = iterations[i];
+                if (iteration.SubstepIndex != last.SubstepIndex)
+                    continue;
+                if (residualSamples == 0)
+                    firstResidual = iteration.MaxConstraintViolationBeforeSolve;
+                else
+                    residualCurve.Append(" <color=#607086>›</color> ");
+                residualCurve.Append(FormatResidual(iteration.MaxConstraintViolationBeforeSolve));
+                residualSamples++;
+            }
+            if (residualSamples < settings.IterationCount)
+                residualCurve.Append(" …");
+            residualCurve.Append(" <color=#607086>› 最终</color> ")
+                .Append(FormatResidual(lastResidual));
+        }
+
+        string state;
+        if (statistics.ActiveConstraintCount == 0 &&
+            statistics.TotalWallPositionCorrection <= 0.000001f)
+        {
+            state = StatusText("空闲：本帧没有有效接触或墙体修正", "#91A0B4");
+        }
+        else if (residualSamples > 1 && lastResidual > firstResidual + 0.00001f)
+        {
+            state = StatusText("最后一个 substep 的约束残差正在上升", "#FF6B78");
+        }
+        else if (lastRadialPenetration > 0.0001f)
+        {
+            state = StatusText("timestep 结束仍有径向重叠", "#FFC857");
+        }
+        else if (statistics.MaxPenetration > 0.0001f)
+        {
+            state = StatusText("本帧中途曾重叠，timestep 结束已清除", "#69E39B");
+        }
+        else
+        {
+            state = StatusText("当前接触结果稳定", "#69E39B");
+        }
+
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#62D8FF><b>全局 · 求解结果与成本</b></color></size>")
+            .AppendLine("<color=#71839A>只看结果质量和整帧成本；候选缓存细节在另外两个面板</color>")
+            .Append("<color=#91A0B7>状态　</color>").AppendLine(state)
+            .Append("<color=#91A0B7>配置　</color>Substep <b>").Append(settings.SubstepCount)
+            .Append("</b> × Iteration <b>").Append(settings.IterationCount).AppendLine("</b>")
+            .Append("<color=#91A0B7>平均速度　</color>")
+            .Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
+            .Append(" <color=#607086>→</color> ")
+            .Append(statistics.AverageSpeedAfterContact.ToString("F3"))
+            .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
+            .Append("<color=#91A0B7>径向重叠　</color>本帧中途最坏 <b>")
+            .Append(statistics.MaxPenetration.ToString("F5"))
+            .Append("</b>　timestep 最终 <b>")
+            .Append(lastRadialPenetration.ToString("F5"))
+            .Append("</b> / 均值 ").AppendLine(lastAverageRadialPenetration.ToString("F5"))
+            .Append("<color=#91A0B7>最后 substep 最终残差　</color>最大 <b>")
+            .Append(FormatResidual(lastResidual)).Append("</b>　平均 ")
+            .AppendLine(FormatResidual(lastAverageResidual))
+            .Append("<color=#91A0B7>最后 substep 收敛　</color>")
+            .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
+            .Append("<color=#91A0B7>单位接触修正　</color>累计 ")
+            .Append(statistics.TotalContactPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxContactPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>墙体修正　</color>累计 ")
+            .Append(statistics.TotalWallPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxWallPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>整帧耗时 μs　</color>Pair ")
+            .Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
+            .Append("　Solver <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds))
+            .Append("</b>　平均单轮 ").AppendLine(FormatMicroseconds(statistics.AverageIterationNanoseconds))
+            .Append("<color=#91A0B7>选中单位　</color>")
+            .Append(selectedEntity == Entity.Null
+                ? "<color=#607086>未选择</color>"
+                : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>");
+
+        if (selectedBody.IsValid != 0)
+        {
+            text.Append("　接触修正 ")
+                .Append(math.length(selectedBody.TimestepContactCorrection).ToString("F4"))
+                .Append("　墙体修正 ")
+                .Append(math.length(selectedBody.TimestepWallCorrection).ToString("F4"))
+                .Append("　Envelope ")
+                .Append(selectedBody.TimestepEscaped != 0
+                    ? "<color=#FF6B78><b>逃逸</b></color>"
+                    : "<color=#69E39B><b>安全</b></color>");
+        }
+
+        text.AppendLine()
+            .Append("<color=#607086>低速不等于无约束；只有 timestep 最终径向重叠用于状态，本帧中途最坏值只用于观察。</color>");
+        return text.ToString();
+    }
+
+    private static string BuildSubstepPanelText(
         UnitContactSolverSettings settings,
         FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
-        DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
+        ShadowNeighborCacheStatistics shadow)
+    {
+        int evaluationCount = math.max(1, statistics.SoftAvoidanceEvaluationCount);
+        float candidatesPerSubstep =
+            (float)statistics.SoftAvoidanceCandidatePairCount / evaluationCount;
+        float activatedPerSubstep =
+            (float)statistics.SoftAvoidanceActivatedPairCount / evaluationCount;
+        float constraintsPerSubstep =
+            (float)statistics.ActiveConstraintCount / math.max(1, settings.SubstepCount);
+        float uniqueContacts = statistics.TimestepContactSetUniquePairCount;
+        string uniqueInflation = uniqueContacts > 0.0001f
+            ? (shadow.CachedCandidatePairCount / uniqueContacts).ToString("F2") + "x"
+            : "--";
+        string substepScanInflation =
+            uniqueContacts > 0.0001f && statistics.SoftAvoidanceFatAabbUseCount > 0
+                ? (shadow.CachedCandidatePairCount *
+                   statistics.SoftAvoidanceFatAabbUseCount /
+                   uniqueContacts).ToString("F2") + "x"
+                : "--";
+
+        string cacheState;
+        if (!settings.EnableFatAabbCache)
+            cacheState = StatusText("Fat AABB 未启用", "#91A0B4");
+        else if (shadow.FullBroadPhaseFallbackCount > 0)
+            cacheState = StatusText("已安全回退完整 Broad Phase", "#FFC857");
+        else if (shadow.CacheRebuildCount > 0)
+            cacheState = StatusText("本帧重建后使用", "#69E39B");
+        else if (shadow.CacheReuseCount > 0)
+            cacheState = StatusText("本帧复用持久缓存", "#69E39B");
+        else
+            cacheState = StatusText("等待缓存样本", "#91A0B4");
+
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#C99BFF><b>预测 + Substep 候选</b></color></size>")
+            .AppendLine("<color=#71839A>看每个 substep 的预测/软避让候选，以及 Fat AABB 复用代价</color>")
+            .Append("<color=#A999BA>状态　</color>").AppendLine(cacheState)
+            .Append("<color=#A999BA>Substep 求值　</color><b>")
+            .Append(statistics.SoftAvoidanceEvaluationCount).Append("/")
+            .Append(settings.SubstepCount).AppendLine("</b>")
+            .Append("<color=#A999BA>候选来源　</color>Fat AABB <b>")
+            .Append(statistics.SoftAvoidanceFatAabbUseCount).Append("/")
+            .Append(statistics.SoftAvoidanceEvaluationCount)
+            .Append(" 个 substep</b>　缓存 Narrow 检查 ")
+            .AppendLine(shadow.CachedNarrowPhasePairCheckCount.ToString())
+            .Append("<color=#A999BA>每 substep　</color>软候选 <b>")
+            .Append(candidatesPerSubstep.ToString("F1"))
+            .Append("</b>　软激活 ").Append(activatedPerSubstep.ToString("F1"))
+            .Append("　接触约束激活 <b>").Append(constraintsPerSubstep.ToString("F1")).AppendLine("</b>")
+            .Append("<color=#A999BA>预测 Pair　</color>风险 ")
+            .Append(statistics.PotentialPredictivePairCount)
+            .Append("　纳入 ContactSet <b>").Append(statistics.PredictivePairCount)
+            .Append("</b>　substep 激活累计 <b>")
+            .Append(statistics.PredictiveActivatedCount).AppendLine("</b>")
+            .Append("<color=#A999BA>Pair 生成来源　</color>实际 ")
+            .Append(statistics.ActualGeneratedPairCount)
+            .Append("　预测 <b>").Append(statistics.PredictiveGeneratedPairCount).AppendLine("</b>")
+            .Append("<color=#A999BA>软避让策略　</color><b>")
+            .Append(flowSettings.SoftAvoidanceVelocitySolver).Append("</b>　Shell ")
+            .Append(flowSettings.SoftAvoidanceShell.ToString("F2"))
+            .Append("　Horizon ")
+            .AppendLine(flowSettings.SoftAvoidanceVelocitySolver ==
+                        SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle
+                ? flowSettings.RvoTimeHorizon.ToString("F2") + "s"
+                : "--")
+            .AppendLine("<color=#BBA6D0><b>Fat AABB 持久缓存</b></color>")
+            .Append("<color=#A999BA>Margin　</color><b>")
+            .Append(settings.FatAabbCacheMargin.ToString("F3"))
+            .Append("</b>　唯一候选/ContactSet <b>").Append(uniqueInflation).AppendLine("</b>")
+            .Append("<color=#A999BA>整帧扫描倍率　</color>substep 候选扫描/ContactSet <b>")
+            .Append(substepScanInflation).AppendLine("</b>")
+            .Append("<color=#A999BA>缓存快照　</color>单位 ")
+            .Append(shadow.CurrentFrameCacheBodyCount)
+            .Append("　唯一候选 <b>").Append(shadow.CachedCandidatePairCount)
+            .Append("</b>　年龄 ").Append(shadow.CacheAgeFrames).AppendLine(" 帧")
+            .Append("<color=#A999BA>本帧读取　</color>")
+            .Append(shadow.CacheUseCount).Append("　直接复用 <b>")
+            .Append(shadow.CacheReuseCount).Append("</b>　重建 ")
+            .Append(shadow.CacheRebuildCount).Append("　完整回退 <b>")
+            .Append(shadow.FullBroadPhaseFallbackCount).AppendLine("</b>")
+            .Append("<color=#A999BA>Pair 映射　</color>构建 ")
+            .Append(shadow.CachePairMappingBuildCount).Append("　帧内复用 <b>")
+            .Append(shadow.CachePairMappingReuseCount).Append("</b>　修正单位检查 ")
+            .Append(shadow.CorrectedBodyValidationCount).AppendLine()
+            .Append("<color=#A999BA>失效　</color>总计 ")
+            .Append(shadow.CacheInvalidationCount).Append("　Entity ")
+            .Append(shadow.EntitySetInvalidationCount).Append("　边界 ")
+            .Append(shadow.BoundsInvalidationCount).Append("　求解后逃逸 <b>")
+            .Append(shadow.PostSolveInvalidationCount).AppendLine("</b>")
+            .Append("<color=#A999BA>耗时 μs　</color>软避让总计 ")
+            .Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
+            .Append("（每 substep ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds))
+            .Append("）　Fat 构建 ").Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
+            .Append("　验证 ").Append(FormatMicroseconds(shadow.ValidationNanoseconds))
+            .Append("　映射 <b>").Append(FormatMicroseconds(shadow.CachePairMappingNanoseconds)).AppendLine("</b>")
+            .Append("<color=#607086>重点看：每 substep 候选数、候选膨胀、映射复用，以及候选随 Substep 数是否线性增长。</color>");
+        return text.ToString();
+    }
+
+    private static string BuildTimestepPanelText(
+        UnitContactSolverSettings settings,
+        PredictiveDiscContactStatistics statistics,
         DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
         Entity selectedEntity,
         Stage3SelectedBodyDiagnostic selectedBody)
@@ -853,229 +1074,75 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             activatedSubsteps += selectedPairs[i].ActivatedSubstepCount;
         }
 
-        var residualCurve = new StringBuilder(192);
-        float firstResidual = 0f;
-        float lastResidual = 0f;
-        float lastAverageResidual = 0f;
-        int residualSamples = 0;
-        if (iterations.Length > 0)
-        {
-            Stage3ContactIterationDiagnostic last = iterations[iterations.Length - 1];
-            lastResidual = last.MaxConstraintViolation;
-            lastAverageResidual = last.AverageConstraintViolation;
-            for (int i = 0; i < iterations.Length && residualSamples < 10; i++)
-            {
-                Stage3ContactIterationDiagnostic iteration = iterations[i];
-                if (iteration.SubstepIndex != last.SubstepIndex)
-                    continue;
-                if (residualSamples == 0)
-                    firstResidual = iteration.MaxConstraintViolationBeforeSolve;
-                else
-                    residualCurve.Append(" <color=#607086>›</color> ");
-                residualCurve.Append(FormatResidual(iteration.MaxConstraintViolationBeforeSolve));
-                residualSamples++;
-            }
-            if (residualSamples < settings.IterationCount)
-                residualCurve.Append(" …");
-            residualCurve.Append(" <color=#607086>› 最终</color> ")
-                .Append(FormatResidual(lastResidual));
-        }
+        float uniquePairCount = statistics.TimestepContactSetUniquePairCount;
+        string activationRatio = uniquePairCount > 0f
+            ? (100f * statistics.TimestepContactSetUniqueActivatedPairCount / uniquePairCount).ToString("F1") + "%"
+            : "--";
+        string useState =
+            statistics.TimestepContactSetBuildCount == 1 &&
+            statistics.TimestepContactSetClassificationPassCount == 1 &&
+            statistics.TimestepContactSetSubstepUseCount == settings.SubstepCount
+                ? StatusText("一次分类，全部 substep 复用", "#69E39B")
+                : StatusText("生命周期计数与配置不一致", "#FFC857");
 
-        string state;
-        if (statistics.ActiveConstraintCount == 0 &&
-            statistics.TotalWallPositionCorrection <= 0.000001f)
-        {
-            state = StatusText("空闲样本：本帧没有有效约束", "#91A0B4");
-        }
-        else if (residualSamples > 1 && lastResidual > firstResidual + 0.00001f)
-        {
-            state = StatusText("注意：单位接触残差正在上升", "#FF6B78");
-        }
-        else if (statistics.MaxPenetration > 0.0001f)
-        {
-            state = StatusText("求解已生效，但仍有剩余穿透", "#FFC857");
-        }
-        else
-        {
-            state = StatusText("当前约束结果稳定", "#69E39B");
-        }
-
-        var text = new StringBuilder(1024);
-        text.AppendLine("<size=18><color=#62D8FF><b>Timestep ContactSet · 权威接触求解</b></color></size>")
-            .AppendLine("<color=#71839A>一次分类，整个 timestep 的 substep/iterations 复用</color>")
-            .Append("<color=#91A0B7>状态　</color>").AppendLine(state)
-            .Append("<color=#91A0B7>配置　</color>子步 <b>").Append(settings.SubstepCount)
-            .Append("</b>　迭代 <b>").Append(settings.IterationCount)
-            .Append("</b>　软避让求值 <b>").Append(statistics.SoftAvoidanceEvaluationCount)
-            .AppendLine(" 次/帧</b>")
-            .Append("<color=#91A0B7>ContactSet 生命周期　</color>构建 <b>")
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#7BE0B1><b>Timestep 候选 · ContactSet</b></color></size>")
+            .AppendLine("<color=#71839A>看一次 timestep 构建后，跨全部 substep/iterations 的权威候选复用</color>")
+            .Append("<color=#8FB8A2>状态　</color>").AppendLine(useState)
+            .Append("<color=#8FB8A2>生命周期　</color>构建 <b>")
             .Append(statistics.TimestepContactSetBuildCount)
             .Append("</b>　分类 <b>").Append(statistics.TimestepContactSetClassificationPassCount)
-            .Append("</b>　substep 使用 <b>").Append(statistics.TimestepContactSetSubstepUseCount)
-            .AppendLine("</b>")
-            .Append("<color=#91A0B7>唯一 ContactSet　</color>Pair <b>")
-            .Append(statistics.TimestepContactSetUniquePairCount)
-            .Append("</b>　Dormant ").Append(statistics.TimestepContactSetDormantPairCount)
-            .Append("　整个 timestep 激活 <color=#69E39B><b>")
+            .Append("</b>　substep 使用 <b>")
+            .Append(statistics.TimestepContactSetSubstepUseCount).Append("/")
+            .Append(settings.SubstepCount).AppendLine("</b>")
+            .Append("<color=#8FB8A2>构建漏斗　</color>Broad 候选 <b>")
+            .Append(statistics.CandidatePairCount)
+            .Append("</b>　<color=#607086>→</color> ContactSet 唯一 Pair <b>")
+            .Append(statistics.TimestepContactSetUniquePairCount).AppendLine("</b>")
+            .Append("<color=#8FB8A2>唯一 Pair　</color>激活 <b>")
             .Append(statistics.TimestepContactSetUniqueActivatedPairCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#91A0B7>安全回退　</color>逃逸单位 <b>")
+            .Append("</b>　Dormant ").Append(statistics.TimestepContactSetDormantPairCount)
+            .Append("　激活率 <b>").Append(activationRatio).AppendLine("</b>")
+            .Append("<color=#8FB8A2>substep 累计　</color>激活约束 <b>")
+            .Append(statistics.ActiveConstraintCount)
+            .AppendLine("</b>（跨 substep 累加，不能与唯一 Pair 直接相减）")
+            .Append("<color=#8FB8A2>安全回退　</color>逃逸单位 <b>")
             .Append(statistics.TimestepContactSetEscapeBodyCount)
             .Append("</b>　首次 substep ")
             .Append(statistics.TimestepContactSetFirstEscapeSubstep >= 0
                 ? statistics.TimestepContactSetFirstEscapeSubstep.ToString()
                 : "--")
-            .Append("　完整重建 <color=#FFC857><b>")
-            .Append(statistics.TimestepContactSetFullRebuildCount)
-            .Append("</b></color>　新增 Pair ")
-            .AppendLine(statistics.TimestepContactSetFallbackAddedPairCount.ToString())
-            .Append("<color=#91A0B7>速度策略　</color><b>")
-            .Append(flowSettings.SoftAvoidanceVelocitySolver)
-            .Append("</b>　Shell ").Append(flowSettings.SoftAvoidanceShell.ToString("F2"))
-            .Append("　Horizon ")
-            .AppendLine(flowSettings.SoftAvoidanceVelocitySolver ==
-                        SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle
-                ? flowSettings.RvoTimeHorizon.ToString("F2") + "s"
-                : "--")
-            .Append("<color=#91A0B7>软避让 Narrow　</color>本帧累计检查 <b>")
-            .Append(statistics.SoftAvoidanceCandidatePairCount)
-            .Append("</b>　累计激活 <b>").Append(statistics.SoftAvoidanceActivatedPairCount)
-            .AppendLine("</b>")
-            .Append("<color=#91A0B7>软避让候选来源　</color>Fat 缓存 <b>")
-            .Append(statistics.SoftAvoidanceFatAabbUseCount).Append("/")
-            .Append(statistics.SoftAvoidanceEvaluationCount).AppendLine(" 个 substep</b>")
-            .Append("<color=#91A0B7>ContactSet 漏斗　</color><color=#AFC4D8>初建/回退累计候选</color> <b>")
-            .Append(statistics.CandidatePairCount)
-            .Append("</b>　<color=#607086>→</color>　<color=#7AD7F0>通过</color> <b>")
-            .Append(statistics.ContactPairCount)
-            .Append("</b>　<color=#607086>→</color>　<color=#69E39B>substep 激活累计</color> <b>")
-            .Append(statistics.ActiveConstraintCount).AppendLine("</b>")
-            .Append("<color=#91A0B7>Pair 来源（本帧累计）　</color>实际生成 <b>").Append(statistics.ActualGeneratedPairCount)
-            .Append("</b>　预测生成 <color=#D58CFF><b>").Append(statistics.PredictiveGeneratedPairCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#91A0B7>防换侧约束　</color>风险 <b>").Append(statistics.PotentialPredictivePairCount)
-            .Append("</b>　启用 <b>").Append(statistics.PredictivePairCount)
-            .Append("</b>　激活 <color=#FF7BA8><b>").Append(statistics.PredictiveActivatedCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#91A0B7>最终穿透　</color>最大 <b>").Append(statistics.MaxPenetration.ToString("F5"))
-            .Append("</b>　平均 ").AppendLine(statistics.AveragePenetration.ToString("F5"))
-            .Append("<color=#91A0B7>单位修正　</color>累计 ").Append(statistics.TotalContactPositionCorrection.ToString("F4"))
-            .Append("　单次最大 <b>").Append(statistics.MaxContactPositionCorrection.ToString("F4")).AppendLine("</b>")
-            .Append("<color=#91A0B7>墙壁修正　</color>累计 ").Append(statistics.TotalWallPositionCorrection.ToString("F4"))
-            .Append("　单次最大 <b>").Append(statistics.MaxWallPositionCorrection.ToString("F4")).AppendLine("</b>")
-            .Append("<color=#91A0B7>平均速度　</color>").Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
-            .Append(" <color=#607086>→</color> ").Append(statistics.AverageSpeedAfterContact.ToString("F3"))
-            .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
-            .Append("<color=#91A0B7>最终残差　</color>最大 <b>").Append(FormatResidual(lastResidual))
-            .Append("</b>　平均 ").AppendLine(FormatResidual(lastAverageResidual))
-            .Append("<color=#91A0B7>收敛曲线（轮前→最终）　</color>")
-            .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
-            .Append("<color=#91A0B7>耗时 μs　</color>软避让 ").Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
-            .Append("（单子步 ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds)).Append("）　Pair ")
-            .Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
-            .Append("　单轮 ").Append(FormatMicroseconds(statistics.AverageIterationNanoseconds))
-            .Append("　总计 <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds)).AppendLine("</b>")
-            .Append("<color=#91A0B7>ContactSet 耗时 μs　</color>构建 ")
+            .Append("　完整重建 <b>").Append(statistics.TimestepContactSetFullRebuildCount)
+            .Append("</b>　新增 Pair ").AppendLine(statistics.TimestepContactSetFallbackAddedPairCount.ToString())
+            .Append("<color=#8FB8A2>耗时 μs　</color>初建 <b>")
             .Append(FormatMicroseconds(statistics.TimestepContactSetBuildNanoseconds))
-            .Append("　回退 <b>")
-            .Append(FormatMicroseconds(statistics.TimestepContactSetFallbackNanoseconds))
-            .AppendLine("</b>")
-            .Append("<color=#91A0B7>选中单位　</color>")
+            .Append("</b>　回退 ")
+            .AppendLine(FormatMicroseconds(statistics.TimestepContactSetFallbackNanoseconds))
+            .Append("<color=#8FB8A2>选中单位　</color>")
             .Append(selectedEntity == Entity.Null
                 ? "<color=#607086>未选择</color>"
                 : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>")
-            .Append("　显示 Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
-            .Append("<color=#91A0B7>Pair 分类　</color>宽相排除 ").Append(broadOnly)
-            .Append("　径向 ").Append(regular).Append("　防换侧 ").Append(predictive)
-            .Append("　防换侧关闭 ").AppendLine(predictiveDisabled.ToString())
-            .Append("<color=#91A0B7>Pair 生命周期　</color>回退新增 ")
+            .Append("　ContactSet Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
+            .Append("<color=#8FB8A2>选中 Pair 分类　</color>宽相排除 ")
+            .Append(broadOnly).Append("　径向 ").Append(regular)
+            .Append("　预测 ").Append(predictive)
+            .Append("　预测关闭 ").AppendLine(predictiveDisabled.ToString())
+            .Append("<color=#8FB8A2>选中 Pair 生命周期　</color>回退新增 ")
             .Append(fallbackPairs).Append("　激活 substep 累计 ")
             .AppendLine(activatedSubsteps.ToString());
 
         if (selectedBody.IsValid != 0)
         {
-            text.Append("<color=#91A0B7>选中单位修正　</color>接触 ")
-                .Append(math.length(selectedBody.TimestepContactCorrection).ToString("F4"))
-                .Append("　墙壁 ")
-                .Append(math.length(selectedBody.TimestepWallCorrection).ToString("F4"))
-                .Append("　Envelope ")
-                .AppendLine(selectedBody.TimestepEscaped != 0
+            text.Append("<color=#8FB8A2>选中 Envelope　</color>")
+                .Append(selectedBody.TimestepEscaped != 0
                     ? "<color=#FF6B78><b>逃逸</b></color>"
-                    : "<color=#69E39B><b>安全</b></color>");
+                    : "<color=#69E39B><b>安全</b></color>")
+                .AppendLine();
         }
 
-        text.Append("<color=#607086>热力图 ")
-            .Append(settings.ContactHeatmapMode)
-            .Append("：蓝→黄→红；黄色/橙色径向 Pair，洋红/红色防换侧 Pair</color>");
+        text.Append("<color=#607086>重点看：构建/分类是否恒为 1、substep 使用是否等于配置、逃逸是否触发局部补充或完整回退。</color>");
         return text.ToString();
     }
-
-    private static string BuildShadowPanelText(
-        UnitContactSolverSettings settings,
-        PredictiveDiscContactStatistics statistics,
-        ShadowNeighborCacheStatistics shadow)
-    {
-        if (!settings.EnableFatAabbCache)
-        {
-            return "<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>\n" +
-                   "<color=#71839A>跨 timestep 缓存 Entity Candidate Pair；ContactSet 每 timestep 分类一次</color>\n\n" +
-                   StatusText("当前未启用", "#91A0B4") + "\n\n" +
-                   "<color=#91A0B7>按 <b>F11</b> 启用；首次使用会从当前状态完整重建。</color>";
-        }
-
-        string state;
-        if (shadow.FullBroadPhaseFallbackCount > 0)
-            state = StatusText("Fat AABB 失效，已安全回退完整 Broad Phase", "#FFC857");
-        else if (shadow.CacheRebuildCount > 0)
-            state = StatusText("本帧已重建缓存", "#69E39B");
-        else if (shadow.CacheReuseCount > 0)
-            state = StatusText("正在复用缓存", "#69E39B");
-        else
-            state = StatusText("等待缓存样本", "#91A0B4");
-
-        float uniqueContacts = statistics.TimestepContactSetUniquePairCount;
-        string inflation = uniqueContacts > 0.0001f
-            ? (shadow.CachedCandidatePairCount / uniqueContacts).ToString("F2") + "x"
-            : "--";
-
-        var text = new StringBuilder(1024);
-        text.AppendLine("<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>")
-            .AppendLine("<color=#71839A>Fat 缓存跨 timestep；TimestepContactSet 在当前 timestep 内权威复用</color>")
-            .Append("<color=#A999BA>状态　</color>").AppendLine(state)
-            .Append("<color=#A999BA>Fat / Timestep 边界　</color><b>").Append(settings.FatAabbCacheMargin.ToString("F3"))
-            .Append(" / ").Append(settings.TimestepContactMargin.ToString("F3"))
-            .Append("</b>　唯一候选/平均接触 <b>").Append(inflation).AppendLine("</b>")
-            .AppendLine("<color=#BBA6D0><b>持久缓存状态</b></color>")
-            .Append("<color=#A999BA>有效性　</color>帧首 ").Append(shadow.CacheValidAtFrameStart)
-            .Append("　帧末 <b>").Append(shadow.CacheValidAtFrameEnd)
-            .Append("</b>　年龄 <b>").Append(shadow.CacheAgeFrames).AppendLine(" 帧</b>")
-            .Append("<color=#A999BA>缓存快照　</color>单位 ").Append(shadow.CurrentFrameCacheBodyCount)
-            .Append("　唯一候选 Pair <b>").Append(shadow.CachedCandidatePairCount)
-            .AppendLine("</b>")
-            .Append("<color=#A999BA>接触 Narrow　</color>本帧累计检查 <b>")
-            .Append(shadow.CachedNarrowPhasePairCheckCount).AppendLine("</b>")
-            .AppendLine("<color=#BBA6D0><b>本帧操作</b></color>")
-            .Append("<color=#A999BA>接触候选读取　</color>").Append(shadow.CacheUseCount)
-            .Append("　无需重建读取 <color=#69E39B><b>").Append(shadow.CacheReuseCount)
-            .Append("</b></color>　重建 <b>").Append(shadow.CacheRebuildCount)
-            .Append("</b>　完整回退 <color=#FFC857><b>").Append(shadow.FullBroadPhaseFallbackCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#A999BA>Pair 映射　</color>构建 ").Append(shadow.CachePairMappingBuildCount)
-            .Append("　帧内复用 <b>").Append(shadow.CachePairMappingReuseCount)
-            .Append("</b>　修正单位检查 <b>").Append(shadow.CorrectedBodyValidationCount)
-            .AppendLine("</b>")
-            .Append("<color=#A999BA>失效　</color>总计 ").Append(shadow.CacheInvalidationCount)
-            .Append("　Entity集合 ").Append(shadow.EntitySetInvalidationCount)
-            .Append("　边界 ").Append(shadow.BoundsInvalidationCount)
-            .Append("　求解后逃逸 <b>").Append(shadow.PostSolveInvalidationCount).AppendLine("</b>")
-            .Append("<color=#A999BA>耗时 μs　</color>构建 ")
-            .Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
-            .Append("　验证 ").Append(FormatMicroseconds(shadow.ValidationNanoseconds))
-            .Append("　映射 <b>").Append(FormatMicroseconds(shadow.CachePairMappingNanoseconds)).AppendLine("</b>")
-            .Append("<color=#607086>Fat AABB 不是 ContactSet；逃出 Contact Envelope 才重建本 timestep 的权威接触。</color>");
-        return text.ToString();
-    }
-
     private static string ToggleText(bool enabled)
     {
         return enabled
@@ -1184,8 +1251,9 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
     public bool Visible;
     public bool ShowDiagnostics;
     public string HeaderText = string.Empty;
-    public string Stage3Text = string.Empty;
-    public string ShadowText = string.Empty;
+    public string GlobalText = string.Empty;
+    public string SubstepText = string.Empty;
+    public string TimestepText = string.Empty;
     public float Scale = 1.25f;
 
     private GUIStyle _headerStyle;
@@ -1194,6 +1262,10 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
     private bool _runtimeControlsInitialized;
     private bool _runtimeControlChangePending;
     private bool _runtimeControlsLocked;
+    private bool _showGlobalPanel = true;
+    private bool _showSubstepPanel = true;
+    private bool _showTimestepPanel = true;
+    private bool _showRuntimeControls;
 
     public void SetRuntimeControls(Stage3RuntimeControlState controls, bool locked)
     {
@@ -1239,25 +1311,45 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             DrawDiagnosticPanels();
 
         if (_runtimeControlsInitialized)
+        {
+            string parameterButtonText = _showRuntimeControls ? "关闭参数" : "打开参数";
+            if (GUI.Button(
+                    new Rect(Screen.width - 112f, 12f, 100f, 28f),
+                    parameterButtonText))
+            {
+                _showRuntimeControls = !_showRuntimeControls;
+            }
+        }
+
+        if (_runtimeControlsInitialized && _showRuntimeControls)
             DrawRuntimeControlPanel();
     }
 
     private void DrawDiagnosticPanels()
     {
-        const float cardWidth = 510f;
+        const float cardWidth = 410f;
         const float gap = 12f;
-        const float logicalWidth = cardWidth * 2f + gap;
+        int visiblePanelCount =
+            (_showGlobalPanel ? 1 : 0) +
+            (_showSubstepPanel ? 1 : 0) +
+            (_showTimestepPanel ? 1 : 0);
+        float panelRowWidth = visiblePanelCount > 0
+            ? cardWidth * visiblePanelCount + gap * (visiblePanelCount - 1)
+            : 0f;
+        float logicalWidth = math.max(760f, panelRowWidth);
         float headerHeight = math.max(
-            58f,
-            _headerStyle.CalcHeight(new GUIContent(HeaderText), logicalWidth - 28f) + 20f);
-        float stage3Height = _panelStyle.CalcHeight(
-            new GUIContent(Stage3Text),
-            cardWidth - 32f) + 28f;
-        float shadowHeight = _panelStyle.CalcHeight(
-            new GUIContent(ShadowText),
-            cardWidth - 32f) + 28f;
-        float cardHeight = math.max(390f, math.max(stage3Height, shadowHeight));
-        float logicalHeight = headerHeight + gap + cardHeight;
+            94f,
+            _headerStyle.CalcHeight(new GUIContent(HeaderText), logicalWidth - 28f) + 58f);
+        float cardHeight = 0f;
+        if (_showGlobalPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(GlobalText, cardWidth));
+        if (_showSubstepPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(SubstepText, cardWidth));
+        if (_showTimestepPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(TimestepText, cardWidth));
+        if (visiblePanelCount > 0)
+            cardHeight = math.max(300f, cardHeight);
+        float logicalHeight = headerHeight + (visiblePanelCount > 0 ? gap + cardHeight : 0f);
         float fitScale = math.min(
             (Screen.width - 24f) / logicalWidth,
             (Screen.height - 24f) / logicalHeight);
@@ -1275,27 +1367,88 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             HeaderText,
             _headerStyle);
 
+        float toggleY = headerRect.yMax - 38f;
+        const float toggleWidth = 152f;
+        float toggleX = headerRect.x + 14f;
+        bool visibilityChanged = false;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showGlobalPanel ? "全局数据：开" : "全局数据：关"))
+        {
+            _showGlobalPanel = !_showGlobalPanel;
+            visibilityChanged = true;
+        }
+        toggleX += toggleWidth + 8f;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showSubstepPanel ? "预测/Substep：开" : "预测/Substep：关"))
+        {
+            _showSubstepPanel = !_showSubstepPanel;
+            visibilityChanged = true;
+        }
+        toggleX += toggleWidth + 8f;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showTimestepPanel ? "Timestep：开" : "Timestep：关"))
+        {
+            _showTimestepPanel = !_showTimestepPanel;
+            visibilityChanged = true;
+        }
+
+        if (visibilityChanged)
+        {
+            GUI.matrix = previousMatrix;
+            return;
+        }
+
         float cardY = headerRect.yMax + gap;
-        var stage3Rect = new Rect(12f, cardY, cardWidth, cardHeight);
-        var shadowRect = new Rect(stage3Rect.xMax + gap, cardY, cardWidth, cardHeight);
-        DrawCardBackground(
-            stage3Rect,
-            new Color(0.025f, 0.065f, 0.09f, 0.95f),
-            new Color(0.18f, 0.68f, 0.88f, 1f));
-        DrawCardBackground(
-            shadowRect,
-            new Color(0.065f, 0.04f, 0.085f, 0.95f),
-            new Color(0.65f, 0.42f, 0.88f, 1f));
-        GUI.Label(
-            new Rect(stage3Rect.x + 16f, stage3Rect.y + 12f, stage3Rect.width - 32f, stage3Rect.height - 24f),
-            Stage3Text,
-            _panelStyle);
-        GUI.Label(
-            new Rect(shadowRect.x + 16f, shadowRect.y + 12f, shadowRect.width - 32f, shadowRect.height - 24f),
-            ShadowText,
-            _panelStyle);
+        float cardX = 12f;
+        if (_showGlobalPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                GlobalText,
+                new Color(0.025f, 0.065f, 0.09f, 0.95f),
+                new Color(0.18f, 0.68f, 0.88f, 1f));
+            cardX += cardWidth + gap;
+        }
+        if (_showSubstepPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                SubstepText,
+                new Color(0.065f, 0.04f, 0.085f, 0.95f),
+                new Color(0.65f, 0.42f, 0.88f, 1f));
+            cardX += cardWidth + gap;
+        }
+        if (_showTimestepPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                TimestepText,
+                new Color(0.035f, 0.075f, 0.06f, 0.95f),
+                new Color(0.35f, 0.82f, 0.6f, 1f));
+        }
 
         GUI.matrix = previousMatrix;
+    }
+
+    private float CalculatePanelHeight(string text, float width)
+    {
+        return _panelStyle.CalcHeight(new GUIContent(text), width - 32f) + 28f;
+    }
+
+    private void DrawDiagnosticCard(
+        Rect rect,
+        string text,
+        Color background,
+        Color accent)
+    {
+        DrawCardBackground(rect, background, accent);
+        GUI.Label(
+            new Rect(rect.x + 16f, rect.y + 12f, rect.width - 32f, rect.height - 24f),
+            text,
+            _panelStyle);
     }
 
     private void DrawRuntimeControlPanel()

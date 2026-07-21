@@ -15,8 +15,12 @@ public class RTSSelectionManager : MonoBehaviour
 
     [Header("Settings")]
     public float minSelectionSize = 10f; // 防止误触
+    public float doubleClickInterval = 0.3f;
+    public float doubleClickMaxDistance = 14f;
 
     private Vector2 startMousePos;
+    private Vector2 lastClickMousePos;
+    private float lastClickTime = float.NegativeInfinity;
     private bool isDragging;
     private Camera mainCam;
     private EntityManager entityManager;
@@ -36,7 +40,8 @@ public class RTSSelectionManager : MonoBehaviour
         // 1. 鼠标按下：开始框选
         if (Input.GetMouseButtonDown(0))
         {
-            if (EventSystem.current.IsPointerOverGameObject()) return;
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+                return;
             startMousePos = Input.mousePosition;
             isDragging = true;
             if(selectionBoxRect != null)
@@ -60,13 +65,28 @@ public class RTSSelectionManager : MonoBehaviour
             if (Vector2.Distance(startMousePos, Input.mousePosition) > minSelectionSize)
             {
                 SelectUnitsInScreenRect(startMousePos, Input.mousePosition);
+                lastClickTime = float.NegativeInfinity;
             }
             else
             {
+                Vector2 clickPosition = Input.mousePosition;
+                bool isDoubleClick =
+                    Time.unscaledTime - lastClickTime <= doubleClickInterval &&
+                    Vector2.Distance(lastClickMousePos, clickPosition) <=
+                    doubleClickMaxDistance;
+                if (isDoubleClick)
+                {
+                    SelectAllUnits();
+                    lastClickTime = float.NegativeInfinity;
+                    return;
+                }
+
                 // 本地模式直接用屏幕空间选择，避免依赖 Physics Raycast、
                 // 碰撞分类以及当前 Active Scene 名称。
                 Vector2 padding = Vector2.one * minSelectionSize;
                 SelectUnitsInScreenRect(startMousePos - padding, startMousePos + padding);
+                lastClickMousePos = clickPosition;
+                lastClickTime = Time.unscaledTime;
             }
         }
     }
@@ -144,5 +164,21 @@ public class RTSSelectionManager : MonoBehaviour
         selectedStates.Dispose();
         
         Debug.Log($"单位选择完成：当前选中 {selectedCount} 个单位。");
+    }
+
+    private void SelectAllUnits()
+    {
+        using EntityQuery query = entityManager.CreateEntityQuery(
+            typeof(UnitSelected),
+            typeof(BasicUnitTag));
+        using NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i < entities.Length; i++)
+        {
+            entityManager.SetComponentData(
+                entities[i],
+                new UnitSelected { Value = true });
+        }
+
+        Debug.Log($"双击全选完成：当前选中 {entities.Length} 个单位。");
     }
 }

@@ -205,6 +205,15 @@ namespace _RePlaySystem.Base
 
                 if (SystemAPI.TryGetSingletonEntity<FlowFieldGlobalTarget>(out var gridEntity))
                 {
+                    DynamicBuffer<MoveOrderSelectionElement> recipients =
+                        ecb.SetBuffer<MoveOrderSelectionElement>(gridEntity);
+                    foreach (var (_, entity) in
+                             SystemAPI.Query<RefRO<UnitSelected>>()
+                                 .WithAll<BasicUnitTag, UnitMoveDestination>()
+                                 .WithEntityAccess())
+                    {
+                        recipients.Add(new MoveOrderSelectionElement { Entity = entity });
+                    }
                     ecb.SetComponent(gridEntity, new MoveOrder { TargetPosition = cmd.Position });
                     ecb.SetComponentEnabled<MoveOrder>(gridEntity, true);
                 }
