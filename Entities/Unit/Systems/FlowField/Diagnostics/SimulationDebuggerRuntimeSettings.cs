@@ -57,8 +57,18 @@ public abstract partial class BaseFlowMovementSystem
 
         SystemAPI.SetSingleton(flowSettings);
         SystemAPI.SetSingleton(solverSettings);
+
         if (hasAdaptiveSettings)
+        {
             SystemAPI.SetSingleton(adaptiveSettings);
+        }
+        else
+        {
+            // 场景未挂 AdaptiveFatAabbAuthoring 时自动创建 singleton，
+            // 确保 runtime override 的 adaptive 阈值能持久化到 ECS。
+            Entity entity = EntityManager.CreateEntity();
+            EntityManager.AddComponentData(entity, adaptiveSettings);
+        }
     }
 
     private static SimulationDebuggerEffectiveSettings BuildEffectiveSettings(
