@@ -167,6 +167,13 @@ public static class SimulationDebuggerRuntime
         }
     }
 
+    private const int HistorySize = 300;
+    private static readonly SimulationDebuggerHistory _solverHistory = new(HistorySize);
+    private static readonly SimulationDebuggerHistory _correctionHistory = new(HistorySize);
+    private static readonly SimulationDebuggerHistory _cacheHitHistory = new(HistorySize);
+    private static readonly SimulationDebuggerHistory _contactPairHistory = new(HistorySize);
+    private static readonly SimulationDebuggerHistory _activeContactHistory = new(HistorySize);
+
     public static void Publish(SimulationDebuggerFrameSnapshot snapshot)
     {
         if (snapshot == null || FreezeSnapshot)
@@ -177,7 +184,27 @@ public static class SimulationDebuggerRuntime
             _latest = snapshot;
             _publishedVersion++;
         }
+        _solverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
+        _correctionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
+        _cacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
+        _contactPairHistory.PushValue(snapshot.ContactSet.ContactSetSize);
+        _activeContactHistory.PushValue(snapshot.ContactSet.ActiveContactCount);
     }
+
+    public static SimulationDebuggerTrend GetSolverTrend(int windowFrames = 60)
+        => _solverHistory.GetTrend(windowFrames);
+
+    public static SimulationDebuggerTrend GetCorrectionTrend(int windowFrames = 60)
+        => _correctionHistory.GetTrend(windowFrames);
+
+    public static SimulationDebuggerTrend GetCacheHitTrend(int windowFrames = 60)
+        => _cacheHitHistory.GetTrend(windowFrames);
+
+    public static SimulationDebuggerTrend GetContactPairTrend(int windowFrames = 60)
+        => _contactPairHistory.GetTrend(windowFrames);
+
+    public static SimulationDebuggerTrend GetActiveContactTrend(int windowFrames = 60)
+        => _activeContactHistory.GetTrend(windowFrames);
 
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
     {

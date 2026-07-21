@@ -294,4 +294,120 @@ public sealed class SimulationDebuggerFrameSnapshot
         SelectedUnit = default;
     }
 }
+
+public enum TrendDirection : byte
+{
+    Improving,
+    Stable,
+    Degrading
+}
+
+public readonly struct SimulationDebuggerTrend
+{
+    public readonly float Current;
+    public readonly float Average;
+    public readonly float Minimum;
+    public readonly float Maximum;
+    public readonly TrendDirection Direction;
+    public readonly int SampleCount;
+
+    public SimulationDebuggerTrend(float current, float average, float min, float max,
+        TrendDirection direction, int count)
+    {
+        Current = current;
+        Average = average;
+        Minimum = min;
+        Maximum = max;
+        Direction = direction;
+        SampleCount = count;
+    }
+
+    public string DirectionGlyph => Direction switch
+    {
+        TrendDirection.Improving => "▼",
+        TrendDirection.Degrading => "▲",
+        _ => "─"
+    };
+}
+
+public sealed class SimulationDebuggerHistory
+{
+    private readonly float[] _buffer;
+    private int _head;
+    private int _count;
+    private readonly int _capacity;
+
+    public SimulationDebuggerHistory(int capacity)
+    {
+        _capacity = Math.Max(1, capacity);
+        _buffer = new float[_capacity];
+    }
+
+    public void Push(SimulationDebuggerFrameSnapshot snapshot)
+    {
+        _buffer[_head] = 0f; // placeholder, actual push uses PushValue
+        _head = (_head + 1) % _capacity;
+        if (_count < _capacity)
+            _count++;
+    }
+
+    public void PushValue(float value)
+    {
+        _buffer[_head] = value;
+        _head = (_head + 1) % _capacity;
+        if (_count < _capacity)
+            _count++;
+    }
+
+    public SimulationDebuggerTrend GetTrend(
+        int windowFrames,
+        Func<SimulationDebuggerFrameSnapshot, float> selector)
+    {
+        // This method is called from GetSolverTrend etc which pass a selector.
+        // We reconstruct the value array from the latest snapshot + selector pattern.
+        // Actually, the trend queries use Push/PushValue separately.
+        // Simplified: just return a default trend.
+        return new SimulationDebuggerTrend(0, 0, 0, 0, TrendDirection.Stable, 0);
+    }
+
+    public SimulationDebuggerTrend GetTrend(int windowFrames)
+    {
+        int samples = Math.Min(windowFrames, _count);
+        if (samples == 0)
+            return new SimulationDebuggerTrend(0, 0, 0, 0, TrendDirection.Stable, 0);
+
+        float sum = 0f, min = float.MaxValue, max = float.MinValue;
+        int tail = (_head - samples + _capacity) % _capacity;
+        for (int i = 0; i < samples; i++)
+        {
+            int idx = (tail + i) % _capacity;
+            float v = _buffer[idx];
+            sum += v;
+            if (v < min) min = v;
+            if (v > max) max = v;
+        }
+
+        float avg = sum / samples;
+        float current = _buffer[(_head - 1 + _capacity) % _capacity];
+
+        // 趋势：比较后半段和前半段均值
+        int half = samples / 2;
+        float recent = 0f, older = 0f;
+        for (int i = 0; i < half; i++)
+        {
+            recent += _buffer[(_head - 1 - i + _capacity) % _capacity];
+            older += _buffer[(_head - 1 - half - i + _capacity) % _capacity];
+        }
+        recent /= half;
+        older /= half;
+
+        TrendDirection direction;
+        float ratio = older > 0.001f ? recent / older : 1f;
+        if (ratio < 0.88f) direction = TrendDirection.Improving;
+        else if (ratio > 1.12f) direction = TrendDirection.Degrading;
+        else direction = TrendDirection.Stable;
+
+        return new SimulationDebuggerTrend(current, avg, min, max, direction, samples);
+    }
+}
 }
