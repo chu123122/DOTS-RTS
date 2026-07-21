@@ -283,6 +283,23 @@ public static class PredictiveDiscContactStage3Validation
 
     private static ScenarioResult ValidateSoftAvoidancePerSubstep()
     {
+        float3 shellForce = SoftAvoidanceMath.CalculateUnitForce(
+            new float3(-0.5f, 0, 0),
+            new float3(0.5f, 0, 0),
+            0.4f,
+            0.4f,
+            1f,
+            0.25f);
+        float3 outsideShellForce = SoftAvoidanceMath.CalculateUnitForce(
+            new float3(-0.5f, 0, 0),
+            new float3(0.5f, 0, 0),
+            0.4f,
+            0.4f,
+            1f,
+            0.1f);
+        Require(math.lengthsq(shellForce) > 0f && math.lengthsq(outsideShellForce) == 0f,
+            "Soft avoidance did not use radiusA + radiusB + softShell activation distance.");
+
         FlowMovementFrameState bodyA = CreateBody(new float3(-0.4f, 0, 0), float3.zero, 0.1f);
         FlowMovementFrameState bodyB = CreateBody(new float3(0.4f, 0, 0), float3.zero, 0.1f);
         bodyA.MoveSpeed = 1f;
@@ -297,7 +314,7 @@ public static class PredictiveDiscContactStage3Validation
             skin: 0f,
             substepCount: 4,
             softAvoidanceWeight: 1f,
-            softAvoidanceRadius: 1f);
+            softAvoidanceShell: 0.8f);
         Require(result.Statistics.SoftAvoidanceEvaluationCount == 4,
             "Soft avoidance was not recomputed once per substep.");
         Require(math.distance(result.Positions[0], result.Positions[1]) > 0.8f,
@@ -608,7 +625,7 @@ public static class PredictiveDiscContactStage3Validation
         bool enableFatAabbCache = false,
         float fatAabbMargin = 0.25f,
         float softAvoidanceWeight = 0f,
-        float softAvoidanceRadius = 0f,
+        float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
         bool enablePredictivePairGeneration = true)
     {
@@ -630,7 +647,7 @@ public static class PredictiveDiscContactStage3Validation
                 previousPairs,
                 cacheState,
                 softAvoidanceWeight,
-                softAvoidanceRadius,
+                softAvoidanceShell,
                 settledSoftAvoidanceMultiplier,
                 enablePredictivePairGeneration);
         }
@@ -655,7 +672,7 @@ public static class PredictiveDiscContactStage3Validation
         NativeList<ShadowEntityPair> previousPairs,
         NativeReference<FatAabbCacheState> cacheState,
         float softAvoidanceWeight = 0f,
-        float softAvoidanceRadius = 0f,
+        float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
         bool enablePredictivePairGeneration = true)
     {
@@ -714,7 +731,7 @@ public static class PredictiveDiscContactStage3Validation
                 Compliance = 0f,
                 PredictiveSkin = skin,
                 SoftAvoidanceWeight = softAvoidanceWeight,
-                SoftAvoidanceRadius = softAvoidanceRadius,
+                SoftAvoidanceShell = softAvoidanceShell,
                 SettledSoftAvoidanceMultiplier = settledSoftAvoidanceMultiplier,
                 EnablePredictivePairGeneration = enablePredictivePairGeneration,
                 EnablePredictiveContacts = enablePredictiveContacts,

@@ -20,7 +20,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
 
     [Header("Soft Avoidance")]
     [Min(0f)] public float softAvoidanceWeight = 4f;
-    [Min(0f)] public float softAvoidanceRadius = 0.6f;
+    [Tooltip("单位表面之间开始软避让的额外距离；实际激活距离为双方半径之和加该值。")]
+    [Min(0f)] public float softAvoidanceShell = 0.2f;
     [Min(0f)] public float settledSoftAvoidanceMultiplier = 1.5f;
 
     [Header("Unit Contact XPBD")]
@@ -63,7 +64,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 CellRadius = authoring.cellRadius,
                 GridOrigin = authoring.gridOrigin,
                 SoftAvoidanceWeight = math.max(0f, authoring.softAvoidanceWeight),
-                SoftAvoidanceRadius = math.max(0f, authoring.softAvoidanceRadius),
+                SoftAvoidanceShell = math.max(0f, authoring.softAvoidanceShell),
                 SettledSoftAvoidanceMultiplier = math.max(
                     0f,
                     authoring.settledSoftAvoidanceMultiplier)

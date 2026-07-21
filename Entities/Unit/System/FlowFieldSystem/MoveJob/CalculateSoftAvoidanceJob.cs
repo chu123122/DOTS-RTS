@@ -10,18 +10,28 @@ public static class SoftAvoidanceMath
     public static float3 CalculateUnitForce(
         float3 position,
         float3 neighborPosition,
+        float radius,
+        float neighborRadius,
         float moveSpeed,
-        float separationRadius)
+        float softShell)
     {
+        softShell = math.max(0f, softShell);
+        if (softShell <= 0f)
+            return float3.zero;
+
         float3 difference = position - neighborPosition;
         difference.y = 0;
         float distanceSq = math.lengthsq(difference);
-        float separationRadiusSq = separationRadius * separationRadius;
-        if (distanceSq >= separationRadiusSq || distanceSq <= 0.00001f)
+        float activationDistance = math.max(0f, radius) +
+                                   math.max(0f, neighborRadius) +
+                                   softShell;
+        if (distanceSq >= activationDistance * activationDistance ||
+            distanceSq <= 0.00001f)
             return float3.zero;
 
         float distance = math.sqrt(distanceSq);
-        float softFactor = 1f - distance / separationRadius;
+        float surfaceGap = distance - math.max(0f, radius) - math.max(0f, neighborRadius);
+        float softFactor = math.saturate((softShell - surfaceGap) / softShell);
         return difference / distance * softFactor * moveSpeed;
     }
 

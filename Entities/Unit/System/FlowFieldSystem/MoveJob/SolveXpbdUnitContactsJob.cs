@@ -19,7 +19,7 @@ public struct SolveXpbdUnitContactsJob : IJob
     public float Compliance;
     public float PredictiveSkin;
     public float SoftAvoidanceWeight;
-    public float SoftAvoidanceRadius;
+    public float SoftAvoidanceShell;
     public float SettledSoftAvoidanceMultiplier;
     public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
@@ -264,7 +264,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         SweptCellEntries.Clear();
         Pairs.Clear();
 
-        float separationRadius = math.max(0f, SoftAvoidanceRadius);
+        float softShell = math.max(0f, SoftAvoidanceShell);
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
@@ -280,14 +280,21 @@ public struct SolveXpbdUnitContactsJob : IJob
 
             float3 position = state.PredictedPosition;
             int2 currentCell = FlowFieldUtils.WorldToCell(position, GridOrigin, CellRadius);
-            AccumulateWallSoftForce(position, currentCell, state.MoveSpeed, ref state.SoftAvoidanceForce);
+            AccumulateWallSoftForce(
+                position,
+                currentCell,
+                state.MoveSpeed,
+                state.Radius,
+                softShell,
+                ref state.SoftAvoidanceForce);
             States[bodyIndex] = state;
 
-            if (separationRadius <= 0f)
+            if (softShell <= 0f)
                 continue;
 
-            float2 softMin = position.xz - separationRadius;
-            float2 softMax = position.xz + separationRadius;
+            float softExtent = math.max(0f, state.Radius) + softShell * 0.5f;
+            float2 softMin = position.xz - softExtent;
+            float2 softMax = position.xz + softExtent;
             int2 minCell = (int2)math.floor((softMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((softMax - GridOrigin.xz) / cellSize);
             if (maxCell.x < 0 || maxCell.y < 0 ||
@@ -309,12 +316,12 @@ public struct SolveXpbdUnitContactsJob : IJob
             }
         }
 
-        if (separationRadius > 0f)
+        if (softShell > 0f)
         {
             SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
             EmitCellPairs();
             SortAndDeduplicatePairs();
-            AccumulateUnitSoftForces(separationRadius);
+            AccumulateUnitSoftForces(softShell);
         }
 
         float separationWeight = math.max(0f, SoftAvoidanceWeight);
@@ -338,7 +345,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
-    private void AccumulateUnitSoftForces(float separationRadius)
+    private void AccumulateUnitSoftForces(float softShell)
     {
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
@@ -348,16 +355,20 @@ public struct SolveXpbdUnitContactsJob : IJob
             float3 forceA = SoftAvoidanceMath.CalculateUnitForce(
                 bodyA.PredictedPosition,
                 bodyB.PredictedPosition,
+                bodyA.Radius,
+                bodyB.Radius,
                 bodyA.MoveSpeed,
-                separationRadius);
+                softShell);
             if (math.lengthsq(forceA) <= 0f)
                 continue;
 
             float3 forceB = SoftAvoidanceMath.CalculateUnitForce(
                 bodyB.PredictedPosition,
                 bodyA.PredictedPosition,
+                bodyB.Radius,
+                bodyA.Radius,
                 bodyB.MoveSpeed,
-                separationRadius);
+                softShell);
             bodyA.SoftAvoidanceForce += forceA;
             bodyB.SoftAvoidanceForce += forceB;
             bodyA.SoftAvoidanceNeighborCount++;
@@ -371,6 +382,8 @@ public struct SolveXpbdUnitContactsJob : IJob
         float3 position,
         int2 currentCell,
         float moveSpeed,
+        float bodyRadius,
+        float softShell,
         ref float3 softForce)
     {
         if (currentCell.x < 0 || currentCell.x >= GridDimensions.x ||
@@ -394,7 +407,7 @@ public struct SolveXpbdUnitContactsJob : IJob
                     checkCell.x * CellRadius * 2f + CellRadius,
                     position.y,
                     checkCell.y * CellRadius * 2f + CellRadius);
-                float wallCheckRadius = CellRadius + math.max(0f, SoftAvoidanceRadius);
+                float wallCheckRadius = CellRadius + math.max(0f, bodyRadius) + softShell;
                 softForce += SoftAvoidanceMath.CalculateWallForce(
                     position,
                     wallPosition,
