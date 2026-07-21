@@ -37,6 +37,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult chain = ValidatePrebuiltChainContact();
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
+        ValidateFatAabbDoesNotSweepFromWorldOrigin();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
         ScenarioResult fatCache = ValidateFatAabbCache();
@@ -902,6 +903,28 @@ public static class PredictiveDiscContactStage3Validation
             grid.Dispose();
             states.Dispose();
         }
+    }
+
+    private static void ValidateFatAabbDoesNotSweepFromWorldOrigin()
+    {
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(5f, 0f, 5f), float3.zero, 0.25f),
+            CreateBody(new float3(8f, 0f, 8f), float3.zero, 0.25f)
+        };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 1,
+            skin: 0f,
+            enableFatAabbCache: true,
+            fatAabbMargin: 0.05f,
+            softAvoidanceResponseRate: 4f,
+            softAvoidanceShell: 0.2f);
+        Require(result.ShadowStatistics.CachedCandidatePairCount == 0 &&
+                result.Statistics.CandidatePairCount == 0 &&
+                result.Statistics.SoftAvoidanceCandidatePairCount == 0,
+            "First-substep Fat AABBs swept from world origin before prediction.");
     }
 
     private static void Require(bool condition, string message)

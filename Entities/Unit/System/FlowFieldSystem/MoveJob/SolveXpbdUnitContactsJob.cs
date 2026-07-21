@@ -262,6 +262,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             FlowMovementFrameState state = States[i];
             state.IntegratedVelocity = state.IsInsideGrid ? state.CurrentVelocity : float3.zero;
             state.StartPosition = state.CurrentPosition;
+            state.UnconstrainedPredictedPosition = state.CurrentPosition;
             state.PredictedPosition = state.CurrentPosition;
             state.PreviousSubstepPosition = state.CurrentPosition;
             state.ContactPositionCorrection = float3.zero;
