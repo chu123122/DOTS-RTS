@@ -1,5 +1,6 @@
 using _RePlaySystem.Base;
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.NetCode;
 using Unity.Physics;
 using UnityEngine;

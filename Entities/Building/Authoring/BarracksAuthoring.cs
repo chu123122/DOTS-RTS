@@ -1,4 +1,5 @@
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.Mathematics;
 using UnityEngine;
 using 通用;

@@ -7,7 +7,9 @@ using Unity.Jobs; // 引用 Job
 using UnityEngine;
 using 通用; 
 using DefaultNamespace;
-using Entities.Unit.System.FlowFieldSystem;
+using RTS.Unit.FlowField;
+using RTS.Unit.Components;
+using RTS.Unit.FlowField.Systems;
 using Unity.Burst;
 
 namespace _RePlaySystem.Base

@@ -183,22 +183,22 @@ Fat AABB 自动测试覆盖：
 
 与单位接触、诊断和 Fat AABB 任务有关的工作区文件：
 
-- `Entities/Unit/System/FlowFieldSystem/BaseFlowMovementSystem.cs`
-- `Entities/Unit/System/FlowFieldSystem/Editor/PredictiveDiscContactStage3Validation.cs`
-- `Entities/Unit/System/FlowFieldSystem/FlowFieldManagerAuthoring.cs`
-- `Entities/Unit/System/FlowFieldSystem/GridComponent.cs`
-- `Entities/Unit/System/FlowFieldSystem/MoveJob/SolveXpbdUnitContactsJob.cs`
-- `Entities/Unit/System/FlowFieldSystem/ShadowNeighborCacheTypes.cs`
-- `Entities/Unit/System/FlowFieldSystem/Stage3ContactDiagnosticComponents.cs`
-- `Entities/Unit/System/FlowFieldSystem/Stage3ContactDiagnosticVisualizationSystem.cs`
-- `Entities/Unit/System/FlowFieldSystem/Stage3ContactDiagnosticCapture.cs`
-- `Entities/Unit/System/FlowFieldSystem/Stage3ContactDiagnosticCapture.cs.meta`
+- `Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs`
+- `Entities/Unit/Systems/FlowField/Editor/PredictiveDiscContactStage3Validation.cs`
+- `Entities/Unit/Authoring/FlowField/FlowFieldManagerAuthoring.cs`
+- `Entities/Unit/Components/FlowField/GridComponent.cs`
+- `Entities/Unit/Systems/FlowField/Jobs/SolveXpbdUnitContactsJob.cs`
+- `Entities/Unit/Components/FlowField/ShadowNeighborCacheTypes.cs`
+- `Entities/Unit/Systems/FlowField/Diagnostics/Stage3ContactDiagnosticComponents.cs`
+- `Entities/Unit/Systems/FlowField/Diagnostics/Stage3ContactDiagnosticVisualizationSystem.cs`
+- `Entities/Unit/Systems/FlowField/Diagnostics/Stage3ContactDiagnosticCapture.cs`
+- `Entities/Unit/Systems/FlowField/Diagnostics/Stage3ContactDiagnosticCapture.cs.meta`
 
 当前工作区还存在不要混入本任务提交的改动：
 
 - `Entities/Building/System.meta`：删除状态；
 - `_QFrameWork/UISystem/CameraController.cs`：相机缩放改动；
-- `Entities/Unit/System/FlowFieldSystem/MoveJob/CalculateFlowConstraintsJob.cs`：Git 显示修改，但当前没有文本 diff，疑似行尾变化。
+- `Entities/Unit/Systems/FlowField/Jobs/CalculateFlowConstraintsJob.cs`：Git 显示修改，但当前没有文本 diff，疑似行尾变化。
 
 提交前必须逐文件暂存，不要直接执行 `git add .`。
 

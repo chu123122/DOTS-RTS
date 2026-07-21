@@ -1,6 +1,7 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Physics;

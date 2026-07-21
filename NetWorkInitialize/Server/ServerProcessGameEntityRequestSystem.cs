@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using _RePlaySystem.Base;
 using Unity.Collections;
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Transforms;

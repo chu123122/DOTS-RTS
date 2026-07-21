@@ -2,10 +2,10 @@ using DefaultNamespace;
 using Entities._Common;
 using Test;
 using Unity.Entities;
+using RTS.Unit.Systems.Initialization;
 using Unity.Mathematics;
 using UnityEngine;
 using 通用;
-using 通用.HealBar;
 
 namespace a
 {

@@ -1,5 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;

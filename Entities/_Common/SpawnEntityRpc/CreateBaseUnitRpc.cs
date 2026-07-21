@@ -1,5 +1,6 @@
 using System;
 using Unity.Entities;
+using RTS.Unit.Components;
 using Unity.Mathematics;
 using Unity.Transforms;
 using _RePlaySystem.Base;

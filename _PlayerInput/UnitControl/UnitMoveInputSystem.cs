@@ -1,6 +1,8 @@
 using _RePlaySystem.Base;
 using DefaultNamespace;
 using Unity.Entities;
+using RTS.Unit.Components;
+using RTS.Unit.FlowField;
 using Unity.NetCode;
 using Unity.Physics;
 using UnityEngine;
