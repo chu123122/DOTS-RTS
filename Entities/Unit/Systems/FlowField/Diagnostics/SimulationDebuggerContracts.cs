@@ -69,6 +69,34 @@ public enum SimulationDebuggerPairState : byte
     Resolved
 }
 
+
+[Serializable]
+public struct SimulationDebuggerEffectiveSettings
+{
+    public int SubstepCount;
+    public int IterationCount;
+    public float Compliance;
+    public float PredictiveSkin;
+    public byte EnablePredictivePairGeneration;
+    public byte EnablePredictiveContacts;
+    public byte EnableFatAabbCache;
+    public float FatAabbCacheMargin;
+    public byte EnableDiagnostics;
+
+    public float SoftAvoidanceResponseRate;
+    public float SoftAvoidanceShell;
+    public float SettledSoftAvoidanceMultiplier;
+    public int SoftAvoidanceVelocitySolver;
+    public float RvoTimeHorizon;
+
+    public byte EnableAdaptiveFatAabb;
+    public int AdaptiveDetectionCellSpan;
+    public int AdaptiveMinimumUnitsPerCell;
+    public int AdaptiveMinimumUnitsPerRegion;
+    public float AdaptiveEnableScore;
+    public float AdaptiveDisableScore;
+}
+
 [Serializable]
 public struct SimulationOverviewMetrics
 {
@@ -228,6 +256,7 @@ public sealed class SimulationDebuggerFrameSnapshot
     public SimulationOverviewMetrics Overview;
     public PersistentBroadPhaseMetrics BroadPhase;
     public TimestepContactSetMetrics ContactSet;
+    public SimulationDebuggerEffectiveSettings EffectiveSettings;
     public SimulationDebuggerUnitSample SelectedUnit;
     public bool HasSelectedUnit;
 

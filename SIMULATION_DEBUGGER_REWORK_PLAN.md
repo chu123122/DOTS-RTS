@@ -95,3 +95,12 @@ GUI、热力图和世界空间线框只能读取同一份带 FrameId 的不可�
    - 参数覆盖请求在 timestep 边界生效；
    - 配置依赖和恢复默认；
    - 诊断开销等级、采样周期和文档。
+
+## 运行时安全约束
+
+- 面板关闭时 `CaptureMask=None`，不产生诊断同步点；
+- Summary 与 Spatial 使用独立采样周期；
+- 热力图、GUI 和 Pair Overlay 使用同一 `FrameId`；
+- Pair 详细数据只记录选中单位，并受 `MaximumVisualizedPairs` 限制；
+- Runtime Override 在 `BaseFlowMovementSystem.OnUpdate` 开始、任何 Job 调度前统一写入；
+- Restore Authoring 使用第一次运行时捕获的 baseline，不在播放模式中永久改写 Authoring 资产。

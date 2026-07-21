@@ -18,6 +18,8 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     private const int WindowId = 0x51A7;
     private Vector2 _scroll;
     private bool _showDetails;
+    private bool _settingsInitialized;
+    private SimulationDebuggerEffectiveSettings _settingsDraft;
     private GUIStyle _headerStyle;
     private GUIStyle _sectionStyle;
     private GUIStyle _metricLabelStyle;
@@ -38,7 +40,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     private void OnDisable()
     {
         if (AutoRefreshCaptureMask)
-            SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.Summary;
+            SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.None;
     }
 
     private void Update()
@@ -267,17 +269,241 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawSettingsSummary(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "统一设置入口；修改在 timestep 边界生效");
-        GUILayout.Space(10f);
-        GUILayout.Label("当前有效结构", _sectionStyle);
-        DrawDetailRow("Substeps", snapshot.SubstepCount.ToString());
-        DrawDetailRow("Iterations", snapshot.IterationCount.ToString());
-        DrawDetailRow("AABB", snapshot.BroadPhase.Enabled != 0 ? "启用" : "关闭");
-        DrawDetailRow("Diagnostics Capture", snapshot.CapturedMask.ToString());
+        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改会在下一个 timestep 边界统一生效");
         GUILayout.Space(8f);
+
+        if (!_settingsInitialized)
+        {
+            _settingsDraft = snapshot.EffectiveSettings;
+            _settingsInitialized = true;
+        }
+
+        GUILayout.Label("Global / XPBD", _sectionStyle);
+        _settingsDraft.SubstepCount = DrawIntSlider(
+            "Substeps",
+            _settingsDraft.SubstepCount,
+            snapshot.EffectiveSettings.SubstepCount,
+            1,
+            16);
+        _settingsDraft.IterationCount = DrawIntSlider(
+            "Iterations",
+            _settingsDraft.IterationCount,
+            snapshot.EffectiveSettings.IterationCount,
+            1,
+            24);
+        _settingsDraft.Compliance = DrawFloatSlider(
+            "Compliance",
+            _settingsDraft.Compliance,
+            snapshot.EffectiveSettings.Compliance,
+            0f,
+            0.1f,
+            "0.0000");
+        _settingsDraft.EnableDiagnostics = DrawToggle(
+            "Solver diagnostics",
+            _settingsDraft.EnableDiagnostics,
+            snapshot.EffectiveSettings.EnableDiagnostics);
+
+        GUILayout.Space(6f);
+        GUILayout.Label("Soft Avoidance", _sectionStyle);
+        _settingsDraft.SoftAvoidanceResponseRate = DrawFloatSlider(
+            "Response rate",
+            _settingsDraft.SoftAvoidanceResponseRate,
+            snapshot.EffectiveSettings.SoftAvoidanceResponseRate,
+            0f,
+            20f,
+            "0.00");
+        _settingsDraft.SoftAvoidanceShell = DrawFloatSlider(
+            "Surface shell",
+            _settingsDraft.SoftAvoidanceShell,
+            snapshot.EffectiveSettings.SoftAvoidanceShell,
+            0f,
+            4f,
+            "0.00");
+        _settingsDraft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
+            "Settled multiplier",
+            _settingsDraft.SettledSoftAvoidanceMultiplier,
+            snapshot.EffectiveSettings.SettledSoftAvoidanceMultiplier,
+            0f,
+            2f,
+            "0.00");
+        _settingsDraft.RvoTimeHorizon = DrawFloatSlider(
+            "RVO horizon",
+            _settingsDraft.RvoTimeHorizon,
+            snapshot.EffectiveSettings.RvoTimeHorizon,
+            0.05f,
+            5f,
+            "0.00");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Velocity solver", _mutedStyle, GUILayout.Width(170f));
+        string[] solverModes = { "Steering", "Reciprocal" };
+        _settingsDraft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(_settingsDraft.SoftAvoidanceVelocitySolver, 0, 1),
+            solverModes,
+            2,
+            _tabStyle);
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(6f);
+        GUILayout.Label("Persistent Broad Phase", _sectionStyle);
+        _settingsDraft.EnableFatAabbCache = DrawToggle(
+            "Enable Fat AABB",
+            _settingsDraft.EnableFatAabbCache,
+            snapshot.EffectiveSettings.EnableFatAabbCache);
+        bool previousEnabled = GUI.enabled;
+        GUI.enabled = previousEnabled && _settingsDraft.EnableFatAabbCache != 0;
+        _settingsDraft.FatAabbCacheMargin = DrawFloatSlider(
+            "Fat margin",
+            _settingsDraft.FatAabbCacheMargin,
+            snapshot.EffectiveSettings.FatAabbCacheMargin,
+            0f,
+            5f,
+            "0.00");
+        _settingsDraft.EnableAdaptiveFatAabb = DrawToggle(
+            "Adaptive hotspot routing",
+            _settingsDraft.EnableAdaptiveFatAabb,
+            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
+        _settingsDraft.AdaptiveDetectionCellSpan = DrawIntSlider(
+            "Detection cell span",
+            _settingsDraft.AdaptiveDetectionCellSpan,
+            snapshot.EffectiveSettings.AdaptiveDetectionCellSpan,
+            1,
+            8);
+        _settingsDraft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
+            "Min units / cell",
+            _settingsDraft.AdaptiveMinimumUnitsPerCell,
+            snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerCell,
+            1,
+            32);
+        _settingsDraft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
+            "Min units / region",
+            _settingsDraft.AdaptiveMinimumUnitsPerRegion,
+            snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerRegion,
+            1,
+            128);
+        _settingsDraft.AdaptiveEnableScore = DrawFloatSlider(
+            "Enable score",
+            _settingsDraft.AdaptiveEnableScore,
+            snapshot.EffectiveSettings.AdaptiveEnableScore,
+            0f,
+            1f,
+            "0.00");
+        _settingsDraft.AdaptiveDisableScore = DrawFloatSlider(
+            "Disable score",
+            _settingsDraft.AdaptiveDisableScore,
+            snapshot.EffectiveSettings.AdaptiveDisableScore,
+            0f,
+            _settingsDraft.AdaptiveEnableScore,
+            "0.00");
+        GUI.enabled = previousEnabled;
+
+        GUILayout.Space(6f);
+        GUILayout.Label("Timestep Contact Set", _sectionStyle);
+        _settingsDraft.EnablePredictivePairGeneration = DrawToggle(
+            "Predictive pair generation",
+            _settingsDraft.EnablePredictivePairGeneration,
+            snapshot.EffectiveSettings.EnablePredictivePairGeneration);
+        GUI.enabled = previousEnabled && _settingsDraft.EnablePredictivePairGeneration != 0;
+        _settingsDraft.EnablePredictiveContacts = DrawToggle(
+            "Predictive contact solve",
+            _settingsDraft.EnablePredictiveContacts,
+            snapshot.EffectiveSettings.EnablePredictiveContacts);
+        _settingsDraft.PredictiveSkin = DrawFloatSlider(
+            "Predictive skin",
+            _settingsDraft.PredictiveSkin,
+            snapshot.EffectiveSettings.PredictiveSkin,
+            0f,
+            3f,
+            "0.00");
+        GUI.enabled = previousEnabled;
+
+        GUILayout.Space(6f);
+        GUILayout.Label("Diagnostics", _sectionStyle);
+        SimulationDebuggerRuntime.SummarySampleIntervalFrames = DrawIntSlider(
+            "Summary interval",
+            SimulationDebuggerRuntime.SummarySampleIntervalFrames,
+            SimulationDebuggerRuntime.SummarySampleIntervalFrames,
+            1,
+            30);
+        SimulationDebuggerRuntime.SpatialSampleIntervalFrames = DrawIntSlider(
+            "Spatial interval",
+            SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
+            SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
+            1,
+            30);
+        SimulationDebuggerRuntime.MaximumVisualizedPairs = DrawIntSlider(
+            "Max pair lines",
+            SimulationDebuggerRuntime.MaximumVisualizedPairs,
+            SimulationDebuggerRuntime.MaximumVisualizedPairs,
+            1,
+            128);
+        SimulationDebuggerRuntime.HeatmapOpacity = DrawFloatSlider(
+            "Heatmap opacity",
+            SimulationDebuggerRuntime.HeatmapOpacity,
+            SimulationDebuggerRuntime.HeatmapOpacity,
+            0f,
+            0.8f,
+            "0.00");
+
+        GUILayout.Space(10f);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("应用 Override", GUILayout.Height(30f)))
+            SimulationDebuggerRuntime.SubmitSettings(_settingsDraft);
+        if (GUILayout.Button("读取 Effective", GUILayout.Height(30f)))
+            _settingsDraft = snapshot.EffectiveSettings;
+        if (GUILayout.Button("恢复 Authoring", GUILayout.Height(30f)))
+        {
+            SimulationDebuggerRuntime.RequestSettingsReset();
+            if (SimulationDebuggerRuntime.TryGetBaselineSettings(out SimulationDebuggerEffectiveSettings baseline))
+                _settingsDraft = baseline;
+        }
+        GUILayout.EndHorizontal();
         GUILayout.Label(
-            "参数编辑、Override/Effective 对照与恢复默认将在设置绑定阶段接入。",
+            "Adaptive 参数只有场景中存在 AdaptiveFatAabbSettings singleton 时才会写回。",
             _mutedStyle);
+    }
+
+    private int DrawIntSlider(
+        string label,
+        int draft,
+        int effective,
+        int minimum,
+        int maximum)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, _mutedStyle, GUILayout.Width(170f));
+        int value = Mathf.RoundToInt(GUILayout.HorizontalSlider(draft, minimum, maximum));
+        GUILayout.Label($"{value}  (有效 {effective})", _mutedStyle, GUILayout.Width(115f));
+        GUILayout.EndHorizontal();
+        return Mathf.Clamp(value, minimum, maximum);
+    }
+
+    private float DrawFloatSlider(
+        string label,
+        float draft,
+        float effective,
+        float minimum,
+        float maximum,
+        string format)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, _mutedStyle, GUILayout.Width(170f));
+        float value = GUILayout.HorizontalSlider(draft, minimum, Mathf.Max(minimum, maximum));
+        GUILayout.Label(
+            $"{value.ToString(format)}  (有效 {effective.ToString(format)})",
+            _mutedStyle,
+            GUILayout.Width(115f));
+        GUILayout.EndHorizontal();
+        return Mathf.Clamp(value, minimum, Mathf.Max(minimum, maximum));
+    }
+
+    private byte DrawToggle(string label, byte draft, byte effective)
+    {
+        GUILayout.BeginHorizontal();
+        bool enabled = GUILayout.Toggle(draft != 0, label, GUILayout.Width(240f));
+        GUILayout.FlexibleSpace();
+        GUILayout.Label(effective != 0 ? "有效：开" : "有效：关", _mutedStyle);
+        GUILayout.EndHorizontal();
+        return (byte)(enabled ? 1 : 0);
     }
 
     private void DrawHeatmapSelector(
@@ -365,7 +591,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     {
         if (!AutoRefreshCaptureMask || !Visible)
         {
-            SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.Summary;
+            SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.None;
             return;
         }
 
