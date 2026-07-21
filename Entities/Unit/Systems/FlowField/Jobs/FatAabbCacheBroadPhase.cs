@@ -90,6 +90,7 @@ public partial struct SolveXpbdUnitContactsJob
             var rebuiltState = new FatAabbCacheState
             {
                 IsValid = 1,
+                Mode = FatCacheMode.Global,
                 AgeFrames = 0,
                 PredictiveSkin = math.max(0f, PredictiveSkin),
                 SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell),

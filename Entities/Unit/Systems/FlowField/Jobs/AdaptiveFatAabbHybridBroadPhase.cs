@@ -73,6 +73,7 @@ public partial struct SolveXpbdUnitContactsJob
             FatAabbCacheState.Value = new FatAabbCacheState
             {
                 IsValid = 1,
+                Mode = FatCacheMode.Adaptive,
                 AgeFrames = 0,
                 PredictiveSkin = math.max(0f, PredictiveSkin),
                 SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell),
@@ -162,6 +163,7 @@ public partial struct SolveXpbdUnitContactsJob
             return false;
         }
 
+        float neighborPadding = CalculateFatAabbNeighborPadding();
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             if (AdaptiveBodyRouting[bodyIndex].IsFatParticipant == 0)
@@ -181,6 +183,19 @@ public partial struct SolveXpbdUnitContactsJob
             if (proxy.IsValid != expectedValid)
             {
                 entitySetInvalid = true;
+                return false;
+            }
+            if (!state.IsInsideGrid)
+                continue;
+
+            CalculateCoreSweptBounds(
+                state,
+                neighborPadding,
+                out float2 coreMin,
+                out float2 coreMax);
+            if (!AabbContains(proxy.FatMin, proxy.FatMax, coreMin, coreMax))
+            {
+                boundsInvalid = true;
                 return false;
             }
         }
@@ -424,15 +439,28 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void ResetAdaptiveFatAabbCacheWhenInactive()
     {
+        FatAabbCacheState cacheState = FatAabbCacheState.Value;
+
         if (HasActiveAdaptiveFatRegions)
+        {
+            // 有活跃区域 → 确保模式为 Adaptive
+            if (cacheState.Mode != FatCacheMode.Adaptive)
+            {
+                cacheState.Mode = FatCacheMode.Adaptive;
+                cacheState.IsValid = 0;
+                FatAabbCacheState.Value = cacheState;
+            }
             return;
-        ShadowPreviousProxies.Clear();
-        ShadowPreviousPairs.Clear();
-        ShadowCurrentProxies.Clear();
-        ShadowCurrentPairs.Clear();
-        MappedFatCachePairs.Clear();
-        AdaptiveDebugProxies.Clear();
-        FatAabbCacheState.Value = default;
+        }
+
+        // 无活跃区域：如果当前是 Adaptive 模式，切换回 Global 并失效
+        // 不清空共享容器——全局路径会自己在检验失败时重建
+        if (cacheState.Mode == FatCacheMode.Adaptive)
+        {
+            cacheState.Mode = FatCacheMode.Global;
+            cacheState.IsValid = 0;
+            FatAabbCacheState.Value = cacheState;
+        }
     }
     private static float CalculateMinimumBoundsSlack(
         float2 coreMin,

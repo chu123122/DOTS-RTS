@@ -60,12 +60,20 @@ public static class ShadowEntityOrdering
     }
 }
 
+public enum FatCacheMode : byte
+{
+    None,
+    Global,
+    Adaptive
+}
+
 /// <summary>
 /// 持久 Fat AABB 缓存状态。Pair 只保存 Broad Phase 候选关系，不保存接触模式或 lambda。
 /// </summary>
 public struct FatAabbCacheState
 {
     public byte IsValid;
+    public FatCacheMode Mode;
     public int AgeFrames;
     public float PredictiveSkin;
     public float SoftAvoidanceShell;
