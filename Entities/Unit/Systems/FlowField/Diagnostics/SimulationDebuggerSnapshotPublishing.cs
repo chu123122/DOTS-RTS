@@ -197,7 +197,9 @@ public abstract partial class BaseFlowMovementSystem
         var result = new TimestepContactSetMetrics
         {
             CacheEnabled = (byte)(cacheEnabled ? 1 : 0),
-            ContactGenerationCount = (cacheEnabled ? 1 : substepCount) + math.max(0, fallbackCount),
+            ContactGenerationCount = hasStatistics
+                ? statistics.TimestepContactSetBuildCount
+                : (cacheEnabled ? 1 : substepCount) + math.max(0, fallbackCount),
             SubstepCount = substepCount,
             SupplementOrFallbackCount = fallbackCount,
             Health = hasStatistics
