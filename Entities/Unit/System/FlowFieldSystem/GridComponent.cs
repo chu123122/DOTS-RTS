@@ -23,7 +23,7 @@ public struct FlowFieldSettings : IComponentData
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
-    public float SoftAvoidanceWeight;
+    public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
     public float SettledSoftAvoidanceMultiplier;
 }

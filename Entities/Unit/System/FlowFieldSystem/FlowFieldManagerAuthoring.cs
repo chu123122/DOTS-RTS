@@ -19,7 +19,9 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     public float visualizationHeightOffset = 0.05f;
 
     [Header("Soft Avoidance")]
-    [Min(0f)] public float softAvoidanceWeight = 4f;
+    [Tooltip("软避让速度缓冲的每秒响应率；0 表示不把避让速度写入预测速度。")]
+    [FormerlySerializedAs("softAvoidanceWeight")]
+    [Min(0f)] public float softAvoidanceResponseRate = 4f;
     [Tooltip("单位表面之间开始软避让的额外距离；实际激活距离为双方半径之和加该值。")]
     [Min(0f)] public float softAvoidanceShell = 0.2f;
     [Min(0f)] public float settledSoftAvoidanceMultiplier = 1.5f;
@@ -63,7 +65,9 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 GridDimensions = authoring.gridSize,
                 CellRadius = authoring.cellRadius,
                 GridOrigin = authoring.gridOrigin,
-                SoftAvoidanceWeight = math.max(0f, authoring.softAvoidanceWeight),
+                SoftAvoidanceResponseRate = math.max(
+                    0f,
+                    authoring.softAvoidanceResponseRate),
                 SoftAvoidanceShell = math.max(0f, authoring.softAvoidanceShell),
                 SettledSoftAvoidanceMultiplier = math.max(
                     0f,

@@ -283,22 +283,29 @@ public static class PredictiveDiscContactStage3Validation
 
     private static ScenarioResult ValidateSoftAvoidancePerSubstep()
     {
-        float3 shellForce = SoftAvoidanceMath.CalculateUnitForce(
+        float3 shellVelocity = SoftAvoidanceMath.CalculateUnitVelocity(
             new float3(-0.5f, 0, 0),
             new float3(0.5f, 0, 0),
             0.4f,
             0.4f,
             1f,
             0.25f);
-        float3 outsideShellForce = SoftAvoidanceMath.CalculateUnitForce(
+        float3 outsideShellVelocity = SoftAvoidanceMath.CalculateUnitVelocity(
             new float3(-0.5f, 0, 0),
             new float3(0.5f, 0, 0),
             0.4f,
             0.4f,
             1f,
             0.1f);
-        Require(math.lengthsq(shellForce) > 0f && math.lengthsq(outsideShellForce) == 0f,
+        Require(math.lengthsq(shellVelocity) > 0f &&
+                math.lengthsq(outsideShellVelocity) == 0f,
             "Soft avoidance did not use radiusA + radiusB + softShell activation distance.");
+
+        float fullStepAlpha = SoftAvoidanceMath.CalculateBufferAlpha(4f, 1f);
+        float quarterStepAlpha = SoftAvoidanceMath.CalculateBufferAlpha(4f, 0.25f);
+        float recomposedAlpha = 1f - math.pow(1f - quarterStepAlpha, 4f);
+        Require(math.abs(fullStepAlpha - recomposedAlpha) <= 0.00001f,
+            "Soft avoidance velocity buffer changed response when substep count changed.");
 
         FlowMovementFrameState bodyA = CreateBody(new float3(-0.4f, 0, 0), float3.zero, 0.1f);
         FlowMovementFrameState bodyB = CreateBody(new float3(0.4f, 0, 0), float3.zero, 0.1f);
@@ -313,7 +320,7 @@ public static class PredictiveDiscContactStage3Validation
             iterationCount: 1,
             skin: 0f,
             substepCount: 4,
-            softAvoidanceWeight: 1f,
+            softAvoidanceResponseRate: 1f,
             softAvoidanceShell: 0.8f);
         Require(result.Statistics.SoftAvoidanceEvaluationCount == 4,
             "Soft avoidance was not recomputed once per substep.");
@@ -624,7 +631,7 @@ public static class PredictiveDiscContactStage3Validation
         int substepCount = 1,
         bool enableFatAabbCache = false,
         float fatAabbMargin = 0.25f,
-        float softAvoidanceWeight = 0f,
+        float softAvoidanceResponseRate = 0f,
         float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
         bool enablePredictivePairGeneration = true)
@@ -646,7 +653,7 @@ public static class PredictiveDiscContactStage3Validation
                 previousProxies,
                 previousPairs,
                 cacheState,
-                softAvoidanceWeight,
+                softAvoidanceResponseRate,
                 softAvoidanceShell,
                 settledSoftAvoidanceMultiplier,
                 enablePredictivePairGeneration);
@@ -671,7 +678,7 @@ public static class PredictiveDiscContactStage3Validation
         NativeList<ShadowFatBodyProxy> previousProxies,
         NativeList<ShadowEntityPair> previousPairs,
         NativeReference<FatAabbCacheState> cacheState,
-        float softAvoidanceWeight = 0f,
+        float softAvoidanceResponseRate = 0f,
         float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
         bool enablePredictivePairGeneration = true)
@@ -730,7 +737,7 @@ public static class PredictiveDiscContactStage3Validation
                 IterationCount = iterationCount,
                 Compliance = 0f,
                 PredictiveSkin = skin,
-                SoftAvoidanceWeight = softAvoidanceWeight,
+                SoftAvoidanceResponseRate = softAvoidanceResponseRate,
                 SoftAvoidanceShell = softAvoidanceShell,
                 SettledSoftAvoidanceMultiplier = settledSoftAvoidanceMultiplier,
                 EnablePredictivePairGeneration = enablePredictivePairGeneration,

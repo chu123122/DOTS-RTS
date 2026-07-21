@@ -18,7 +18,7 @@ public struct SolveXpbdUnitContactsJob : IJob
     public int IterationCount;
     public float Compliance;
     public float PredictiveSkin;
-    public float SoftAvoidanceWeight;
+    public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
     public float SettledSoftAvoidanceMultiplier;
     public bool EnablePredictivePairGeneration;
@@ -253,7 +253,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.PreviousSubstepPosition = state.CurrentPosition;
             state.ContactPositionCorrection = float3.zero;
             state.WallPositionCorrection = float3.zero;
-            state.SoftAvoidanceForce = float3.zero;
+            state.SoftAvoidanceVelocity = float3.zero;
+            state.WallAvoidanceVelocity = float3.zero;
             state.SoftAvoidanceNeighborCount = 0;
             States[i] = state;
         }
@@ -270,7 +271,8 @@ public struct SolveXpbdUnitContactsJob : IJob
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             FlowMovementFrameState state = States[bodyIndex];
-            state.SoftAvoidanceForce = float3.zero;
+            state.SoftAvoidanceVelocity = float3.zero;
+            state.WallAvoidanceVelocity = float3.zero;
             state.SoftAvoidanceNeighborCount = 0;
             if (!state.IsInsideGrid)
             {
@@ -280,13 +282,13 @@ public struct SolveXpbdUnitContactsJob : IJob
 
             float3 position = state.PredictedPosition;
             int2 currentCell = FlowFieldUtils.WorldToCell(position, GridOrigin, CellRadius);
-            AccumulateWallSoftForce(
+            AccumulateWallAvoidanceVelocity(
                 position,
                 currentCell,
                 state.MoveSpeed,
                 state.Radius,
                 softShell,
-                ref state.SoftAvoidanceForce);
+                ref state.WallAvoidanceVelocity);
             States[bodyIndex] = state;
 
             if (softShell <= 0f)
@@ -321,11 +323,9 @@ public struct SolveXpbdUnitContactsJob : IJob
             SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
             EmitCellPairs();
             SortAndDeduplicatePairs();
-            AccumulateUnitSoftForces(softShell);
+            AccumulateUnitAvoidanceVelocities(softShell);
         }
 
-        float separationWeight = math.max(0f, SoftAvoidanceWeight);
-        float settledMultiplier = math.max(0f, SettledSoftAvoidanceMultiplier);
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             FlowMovementFrameState state = States[bodyIndex];
@@ -333,44 +333,47 @@ public struct SolveXpbdUnitContactsJob : IJob
                 continue;
 
             if (state.SoftAvoidanceNeighborCount > 0)
+                state.SoftAvoidanceVelocity /= state.SoftAvoidanceNeighborCount;
+
+            state.SoftAvoidanceVelocity += state.WallAvoidanceVelocity;
+            float maxAvoidanceSpeed = math.max(0f, state.MoveSpeed);
+            if (math.lengthsq(state.SoftAvoidanceVelocity) >
+                maxAvoidanceSpeed * maxAvoidanceSpeed)
             {
-                state.SoftAvoidanceForce /= state.SoftAvoidanceNeighborCount;
-                float currentWeight = state.IsSettled
-                    ? separationWeight * settledMultiplier
-                    : separationWeight;
-                state.SoftAvoidanceForce *= currentWeight;
+                state.SoftAvoidanceVelocity =
+                    math.normalizesafe(state.SoftAvoidanceVelocity) * maxAvoidanceSpeed;
             }
 
             States[bodyIndex] = state;
         }
     }
 
-    private void AccumulateUnitSoftForces(float softShell)
+    private void AccumulateUnitAvoidanceVelocities(float softShell)
     {
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = Pairs[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            float3 forceA = SoftAvoidanceMath.CalculateUnitForce(
+            float3 velocityA = SoftAvoidanceMath.CalculateUnitVelocity(
                 bodyA.PredictedPosition,
                 bodyB.PredictedPosition,
                 bodyA.Radius,
                 bodyB.Radius,
                 bodyA.MoveSpeed,
                 softShell);
-            if (math.lengthsq(forceA) <= 0f)
+            if (math.lengthsq(velocityA) <= 0f)
                 continue;
 
-            float3 forceB = SoftAvoidanceMath.CalculateUnitForce(
+            float3 velocityB = SoftAvoidanceMath.CalculateUnitVelocity(
                 bodyB.PredictedPosition,
                 bodyA.PredictedPosition,
                 bodyB.Radius,
                 bodyA.Radius,
                 bodyB.MoveSpeed,
                 softShell);
-            bodyA.SoftAvoidanceForce += forceA;
-            bodyB.SoftAvoidanceForce += forceB;
+            bodyA.SoftAvoidanceVelocity += velocityA;
+            bodyB.SoftAvoidanceVelocity += velocityB;
             bodyA.SoftAvoidanceNeighborCount++;
             bodyB.SoftAvoidanceNeighborCount++;
             States[pair.BodyA] = bodyA;
@@ -378,13 +381,13 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
-    private void AccumulateWallSoftForce(
+    private void AccumulateWallAvoidanceVelocity(
         float3 position,
         int2 currentCell,
         float moveSpeed,
         float bodyRadius,
         float softShell,
-        ref float3 softForce)
+        ref float3 avoidanceVelocity)
     {
         if (currentCell.x < 0 || currentCell.x >= GridDimensions.x ||
             currentCell.y < 0 || currentCell.y >= GridDimensions.y)
@@ -408,7 +411,7 @@ public struct SolveXpbdUnitContactsJob : IJob
                     position.y,
                     checkCell.y * CellRadius * 2f + CellRadius);
                 float wallCheckRadius = CellRadius + math.max(0f, bodyRadius) + softShell;
-                softForce += SoftAvoidanceMath.CalculateWallForce(
+                avoidanceVelocity += SoftAvoidanceMath.CalculateWallVelocity(
                     position,
                     wallPosition,
                     moveSpeed,
@@ -431,7 +434,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.ContactPositionCorrection = float3.zero;
             state.WallPositionCorrection = float3.zero;
 
-            float3 totalForce = state.IndependentForce + state.SoftAvoidanceForce;
+            float3 totalForce = state.IndependentForce;
             if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
             {
                 float3 cellCenter = GridOrigin + new float3(
@@ -448,6 +451,15 @@ public struct SolveXpbdUnitContactsJob : IJob
                 totalForce = math.normalizesafe(totalForce) * state.MaxForce;
 
             float3 velocity = state.IntegratedVelocity + totalForce * substepDeltaTime;
+            float responseRate = math.max(0f, SoftAvoidanceResponseRate);
+            if (state.IsSettled)
+                responseRate *= math.max(0f, SettledSoftAvoidanceMultiplier);
+            velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
+                velocity,
+                state.SoftAvoidanceVelocity,
+                responseRate,
+                substepDeltaTime,
+                state.MoveSpeed);
             if (state.IsSettled)
                 velocity *= math.pow(0.8f, substepDeltaTime * 60f);
 

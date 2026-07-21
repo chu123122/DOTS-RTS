@@ -29,7 +29,8 @@ public struct FlowMovementFrameState
 
     // 按流水线依次生成的中间结果。
     public float3 IndependentForce;
-    public float3 SoftAvoidanceForce;
+    public float3 SoftAvoidanceVelocity;
+    public float3 WallAvoidanceVelocity;
     public int SoftAvoidanceNeighborCount;
     public float3 IntegratedVelocity;
     public float3 StartPosition;

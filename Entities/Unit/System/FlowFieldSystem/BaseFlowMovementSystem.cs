@@ -162,7 +162,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Compliance = contactSolverSettings.Compliance,
             PredictiveSkin = contactSolverSettings.PredictiveSkin,
             EnablePredictivePairGeneration = contactSolverSettings.EnablePredictivePairGeneration,
-            SoftAvoidanceWeight = flowFieldSettings.SoftAvoidanceWeight,
+            SoftAvoidanceResponseRate = flowFieldSettings.SoftAvoidanceResponseRate,
             SoftAvoidanceShell = flowFieldSettings.SoftAvoidanceShell,
             SettledSoftAvoidanceMultiplier = flowFieldSettings.SettledSoftAvoidanceMultiplier,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
