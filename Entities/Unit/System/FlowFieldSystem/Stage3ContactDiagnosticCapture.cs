@@ -98,6 +98,9 @@ public sealed class Stage3ContactDiagnosticCaptureSession
             AverageSpeedAfter = statistics.AverageSpeedAfterContact,
             MaxVelocityChange = statistics.MaxVelocityChange,
             SoftAvoidanceMicroseconds = statistics.SoftAvoidanceNanoseconds / 1000f,
+            SoftAvoidanceCandidatePairs = statistics.SoftAvoidanceCandidatePairCount,
+            SoftAvoidanceActivatedPairs = statistics.SoftAvoidanceActivatedPairCount,
+            SoftAvoidanceFatAabbUses = statistics.SoftAvoidanceFatAabbUseCount,
             PairGenerationMicroseconds = statistics.PairGenerationNanoseconds / 1000f,
             AverageIterationMicroseconds = statistics.AverageIterationNanoseconds / 1000f,
             SolverMicroseconds = statistics.SolverNanoseconds / 1000f,
@@ -230,6 +233,9 @@ public sealed class Stage3ContactDiagnosticCaptureSample
     public float AverageSpeedAfter;
     public float MaxVelocityChange;
     public float SoftAvoidanceMicroseconds;
+    public int SoftAvoidanceCandidatePairs;
+    public int SoftAvoidanceActivatedPairs;
+    public int SoftAvoidanceFatAabbUses;
     public float PairGenerationMicroseconds;
     public float AverageIterationMicroseconds;
     public float SolverMicroseconds;

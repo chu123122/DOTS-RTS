@@ -65,6 +65,7 @@ public struct FatAabbCacheState
     public byte IsValid;
     public int AgeFrames;
     public float PredictiveSkin;
+    public float SoftAvoidanceShell;
     public float Margin;
 }
 

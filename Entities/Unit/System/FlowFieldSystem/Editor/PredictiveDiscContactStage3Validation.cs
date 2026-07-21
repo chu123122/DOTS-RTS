@@ -322,10 +322,27 @@ public static class PredictiveDiscContactStage3Validation
             substepCount: 4,
             softAvoidanceResponseRate: 1f,
             softAvoidanceShell: 0.8f);
+        ScenarioResult cachedResult = RunScenario(
+            bodies,
+            iterationCount: 1,
+            skin: 0f,
+            substepCount: 4,
+            enableFatAabbCache: true,
+            fatAabbMargin: 0.25f,
+            softAvoidanceResponseRate: 1f,
+            softAvoidanceShell: 0.8f);
         Require(result.Statistics.SoftAvoidanceEvaluationCount == 4,
             "Soft avoidance was not recomputed once per substep.");
         Require(math.distance(result.Positions[0], result.Positions[1]) > 0.8f,
             "Per-substep soft avoidance did not separate nearby units.");
+        RequirePositionsEqual(
+            result.Positions,
+            cachedResult.Positions,
+            "Fat AABB raw candidates changed soft avoidance positions.");
+        Require(cachedResult.Statistics.SoftAvoidanceFatAabbUseCount == 4 &&
+                cachedResult.Statistics.SoftAvoidanceCandidatePairCount > 0 &&
+                cachedResult.Statistics.SoftAvoidanceActivatedPairCount > 0,
+            "Soft avoidance did not consume Fat AABB raw candidates for every substep.");
         return result;
     }
 
@@ -497,8 +514,8 @@ public static class PredictiveDiscContactStage3Validation
         Require(secondFrame.ShadowStatistics.FullBroadPhaseFallbackCount == 0,
             "Stable dense contacts unexpectedly fell back to the full Broad Phase.");
         Require(secondFrame.ShadowStatistics.CachePairMappingBuildCount == 1 &&
-                secondFrame.ShadowStatistics.CachePairMappingReuseCount == 1,
-            "Stable two-substep cache did not map Entity pairs once and reuse them once.");
+                secondFrame.ShadowStatistics.CachePairMappingReuseCount == 3,
+            "Stable two-substep cache did not reuse mapped pairs for soft/contact passes.");
         int previousFullBodyCheckCount = denseBodies.Length * 4 * 2 * 2;
         Require(secondFrame.ShadowStatistics.CorrectedBodyValidationCount > 0 &&
                 secondFrame.ShadowStatistics.CorrectedBodyValidationCount <

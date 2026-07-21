@@ -99,7 +99,15 @@ public struct SolveXpbdUnitContactsJob : IJob
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
-            CalculateSoftAvoidanceForSubstep();
+            bool useFatCandidatesForSoftAvoidance = EnableFatAabbCache &&
+                                                    SoftAvoidanceShell > 0f &&
+                                                    EnsureFatAabbRawCandidates(
+                                                        ref shadowStatistics,
+                                                        ref fatCachePairsMappedThisFrame,
+                                                        false);
+            CalculateSoftAvoidanceForSubstep(
+                useFatCandidatesForSoftAvoidance,
+                ref statistics);
             statistics.SoftAvoidanceEvaluationCount++;
             statistics.SoftAvoidanceNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
@@ -260,7 +268,9 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
-    private void CalculateSoftAvoidanceForSubstep()
+    private void CalculateSoftAvoidanceForSubstep(
+        bool useFatAabbCandidates,
+        ref PredictiveDiscContactStatistics statistics)
     {
         SweptCellEntries.Clear();
         Pairs.Clear();
@@ -291,7 +301,7 @@ public struct SolveXpbdUnitContactsJob : IJob
                 ref state.WallAvoidanceVelocity);
             States[bodyIndex] = state;
 
-            if (softShell <= 0f)
+            if (softShell <= 0f || useFatAabbCandidates)
                 continue;
 
             float softExtent = math.max(0f, state.Radius) + softShell * 0.5f;
@@ -318,12 +328,23 @@ public struct SolveXpbdUnitContactsJob : IJob
             }
         }
 
-        if (softShell > 0f)
+        if (softShell > 0f && useFatAabbCandidates)
+        {
+            statistics.SoftAvoidanceFatAabbUseCount++;
+            statistics.SoftAvoidanceCandidatePairCount += MappedFatCachePairs.Length;
+            statistics.SoftAvoidanceActivatedPairCount +=
+                AccumulateUnitAvoidanceVelocities(
+                    MappedFatCachePairs.AsArray(),
+                    softShell);
+        }
+        else if (softShell > 0f)
         {
             SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
             EmitCellPairs();
             SortAndDeduplicatePairs();
-            AccumulateUnitAvoidanceVelocities(softShell);
+            statistics.SoftAvoidanceCandidatePairCount += Pairs.Length;
+            statistics.SoftAvoidanceActivatedPairCount +=
+                AccumulateUnitAvoidanceVelocities(Pairs.AsArray(), softShell);
         }
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
@@ -348,11 +369,14 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
     }
 
-    private void AccumulateUnitAvoidanceVelocities(float softShell)
+    private int AccumulateUnitAvoidanceVelocities(
+        NativeArray<UnitCollisionPair> candidates,
+        float softShell)
     {
-        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
+        int activatedPairCount = 0;
+        for (int pairIndex = 0; pairIndex < candidates.Length; pairIndex++)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            UnitCollisionPair pair = candidates[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
             float3 velocityA = SoftAvoidanceMath.CalculateUnitVelocity(
@@ -376,9 +400,12 @@ public struct SolveXpbdUnitContactsJob : IJob
             bodyB.SoftAvoidanceVelocity += velocityB;
             bodyA.SoftAvoidanceNeighborCount++;
             bodyB.SoftAvoidanceNeighborCount++;
+            activatedPairCount++;
             States[pair.BodyA] = bodyA;
             States[pair.BodyB] = bodyB;
         }
+
+        return activatedPairCount;
     }
 
     private void AccumulateWallAvoidanceVelocity(
@@ -550,6 +577,33 @@ public struct SolveXpbdUnitContactsJob : IJob
         ref ShadowNeighborCacheStatistics cacheStatistics,
         ref bool fatCachePairsMappedThisFrame)
     {
+        if (!EnsureFatAabbRawCandidates(
+                ref cacheStatistics,
+                ref fatCachePairsMappedThisFrame,
+                true))
+        {
+            BuildSweptContactPairs(ref statistics);
+            cacheStatistics.FullBroadPhaseFallbackCount++;
+            return false;
+        }
+
+        Pairs.Clear();
+        if (EnableDiagnostics)
+            PairDiagnostics.Clear();
+        Pairs.AddRange(MappedFatCachePairs.AsArray());
+
+        cacheStatistics.CacheUseCount++;
+        cacheStatistics.CachedNarrowPhasePairCheckCount += Pairs.Length;
+        statistics.CandidatePairCount += Pairs.Length;
+        FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
+        return true;
+    }
+
+    private bool EnsureFatAabbRawCandidates(
+        ref ShadowNeighborCacheStatistics cacheStatistics,
+        ref bool fatCachePairsMappedThisFrame,
+        bool countContactReuse)
+    {
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         bool cacheValid = IsFatAabbCacheValid(
             out bool entitySetInvalid,
@@ -582,12 +636,13 @@ public struct SolveXpbdUnitContactsJob : IJob
                 IsValid = 1,
                 AgeFrames = 0,
                 PredictiveSkin = math.max(0f, PredictiveSkin),
+                SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell),
                 Margin = math.max(0f, FatAabbCacheMargin)
             };
             FatAabbCacheState.Value = rebuiltState;
             fatCachePairsMappedThisFrame = false;
         }
-        else
+        else if (countContactReuse)
         {
             cacheStatistics.CacheReuseCount++;
         }
@@ -602,8 +657,6 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (!mapped)
             {
                 InvalidateFatAabbCache(ref cacheStatistics, false);
-                BuildSweptContactPairs(ref statistics);
-                cacheStatistics.FullBroadPhaseFallbackCount++;
                 return false;
             }
 
@@ -614,15 +667,6 @@ public struct SolveXpbdUnitContactsJob : IJob
             cacheStatistics.CachePairMappingReuseCount++;
         }
 
-        Pairs.Clear();
-        if (EnableDiagnostics)
-            PairDiagnostics.Clear();
-        Pairs.AddRange(MappedFatCachePairs.AsArray());
-
-        cacheStatistics.CacheUseCount++;
-        cacheStatistics.CachedNarrowPhasePairCheckCount += Pairs.Length;
-        statistics.CandidatePairCount += Pairs.Length;
-        FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
         return true;
     }
 
@@ -637,6 +681,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             return false;
 
         if (math.abs(cacheState.PredictiveSkin - math.max(0f, PredictiveSkin)) > 0.000001f ||
+            math.abs(cacheState.SoftAvoidanceShell -
+                     math.max(0f, SoftAvoidanceShell)) > 0.000001f ||
             math.abs(cacheState.Margin - math.max(0f, FatAabbCacheMargin)) > 0.000001f)
         {
             boundsInvalid = true;
@@ -649,7 +695,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             return false;
         }
 
-        float skin = math.max(0f, PredictiveSkin);
+        float neighborPadding = CalculateFatAabbNeighborPadding();
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             FlowMovementFrameState state = States[bodyIndex];
@@ -671,7 +717,11 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (!state.IsInsideGrid)
                 continue;
 
-            CalculateCoreSweptBounds(state, skin, out float2 coreMin, out float2 coreMax);
+            CalculateCoreSweptBounds(
+                state,
+                neighborPadding,
+                out float2 coreMin,
+                out float2 coreMax);
             if (AabbContains(proxy.FatMin, proxy.FatMax, coreMin, coreMax))
                 continue;
 
@@ -711,11 +761,11 @@ public struct SolveXpbdUnitContactsJob : IJob
 
     private static void CalculateCoreSweptBounds(
         FlowMovementFrameState state,
-        float skin,
+        float neighborPadding,
         out float2 coreMin,
         out float2 coreMax)
     {
-        float extent = math.max(0f, state.Radius) + skin;
+        float extent = math.max(0f, state.Radius) + math.max(0f, neighborPadding);
         float2 pathMin = math.min(
             state.StartPosition.xz,
             math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
@@ -732,7 +782,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         if (FatAabbCacheState.Value.IsValid == 0)
             return false;
 
-        float skin = math.max(0f, PredictiveSkin);
+        float neighborPadding = CalculateFatAabbNeighborPadding();
         statistics.CorrectedBodyValidationCount += CorrectedBodyIndices.Length;
         for (int i = 0; i < CorrectedBodyIndices.Length; i++)
         {
@@ -744,7 +794,7 @@ public struct SolveXpbdUnitContactsJob : IJob
                     out ShadowFatBodyProxy proxy))
                 return false;
 
-            float extent = math.max(0f, state.Radius) + skin;
+            float extent = math.max(0f, state.Radius) + neighborPadding;
             float2 currentMin = state.PredictedPosition.xz - extent;
             float2 currentMax = state.PredictedPosition.xz + extent;
             if (!AabbContains(proxy.FatMin, proxy.FatMax, currentMin, currentMax))
@@ -752,6 +802,13 @@ public struct SolveXpbdUnitContactsJob : IJob
         }
 
         return true;
+    }
+
+    private float CalculateFatAabbNeighborPadding()
+    {
+        return math.max(
+            math.max(0f, PredictiveSkin),
+            math.max(0f, SoftAvoidanceShell) * 0.5f);
     }
 
     private void ResetCorrectedBodyTracking()
@@ -797,7 +854,8 @@ public struct SolveXpbdUnitContactsJob : IJob
         ShadowCurrentPairs.Clear();
 
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
-        float extentMargin = math.max(0f, PredictiveSkin) + math.max(0f, FatAabbCacheMargin);
+        float extentMargin = CalculateFatAabbNeighborPadding() +
+                             math.max(0f, FatAabbCacheMargin);
         int validBodyCount = 0;
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)

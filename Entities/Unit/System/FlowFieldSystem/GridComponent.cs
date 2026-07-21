@@ -73,6 +73,9 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public int PotentialPredictivePairCount;
     public int PredictivePairCount;
     public int SoftAvoidanceEvaluationCount;
+    public int SoftAvoidanceCandidatePairCount;
+    public int SoftAvoidanceActivatedPairCount;
+    public int SoftAvoidanceFatAabbUseCount;
     public int ActiveConstraintCount;
     public int PredictiveActivatedCount;
     public int UnactivatedPairCount;
