@@ -138,6 +138,18 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = candidates[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
+
+            // 快速距离预检：跳过明显超出软避让范围的候选对。
+            // Fat AABB 缓存可能因大 margin 产生大量候选对，但软避让
+            // 只需处理 softShell 范围内的对。不预检则每个对都进
+            // TryCalculatePairVelocities 做完整计算后才被 reject。
+            float3 softDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            softDelta.y = 0;
+            float softDistSq = math.lengthsq(softDelta);
+            float softMaxDist = bodyA.Radius + bodyB.Radius + softShell;
+            if (softDistSq > softMaxDist * softMaxDist)
+                continue;
+
             bool activated = SoftAvoidanceMath.TryCalculatePairVelocities(
                 SoftAvoidanceVelocitySolver,
                 bodyA.PredictedPosition,
