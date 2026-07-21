@@ -95,6 +95,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         IterationDiagnostics.Clear();
         PairDiagnostics.Clear();
         SelectedBodyDiagnostic.Value = default;
+        ResetSimulationDebuggerCapture();
 
         if (substepDeltaTime <= 0f)
         {
@@ -248,6 +249,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     {
                         ResetTimestepContactSetForSubstep();
                         SolveContactIteration(
+                            substepIndex,
                             substepDeltaTime,
                             substepIndex,
                             true,
@@ -317,6 +319,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.AverageSpeedAfterContact /= substepCount;
         statistics.SolverNanoseconds =
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
+        CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;
     }
@@ -482,11 +485,20 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             }
             TimestepContactPairs[i] = pair;
 
+            float pairCorrection =
+                (bodyA.InverseMass + bodyB.InverseMass) * math.abs(appliedLambda);
+            CaptureSimulationDebuggerPair(
+                substepIndex,
+                pair,
+                bodyA,
+                bodyB,
+                normal,
+                constraintValue,
+                pairCorrection);
+
             if (math.abs(appliedLambda) <= 0.0000001f)
                 continue;
 
-            float pairCorrection =
-                (bodyA.InverseMass + bodyB.InverseMass) * math.abs(appliedLambda);
             totalPositionCorrection += pairCorrection;
             maxPositionCorrection = math.max(maxPositionCorrection, pairCorrection);
 
