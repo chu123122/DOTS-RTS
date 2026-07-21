@@ -1,12 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Transforms;
 using UnityEngine;
-using _RePlaySystem.Base;
-using 通用;
+using UnityEngine.SceneManagement;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
@@ -46,15 +45,17 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         new() { Label = "skin_0.2",     PredictiveSkin = 0.2f },
     };
 
-    private enum Phase { WaitingForScene, WaitingForWorld, WaitingForPrefabs, Spawning, Warmup, Trial, Done }
+    private enum Phase { WaitingForScene, WaitingForButton, Spawning, Warmup, Trial, Done }
 
     private Phase _phase;
     private int _phaseStartFrame;
     private int _trialIndex;
     private int _frameInTrial;
+    private int _spawnCooldown;
     private SimulationDebuggerEffectiveSettings _baseline;
     private bool _hasBaseline;
-    private EntityManager _entityManager;
+    private UnityEngine.UI.Button _spawnButton;
+    private int _targetUnitCount;
     private readonly List<TrialResult> _results = new();
     private readonly Accumulator _accumulator = new();
 
@@ -65,8 +66,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private void Start()
     {
-        // 如果还在连接场景，自动进入游戏场景
-        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex == 0)
+        if (SceneManager.GetActiveScene().buildIndex == 0)
         {
             Debug.Log("[Tuner] 检测到连接场景，自动进入游戏场景...");
             _phase = Phase.WaitingForScene;
@@ -74,12 +74,11 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             return;
         }
 
-        BeginGameLoop();
+        BeginAfterSceneLoad();
     }
 
-    private System.Collections.IEnumerator AutoEnterGameScene()
+    private IEnumerator AutoEnterGameScene()
     {
-        // 等一帧确保场景初始化完成
         yield return null;
 
         World localWorld = World.DefaultGameObjectInjectionWorld;
@@ -90,27 +89,16 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             yield break;
         }
 
-        UnityEngine.SceneManagement.SceneManager.LoadScene(1);
-        UnityEngine.SceneManagement.SceneManager.LoadSceneAsync(
-            "SubScene 1",
-            UnityEngine.SceneManagement.LoadSceneMode.Additive);
+        SceneManager.LoadScene(1);
+        SceneManager.LoadSceneAsync("SubScene 1", LoadSceneMode.Additive);
 
-        // 等场景加载完成
         yield return new WaitForSeconds(1f);
-        BeginGameLoop();
+        BeginAfterSceneLoad();
     }
 
-    private void BeginGameLoop()
+    private void BeginAfterSceneLoad()
     {
-        World world = World.DefaultGameObjectInjectionWorld;
-        if (world == null || !world.IsCreated)
-        {
-            Debug.LogError("[Tuner] 游戏 World 不可用。");
-            enabled = false;
-            return;
-        }
-        _entityManager = world.EntityManager;
-        _phase = Phase.WaitingForPrefabs;
+        _phase = Phase.WaitingForButton;
     }
 
     private void Update()
@@ -118,16 +106,12 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         switch (_phase)
         {
             case Phase.WaitingForScene:
-            case Phase.WaitingForWorld:
-                // 由协程或 BeginGameLoop 推进
                 break;
-            case Phase.WaitingForPrefabs:
-                WaitForPrefabs();
+            case Phase.WaitingForButton:
+                WaitForButton();
                 break;
             case Phase.Spawning:
-                _phase = Phase.Warmup;
-                _phaseStartFrame = Time.frameCount;
-                Debug.Log($"[Tuner] 已生成 {UnitCount} 个单位，预热 {WarmupFrames} 帧");
+                SpawnViaButton();
                 break;
             case Phase.Warmup:
                 if (Time.frameCount - _phaseStartFrame >= WarmupFrames)
@@ -147,40 +131,59 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             WriteCsv();
     }
 
-    // ── prefab 等待 ──────────────────────────────────────
+    // ── 按钮查找 ────────────────────────────────────────
 
-    private void WaitForPrefabs()
+    private void WaitForButton()
     {
-        if (_entityManager.World == null || !_entityManager.World.IsCreated)
+        // BasicBuildUIController 在 Test 命名空间，挂的场景里
+        var controller = FindFirstObjectByType<Test.BasicBuildUIController>();
+        if (controller == null)
             return;
 
-        using var query = _entityManager.CreateEntityQuery(typeof(RtsLocalPrefabs));
-        if (query.IsEmptyIgnoreFilter)
-            return;
-
-        Entity prefab = query.GetSingleton<RtsLocalPrefabs>().Entity;
-        SpawnUnits(prefab);
-    }
-
-    // ── 单位生成 ─────────────────────────────────────────
-
-    private void SpawnUnits(Entity prefab)
-    {
-        var random = new Unity.Mathematics.Random((uint)(Time.frameCount + 1));
-
-        for (int i = 0; i < UnitCount; i++)
+        _spawnButton = controller.create50UnitButton;
+        if (_spawnButton == null)
         {
-            float2 offset = random.NextFloat2Direction() * random.NextFloat(SpawnSpread);
-            float3 pos = ClusterCenter + new float3(offset.x, 0f, offset.y);
-
-            Entity unit = _entityManager.Instantiate(prefab);
-            _entityManager.SetComponentData(unit, LocalTransform.FromPosition(pos));
-
-            if (_entityManager.HasComponent<LocalInstance>(unit))
-                _entityManager.SetComponentData(unit, new LocalInstance { Id = i + 1000 });
+            Debug.LogError("[Tuner] create50UnitButton 未绑定。");
+            enabled = false;
+            return;
         }
 
+        _targetUnitCount = UnitCount;
+        _spawnCooldown = 0;
         _phase = Phase.Spawning;
+        _phaseStartFrame = Time.frameCount;
+        Debug.Log($"[Tuner] 找到生成按钮，目标 {_targetUnitCount} 个单位，每 5 帧点击一次");
+    }
+
+    // ── 单位生成（按钮点击） ─────────────────────────────
+
+    private void SpawnViaButton()
+    {
+        int currentCount = GetCurrentUnitCount();
+
+        if (currentCount >= _targetUnitCount)
+        {
+            _phase = Phase.Warmup;
+            _phaseStartFrame = Time.frameCount;
+            Debug.Log($"[Tuner] 已有 {currentCount} 个单位，预热 {WarmupFrames} 帧");
+            return;
+        }
+
+        if (_spawnCooldown > 0)
+        {
+            _spawnCooldown--;
+            return;
+        }
+
+        _spawnButton.onClick.Invoke();
+        _spawnCooldown = 5;
+    }
+
+    private int GetCurrentUnitCount()
+    {
+        if (SimulationDebuggerRuntime.TryGetLatest(out var s))
+            return s.Overview.UnitCount;
+        return 0;
     }
 
     // ── Trial 管理 ───────────────────────────────────────
