@@ -75,9 +75,9 @@ public partial struct SolveXpbdUnitContactsJob
                 IsValid = 1,
                 AgeFrames = 0,
                 PredictiveSkin = math.max(0f, PredictiveSkin),
-                SoftAvoidanceShell = 0f,
+                SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell),
                 SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver,
-                RvoTimeHorizon = 0f,
+                RvoTimeHorizon = math.max(0f, RvoTimeHorizon),
                 Margin = math.max(0f, FatAabbCacheMargin)
             };
             fatCachePairsMappedThisFrame = false;
@@ -201,10 +201,17 @@ public partial struct SolveXpbdUnitContactsJob
             }
         }
 
-        if (participantCount != ShadowPreviousProxies.Length)
+        // 反向校验：缓存中的每个 proxy 必须对应当前帧的 participant body，
+        // 只用计数比较会因 participant set 变化频繁导致不必要的缓存失效。
+        for (int i = 0; i < ShadowPreviousProxies.Length; i++)
         {
-            entitySetInvalid = true;
-            return false;
+            ShadowFatBodyProxy proxy = ShadowPreviousProxies[i];
+            if (!TryFindCurrentBodyIndex(proxy.Entity, out int cachedBodyIndex) ||
+                AdaptiveBodyRouting[cachedBodyIndex].IsFatParticipant == 0)
+            {
+                entitySetInvalid = true;
+                return false;
+            }
         }
         return true;
     }
