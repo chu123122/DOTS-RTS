@@ -162,14 +162,11 @@ public partial struct SolveXpbdUnitContactsJob
             return false;
         }
 
-        int participantCount = 0;
-        float neighborPadding = CalculateFatAabbNeighborPadding();
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             if (AdaptiveBodyRouting[bodyIndex].IsFatParticipant == 0)
                 continue;
 
-            participantCount++;
             FlowMovementFrameState state = States[bodyIndex];
             if (!TryFindProxyEntry(
                     ShadowPreviousProxies,
@@ -184,19 +181,6 @@ public partial struct SolveXpbdUnitContactsJob
             if (proxy.IsValid != expectedValid)
             {
                 entitySetInvalid = true;
-                return false;
-            }
-            if (!state.IsInsideGrid)
-                continue;
-
-            CalculateCoreSweptBounds(
-                state,
-                neighborPadding,
-                out float2 coreMin,
-                out float2 coreMax);
-            if (!AabbContains(proxy.FatMin, proxy.FatMax, coreMin, coreMax))
-            {
-                boundsInvalid = true;
                 return false;
             }
         }
