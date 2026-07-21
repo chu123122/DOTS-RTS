@@ -258,6 +258,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
+            EnableTimestepContactSetCache =
+                SimulationDebuggerRuntime.TimestepContactSetCacheEnabled,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
             AdaptiveSettings = adaptiveSettings,
             AdaptiveCellDimensions = _adaptiveCellDimensions,

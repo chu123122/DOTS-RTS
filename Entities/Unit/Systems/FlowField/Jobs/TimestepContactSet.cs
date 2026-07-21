@@ -43,6 +43,29 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+    private void PrepareSubstepContactPrediction()
+    {
+        float margin = math.max(0f, TimestepContactMargin);
+        float skin = math.max(0f, PredictiveSkin);
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+
+            float3 start = state.StartPosition;
+            float3 end = state.PredictedPosition;
+            float extent = math.max(0f, state.Radius) + skin + margin;
+            state.TimestepStartPosition = start;
+            state.TimestepPredictedPosition = end;
+            state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
+            state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            state.TimestepEscaped = 0;
+            States[bodyIndex] = state;
+        }
+    }
+
     private bool BuildTimestepContactSet(
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
@@ -158,13 +181,16 @@ public partial struct SolveXpbdUnitContactsJob
         int substepIndex,
         int substepCount,
         float substepDeltaTime,
+        bool persistAcrossSubsteps,
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
         ref bool fatCachePairsMappedThisFrame)
     {
-        float remainingDuration = math.max(
-            substepDeltaTime,
-            (substepCount - substepIndex) * substepDeltaTime);
+        float remainingDuration = persistAcrossSubsteps
+            ? math.max(
+                substepDeltaTime,
+                (substepCount - substepIndex) * substepDeltaTime)
+            : 0f;
         PrepareTimestepContactPrediction(remainingDuration, true);
         if (EnableFatAabbCache)
             InvalidateFatAabbCache(ref shadowStatistics, true);

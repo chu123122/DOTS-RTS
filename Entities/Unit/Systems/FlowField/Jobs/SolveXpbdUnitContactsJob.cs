@@ -34,6 +34,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
     public bool EnableFatAabbCache;
+    public bool EnableTimestepContactSetCache;
     public float FatAabbCacheMargin;
     public AdaptiveFatAabbSettings AdaptiveSettings;
     public int2 AdaptiveCellDimensions;
@@ -129,16 +130,19 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         if (AdaptiveFatAabbRequested)
             ResetAdaptiveFatAabbCacheWhenInactive();
 
-        PrepareTimestepContactPrediction(DeltaTime, false);
-        long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
-        BuildTimestepContactSet(
-            ref statistics,
-            ref shadowStatistics,
-            ref fatCachePairsMappedThisFrame,
-            false,
-            false);
-        statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - initialContactSetStart);
+        if (EnableTimestepContactSetCache)
+        {
+            PrepareTimestepContactPrediction(DeltaTime, false);
+            long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
+            BuildTimestepContactSet(
+                ref statistics,
+                ref shadowStatistics,
+                ref fatCachePairsMappedThisFrame,
+                false,
+                false);
+            statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - initialContactSetStart);
+        }
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
@@ -161,6 +165,19 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
 
             PredictUnconstrainedPositions(substepDeltaTime);
+            if (!EnableTimestepContactSetCache)
+            {
+                PrepareSubstepContactPrediction();
+                long substepContactSetStart = ProfilerUnsafeUtility.Timestamp;
+                BuildTimestepContactSet(
+                    ref statistics,
+                    ref shadowStatistics,
+                    ref fatCachePairsMappedThisFrame,
+                    false,
+                    false);
+                statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
+                    ProfilerUnsafeUtility.Timestamp - substepContactSetStart);
+            }
             ResetTimestepContactSetForSubstep();
             statistics.TimestepContactSetSubstepUseCount++;
 
@@ -189,6 +206,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         substepIndex,
                         substepCount,
                         substepDeltaTime,
+                        EnableTimestepContactSetCache,
                         ref statistics,
                         ref shadowStatistics,
                         ref fatCachePairsMappedThisFrame);
@@ -240,6 +258,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         substepIndex,
                         substepCount,
                         substepDeltaTime,
+                        EnableTimestepContactSetCache,
                         ref statistics,
                         ref shadowStatistics,
                         ref fatCachePairsMappedThisFrame);
