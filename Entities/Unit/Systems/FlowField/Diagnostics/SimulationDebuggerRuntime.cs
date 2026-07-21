@@ -206,6 +206,18 @@ public static class SimulationDebuggerRuntime
     public static SimulationDebuggerTrend GetActiveContactTrend(int windowFrames = 60)
         => _activeContactHistory.GetTrend(windowFrames);
 
+    public static void CopyHistoryTo(SimulationDebuggerHistory target, float[] buffer)
+    {
+        if (target != null)
+            target.CopyTo(buffer, buffer.Length);
+    }
+
+    public static SimulationDebuggerHistory GetSolverHistory() => _solverHistory;
+    public static SimulationDebuggerHistory GetCorrectionHistory() => _correctionHistory;
+    public static SimulationDebuggerHistory GetCacheHitHistory() => _cacheHitHistory;
+    public static SimulationDebuggerHistory GetContactPairHistory() => _contactPairHistory;
+    public static SimulationDebuggerHistory GetActiveContactHistoryObj() => _activeContactHistory;
+
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
     {
         lock (Gate)

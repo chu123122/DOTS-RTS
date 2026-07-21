@@ -80,6 +80,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private Texture2D _panelTexture;
     private Texture2D _cardTexture;
     private Texture2D _activeTexture;
+    private Texture2D _chartTexture;
+    private float[] _chartBuffer = new float[120];
 
     private void OnEnable()
     {
@@ -103,6 +105,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DestroyRuntimeTexture(ref _panelTexture);
         DestroyRuntimeTexture(ref _cardTexture);
         DestroyRuntimeTexture(ref _activeTexture);
+        DestroyRuntimeTexture(ref _chartTexture);
     }
 
     private void OnApplicationQuit()
@@ -455,6 +458,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawOverview(SimulationDebuggerFrameSnapshot snapshot)
     {
+        DrawTrendChart(SimulationDebuggerRuntime.GetSolverHistory(), "求解 ms");
+        GUILayout.Space(4f);
+
         SimulationOverviewMetrics metrics = snapshot.Overview;
         DrawStatus("整体仿真", metrics.Health, OverviewStatus(metrics));
         GUILayout.Space(8f);
@@ -497,6 +503,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawPersistentBroadPhase(SimulationDebuggerFrameSnapshot snapshot)
     {
+        DrawTrendChart(SimulationDebuggerRuntime.GetCacheHitHistory(), "命中率");
+        GUILayout.Space(4f);
+
         PersistentBroadPhaseMetrics metrics = snapshot.BroadPhase;
         DrawStatus("跨帧 AABB", metrics.Health, BroadPhaseStatus(metrics));
         GUILayout.Space(8f);
@@ -540,6 +549,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawContactSet(SimulationDebuggerFrameSnapshot snapshot)
     {
+        DrawTrendChart(SimulationDebuggerRuntime.GetContactPairHistory(), "接触对数");
+        GUILayout.Space(4f);
+
         TimestepContactSetMetrics metrics = snapshot.ContactSet;
         DrawStatus("跨子步接触缓存", metrics.Health, ContactSetStatus(metrics));
         GUILayout.Space(8f);
@@ -801,6 +813,76 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private static string SoftSolverLabel(int solverMode)
     {
         return solverMode == 1 ? "RVO 互惠避让" : "预测引导";
+    }
+
+    private void DrawTrendChart(
+        SimulationDebuggerHistory history,
+        string title,
+        int width = 120,
+        int height = 44)
+    {
+        if (history == null)
+            return;
+
+        if (_chartTexture == null || _chartTexture.width != width || _chartTexture.height != height)
+        {
+            DestroyRuntimeTexture(ref _chartTexture);
+            _chartTexture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Point
+            };
+        }
+
+        // 清空
+        Color bg = new Color(0.06f, 0.07f, 0.09f, 1f);
+        Color[] pixels = new Color[width * height];
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = bg;
+
+        // 画网格线
+        Color gridColor = new Color(0.12f, 0.14f, 0.18f);
+        for (int y = 0; y < height; y += height / 4)
+            for (int x = 0; x < width; x++)
+                pixels[y * width + x] = gridColor;
+
+        // 拷贝数据
+        System.Array.Clear(_chartBuffer, 0, _chartBuffer.Length);
+        history.CopyTo(_chartBuffer, Math.Min(width, _chartBuffer.Length));
+
+        // 找范围
+        float min = float.MaxValue, max = float.MinValue;
+        int startIdx = Math.Max(0, _chartBuffer.Length - width);
+        for (int i = startIdx; i < _chartBuffer.Length; i++)
+        {
+            float v = _chartBuffer[i];
+            if (v < min) min = v;
+            if (v > max) max = v;
+        }
+        if (max <= min) max = min + 1f;
+
+        // 画曲线
+        Color lineColor = new Color(0.2f, 0.6f, 0.95f);
+        int bufStart = _chartBuffer.Length - width;
+        for (int x = 0; x < width; x++)
+        {
+            float v = _chartBuffer[bufStart + x];
+            float t = (v - min) / (max - min);
+            int plotY = Mathf.Clamp(Mathf.RoundToInt(t * (height - 1)), 0, height - 1);
+            pixels[plotY * width + x] = lineColor;
+            // 加粗：上下各 1px
+            if (plotY > 0) pixels[(plotY - 1) * width + x] = lineColor;
+            if (plotY < height - 1) pixels[(plotY + 1) * width + x] = lineColor;
+        }
+
+        _chartTexture.SetPixels(pixels);
+        _chartTexture.Apply();
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(title, _mutedStyle, GUILayout.Width(80f));
+        GUILayout.Label($"{min:F1}…{max:F1}", _mutedStyle, GUILayout.Width(80f));
+        GUILayout.EndHorizontal();
+        GUILayout.Box(_chartTexture, GUIStyle.none, GUILayout.Width(width), GUILayout.Height(height));
     }
 
     private static void DrawTrendRow(
