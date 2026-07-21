@@ -370,6 +370,20 @@ public sealed class SimulationDebuggerHistory
         return new SimulationDebuggerTrend(0, 0, 0, 0, TrendDirection.Stable, 0);
     }
 
+    public void CopyTo(float[] dest, int windowFrames)
+    {
+        int samples = Math.Min(windowFrames, _count);
+        int tail = (_head - samples + _capacity) % _capacity;
+        for (int i = 0; i < samples; i++)
+        {
+            int idx = (tail + i) % _capacity;
+            dest[dest.Length - samples + i] = _buffer[idx];
+        }
+        // 前段填 0
+        for (int i = 0; i < dest.Length - samples; i++)
+            dest[i] = 0f;
+    }
+
     public SimulationDebuggerTrend GetTrend(int windowFrames)
     {
         int samples = Math.Min(windowFrames, _count);
