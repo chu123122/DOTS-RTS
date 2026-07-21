@@ -47,7 +47,7 @@ public static class LocalGameplayModeValidation
         ValidateMovementWithoutDiagnosticComponents();
         Debug.Log(
             "LOCAL_GAMEPLAY_VALIDATION_OK\n" +
-            "move order: local consumption=1\n" +
+            "move order: right-click snapshot consumed once, live selection unchanged=1\n" +
             "local spawn ids: 1,2\n" +
             "fixed slots: unique, walkable, assigned=1\n" +
             "per-slot movement: direct steer=1, settled=1\n" +
@@ -68,7 +68,9 @@ public static class LocalGameplayModeValidation
                 typeof(FlowFieldGlobalTarget),
                 typeof(FlowFieldGrid),
                 typeof(MoveOrder),
+                typeof(FlowFieldRuntimeState),
                 typeof(RecalculateFlowFieldTag));
+            entityManager.AddBuffer<MoveOrderSelectionElement>(managerEntity);
             entityManager.SetComponentData(
                 managerEntity,
                 new FlowFieldGlobalTarget { TargetPosition = float3.zero });
@@ -85,6 +87,9 @@ public static class LocalGameplayModeValidation
             entityManager.SetComponentData(
                 managerEntity,
                 new RecalculateFlowFieldTag { RequestVersion = 7 });
+            entityManager.SetComponentData(
+                managerEntity,
+                new FlowFieldRuntimeState { ActiveVersion = 0 });
             entityManager.SetComponentEnabled<MoveOrder>(managerEntity, true);
             entityManager.SetComponentEnabled<RecalculateFlowFieldTag>(managerEntity, false);
 
@@ -98,8 +103,28 @@ public static class LocalGameplayModeValidation
             entityManager.SetComponentData(
                 unit,
                 LocalTransform.FromPosition(new float3(1f, 0f, 1f)));
+            entityManager.GetBuffer<MoveOrderSelectionElement>(managerEntity)
+                .Add(new MoveOrderSelectionElement { Entity = unit });
 
             RtsCommandSystem system = world.CreateSystemManaged<RtsCommandSystem>();
+            system.Update();
+
+            Require(entityManager.IsComponentEnabled<MoveOrder>(managerEntity),
+                "Move order was consumed before the initial Flow Field became ready.");
+            Require(
+                entityManager.GetComponentData<RecalculateFlowFieldTag>(managerEntity)
+                    .RequestVersion == 7,
+                "Deferred move order mutated the Flow Field request.");
+
+            entityManager.SetComponentData(
+                managerEntity,
+                new FlowFieldRuntimeState
+                {
+                    ActiveVersion = 1,
+                    ActiveRequestVersion = 7
+                });
+
+            entityManager.SetComponentData(unit, new UnitSelected { Value = false });
             system.Update();
 
             Require(
@@ -118,7 +143,23 @@ public static class LocalGameplayModeValidation
             UnitMoveDestination destination =
                 entityManager.GetComponentData<UnitMoveDestination>(unit);
             Require(destination.IsActive != 0 && destination.OrderVersion == 8,
-                "Selected local unit did not receive a fixed destination.");
+                "Right-click selection snapshot did not receive a fixed destination.");
+            Require(!entityManager.GetComponentData<UnitSelected>(unit).Value,
+                "Applying a move order unexpectedly changed the live selection.");
+
+            entityManager.GetBuffer<MoveOrderSelectionElement>(managerEntity)
+                .Add(new MoveOrderSelectionElement { Entity = unit });
+            entityManager.SetComponentData(unit, new UnitSelected { Value = true });
+            entityManager.SetComponentData(
+                managerEntity,
+                new MoveOrder { TargetPosition = new float3(5f, 0f, 5f) });
+            entityManager.SetComponentEnabled<MoveOrder>(managerEntity, true);
+            system.Update();
+
+            Require(entityManager.GetComponentData<UnitSelected>(unit).Value,
+                "Applying a move order unexpectedly cleared the unit selection.");
+            Require(!entityManager.IsComponentEnabled<MoveOrder>(managerEntity),
+                "Second right-click snapshot was not consumed in one update.");
         }
         finally
         {
@@ -208,6 +249,7 @@ public static class LocalGameplayModeValidation
                 GridOrigin = float3.zero,
                 GridDimensions = new int2(3, 3),
                 CellRadius = 0.5f,
+                ActiveRequestVersion = 1,
                 CollisionFootprints = footprints,
                 States = states
             };
@@ -220,10 +262,27 @@ public static class LocalGameplayModeValidation
                 Position = new float3(1.8f, 0f, 1f),
                 ArrivalRadius = 0.2f,
                 DirectApproachIntegrationDistance = 2,
+                OrderVersion = 2,
                 IsActive = 1
             };
             var arrival = new FlowArrivalState { IsSettled = false };
 
+            job.Execute(
+                Entity.Null,
+                0,
+                LocalTransform.FromPosition(new float3(1f, 0f, 1f)),
+                new Velocity { Value = new float3(-1f, 0f, 0f) },
+                speed,
+                settings,
+                contactBody,
+                destination,
+                ref arrival);
+            Require(arrival.IsSettled &&
+                    math.lengthsq(states[0].CurrentVelocity) <= 0.000001f &&
+                    math.lengthsq(states[0].IndependentForce) <= 0.000001f,
+                "Unit did not stop while waiting for its matching Flow Field request.");
+
+            destination.OrderVersion = 1;
             job.Execute(
                 Entity.Null,
                 0,
@@ -291,7 +350,11 @@ public static class LocalGameplayModeValidation
             });
             entityManager.SetComponentData(
                 manager,
-                new FlowFieldRuntimeState { ActiveVersion = 1 });
+                new FlowFieldRuntimeState
+                {
+                    ActiveVersion = 1,
+                    ActiveRequestVersion = 1
+                });
             entityManager.SetComponentData(manager, new FlowFieldSettings
             {
                 GridOrigin = float3.zero,
@@ -337,6 +400,7 @@ public static class LocalGameplayModeValidation
                 Position = new float3(3f, 0f, 1f),
                 ArrivalRadius = 0.1f,
                 DirectApproachIntegrationDistance = 0,
+                OrderVersion = 1,
                 IsActive = 1
             });
 

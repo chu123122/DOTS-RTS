@@ -26,6 +26,15 @@ public struct FlowMovementFrameState
     public float InverseMass;
     public float Radius;
 
+    // 当前 timestep 的接触预测基线。substep 只消费由这条完整轨迹构建的 ContactSet。
+    public float3 TimestepStartPosition;
+    public float3 TimestepPredictedPosition;
+    public float2 TimestepEnvelopeMin;
+    public float2 TimestepEnvelopeMax;
+    public byte TimestepEscaped;
+    public float3 TimestepContactCorrection;
+    public float3 TimestepWallCorrection;
+
     // 当前所在流场格及带滞回的到达状态，由独立力阶段计算。
     public int2 CellPosition;
     public FlowFieldCell Cell;

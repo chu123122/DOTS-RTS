@@ -21,10 +21,18 @@ namespace RTS.Unit.FlowField.Diagnostics
 public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 {
     private const float DrawHeight = 0.18f;
+    private static Stage3ContactDiagnosticVisualizationSystem _timeScaleOwner;
     private Stage3ContactDiagnosticOverlay _overlay;
     private readonly Stage3ContactDiagnosticCaptureSession _captureSession = new();
     private readonly Stage3ContactDiagnosticAutoCapture _automaticCapture = new();
     private bool _diagnosticsEnabledBeforeCapture;
+    private bool _ownsTimeScale;
+    private float _timeScaleBeforeDiagnostic = 1f;
+    private GameObject _heatmapObject;
+    private Mesh _heatmapMesh;
+    private UnityEngine.Material _heatmapMaterial;
+    private Texture2D _heatmapTexture;
+    private double _nextHeatmapUpdateTime;
 
     protected override void OnCreate()
     {
@@ -34,6 +42,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         RequireForUpdate<ShadowNeighborCacheStatistics>();
         RequireForUpdate<Stage3ContactDiagnosticSelection>();
         RequireForUpdate<Stage3SelectedBodyDiagnostic>();
+        RequireForUpdate<Stage3ContactHeatSample>();
+        RequireForUpdate<FlowFieldGrid>();
         RequireForUpdate<PhysicsWorldSingleton>();
         RequireForUpdate<MainCameraTag>();
 
@@ -49,6 +59,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     {
         if (_captureSession.Active)
             WriteCaptureFile();
+        RestoreTimeScale();
+        DestroyObject(_heatmapObject);
+        DestroyObject(_heatmapMesh);
+        DestroyObject(_heatmapMaterial);
+        DestroyObject(_heatmapTexture);
         if (_overlay != null)
             Object.Destroy(_overlay.gameObject);
     }
@@ -143,17 +158,33 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             Stage3RuntimeControlState.From(settings, flowSettings),
             _automaticCapture.Active);
 
-        if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
-            TrySelectDiagnosticUnitWithMiddleMouse();
+        if (settings.VisualizeSelectedContacts &&
+            TrySelectDiagnosticUnitWithMiddleMouse(out bool selectedUnit))
+        {
+            if (selectedUnit)
+                settings.EnableDiagnostics = true;
+        }
+        RefRW<Stage3ContactDiagnosticSelection> selectionReference =
+            SystemAPI.GetSingletonRW<Stage3ContactDiagnosticSelection>();
+        if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            selectionReference.ValueRW.SelectedEntity = Entity.Null;
+        UpdateSlowMotion(
+            selectionReference.ValueRO.SelectedEntity,
+            ref settings,
+            _captureSession.Active || _automaticCapture.Active,
+            keyboard);
+        settingsReference.ValueRW = settings;
 
         bool shouldShowOverlay = RequiresDiagnosticReadback(settings);
         _overlay.Visible = true;
         _overlay.ShowDiagnostics = shouldShowOverlay;
         if (!shouldShowOverlay)
         {
+            SetHeatmapVisible(false);
             _overlay.HeaderText = string.Empty;
-            _overlay.Stage3Text = string.Empty;
-            _overlay.ShadowText = string.Empty;
+            _overlay.GlobalText = string.Empty;
+            _overlay.SubstepText = string.Empty;
+            _overlay.TimestepText = string.Empty;
             return;
         }
 
@@ -164,6 +195,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         EntityManager.CompleteDependencyBeforeRO<Stage3ContactIterationDiagnostic>();
         EntityManager.CompleteDependencyBeforeRO<Stage3ContactPairDiagnostic>();
         EntityManager.CompleteDependencyBeforeRO<Stage3SelectedBodyDiagnostic>();
+        EntityManager.CompleteDependencyBeforeRO<Stage3ContactHeatSample>();
 
         PredictiveDiscContactStatistics statistics =
             SystemAPI.GetSingleton<PredictiveDiscContactStatistics>();
@@ -177,6 +209,13 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             SystemAPI.GetSingleton<Stage3SelectedBodyDiagnostic>();
         Stage3ContactDiagnosticSelection selection =
             SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
+        DynamicBuffer<Stage3ContactHeatSample> heatSamples =
+            SystemAPI.GetSingletonBuffer<Stage3ContactHeatSample>(true);
+
+        UpdateHeatmap(
+            settings,
+            SystemAPI.GetSingleton<FlowFieldGrid>(),
+            heatSamples);
 
         UpdateCapture(
             ref settings,
@@ -195,19 +234,25 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             _overlay.Scale,
             _captureSession,
             _automaticCapture,
-            simulationTime);
-        _overlay.Stage3Text = BuildStage3PanelText(
+            simulationTime,
+            UnityEngine.Time.timeScale);
+        _overlay.GlobalText = BuildGlobalPanelText(
+            settings,
+            statistics,
+            iterationDiagnostics,
+            selection.SelectedEntity,
+            selectedBody);
+        _overlay.SubstepText = BuildSubstepPanelText(
             settings,
             flowSettings,
             statistics,
-            iterationDiagnostics,
+            shadowStatistics);
+        _overlay.TimestepText = BuildTimestepPanelText(
+            settings,
+            statistics,
             pairDiagnostics,
             selection.SelectedEntity,
             selectedBody);
-        _overlay.ShadowText = BuildShadowPanelText(
-            settings,
-            statistics,
-            shadowStatistics);
 
         if (!settings.EnableDiagnostics ||
             !settings.VisualizeSelectedContacts ||
@@ -221,19 +266,68 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
     public static bool RequiresDiagnosticReadback(UnitContactSolverSettings settings)
     {
-        return settings.EnableDiagnostics;
+        return settings.EnableDiagnostics || settings.VisualizeContactHeatmap;
     }
 
-    private void TrySelectDiagnosticUnitWithMiddleMouse()
+    private void UpdateSlowMotion(
+        Entity selectedEntity,
+        ref UnitContactSolverSettings settings,
+        bool captureLocked,
+        Keyboard keyboard)
     {
+        if (selectedEntity == Entity.Null)
+        {
+            RestoreTimeScale();
+            return;
+        }
+
+        if (_timeScaleOwner != null && _timeScaleOwner != this)
+            return;
+
+        if (!_ownsTimeScale)
+        {
+            _timeScaleOwner = this;
+            _ownsTimeScale = true;
+            _timeScaleBeforeDiagnostic = UnityEngine.Time.timeScale;
+        }
+
+        float slowScale = settings.DiagnosticSlowMotionScale > 0f
+            ? settings.DiagnosticSlowMotionScale
+            : 0.2f;
+        if (!captureLocked && keyboard != null)
+        {
+            if (keyboard.leftBracketKey.wasPressedThisFrame)
+                slowScale *= 0.5f;
+            if (keyboard.rightBracketKey.wasPressedThisFrame)
+                slowScale *= 2f;
+        }
+
+        slowScale = math.clamp(slowScale, 0.025f, 1f);
+        settings.DiagnosticSlowMotionScale = slowScale;
+        UnityEngine.Time.timeScale = captureLocked ? 1f : slowScale;
+    }
+
+    private void RestoreTimeScale()
+    {
+        if (!_ownsTimeScale || _timeScaleOwner != this)
+            return;
+
+        UnityEngine.Time.timeScale = _timeScaleBeforeDiagnostic;
+        _ownsTimeScale = false;
+        _timeScaleOwner = null;
+    }
+
+    private bool TrySelectDiagnosticUnitWithMiddleMouse(out bool selectedUnit)
+    {
+        selectedUnit = false;
         Mouse mouse = Mouse.current;
         if (mouse == null || !mouse.middleButton.wasPressedThisFrame)
-            return;
+            return false;
 
         Entity cameraEntity = SystemAPI.GetSingletonEntity<MainCameraTag>();
         Camera camera = EntityManager.GetComponentObject<MainCameraComponents>(cameraEntity).Value;
         if (camera == null)
-            return;
+            return false;
 
         UnityEngine.Ray ray = camera.ScreenPointToRay(mouse.position.ReadValue());
         var raycastInput = new RaycastInput
@@ -250,20 +344,26 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
         CollisionWorld collisionWorld =
             SystemAPI.GetSingleton<PhysicsWorldSingleton>().CollisionWorld;
-        if (!collisionWorld.CastRay(raycastInput, out RaycastHit hit) ||
-            !EntityManager.HasComponent<BasicUnitTag>(hit.Entity))
-            return;
-
         RefRW<Stage3ContactDiagnosticSelection> selection =
             SystemAPI.GetSingletonRW<Stage3ContactDiagnosticSelection>();
-        selection.ValueRW.SelectedEntity = hit.Entity;
+        if (collisionWorld.CastRay(raycastInput, out RaycastHit hit) &&
+            EntityManager.HasComponent<BasicUnitTag>(hit.Entity))
+        {
+            selection.ValueRW.SelectedEntity = hit.Entity;
+            selectedUnit = true;
+        }
+        else
+        {
+            selection.ValueRW.SelectedEntity = Entity.Null;
+        }
+        return true;
     }
 
     private static void DrawSelectedSweep(Stage3SelectedBodyDiagnostic selected)
     {
         float3 height = new float3(0, DrawHeight, 0);
-        float3 start = selected.StartPosition + height;
-        float3 predicted = selected.UnconstrainedPredictedPosition + height;
+        float3 start = selected.TimestepStartPosition + height;
+        float3 predicted = selected.TimestepPredictedPosition + height;
         float3 solved = selected.SolvedPosition + height;
         float sweptRadius = selected.Radius + selected.Skin;
 
@@ -271,7 +371,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         DrawWireCircle(predicted, selected.Radius, Color.blue);
         DrawWireCircle(solved, selected.Radius, Color.green);
         DrawSweptCapsule(start, predicted, sweptRadius, new Color(0f, 1f, 1f));
-        DrawSweptAabb(start, predicted, sweptRadius, Color.white);
+        DrawAabb(
+            selected.TimestepEnvelopeMin,
+            selected.TimestepEnvelopeMax,
+            start.y + 0.01f,
+            selected.TimestepEscaped != 0 ? Color.red : Color.white);
         if (selected.ShadowReferenceAvailable != 0)
         {
             DrawAabb(
@@ -283,10 +387,10 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
         Debug.DrawLine(start, predicted, Color.blue, 0f, false);
         Debug.DrawLine(predicted, solved, Color.green, 0f, false);
-        if (math.lengthsq(selected.WallCorrection) > 0.0000001f)
+        if (math.lengthsq(selected.TimestepWallCorrection) > 0.0000001f)
         {
             Debug.DrawLine(
-                solved - selected.WallCorrection,
+                solved - selected.TimestepWallCorrection,
                 solved,
                 Color.white,
                 0f,
@@ -415,6 +519,192 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             false);
     }
 
+    private void UpdateHeatmap(
+        UnitContactSolverSettings settings,
+        FlowFieldGrid grid,
+        DynamicBuffer<Stage3ContactHeatSample> samples)
+    {
+        if (!settings.VisualizeContactHeatmap || !grid.Grid.IsCreated)
+        {
+            SetHeatmapVisible(false);
+            return;
+        }
+
+        EnsureHeatmapRenderer();
+        if (_heatmapObject == null)
+            return;
+        _heatmapObject.SetActive(true);
+        double unscaledTime = UnityEngine.Time.unscaledTimeAsDouble;
+        if (unscaledTime < _nextHeatmapUpdateTime)
+            return;
+        _nextHeatmapUpdateTime = unscaledTime + 0.1d;
+
+        int cellCount = grid.GridDimensions.x * grid.GridDimensions.y;
+        var values = new float[cellCount];
+        var eventLevels = new byte[cellCount];
+        float cellSize = math.max(0.0001f, grid.CellRadius * 2f);
+        for (int i = 0; i < samples.Length; i++)
+        {
+            Stage3ContactHeatSample sample = samples[i];
+            int2 cell = FlowFieldUtils.WorldToCell(sample.Position, grid.GridOrigin, grid.CellRadius);
+            if (cell.x < 0 || cell.x >= grid.GridDimensions.x ||
+                cell.y < 0 || cell.y >= grid.GridDimensions.y)
+                continue;
+
+            int cellIndex = FlowFieldUtils.GetFlatIndex(cell, grid.GridDimensions);
+            switch (settings.ContactHeatmapMode)
+            {
+                case ContactHeatmapMode.ContactSetDensity:
+                    values[cellIndex] += sample.ContactPairDegree;
+                    break;
+                case ContactHeatmapMode.EscapeFallback:
+                    values[cellIndex] += sample.Escaped != 0 || sample.HasFallbackPair != 0 ? 1f : 0f;
+                    break;
+                default:
+                    values[cellIndex] += sample.ActivePairDegree + sample.ContactCorrection / cellSize;
+                    break;
+            }
+
+            if (sample.Escaped != 0)
+                eventLevels[cellIndex] = 2;
+            else if (sample.HasFallbackPair != 0)
+                eventLevels[cellIndex] = eventLevels[cellIndex] < 1 ? (byte)1 : eventLevels[cellIndex];
+        }
+
+        var nonZero = new System.Collections.Generic.List<float>();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (values[i] > 0.000001f)
+                nonZero.Add(values[i]);
+        }
+        nonZero.Sort();
+        float normalization = nonZero.Count > 0
+            ? nonZero[math.clamp((int)math.floor((nonZero.Count - 1) * 0.95f), 0, nonZero.Count - 1)]
+            : 1f;
+        normalization = math.max(0.0001f, normalization);
+
+        const int pixelsPerCell = 3;
+        int width = grid.GridDimensions.x * pixelsPerCell;
+        int height = grid.GridDimensions.y * pixelsPerCell;
+        EnsureHeatmapTexture(width, height);
+        var pixels = new Color32[width * height];
+        for (int y = 0; y < grid.GridDimensions.y; y++)
+        {
+            for (int x = 0; x < grid.GridDimensions.x; x++)
+            {
+                int cellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), grid.GridDimensions);
+                Color32 color = HeatColor(
+                    math.saturate(values[cellIndex] / normalization),
+                    eventLevels[cellIndex]);
+                int startX = x * pixelsPerCell;
+                int startY = y * pixelsPerCell;
+                for (int pixelY = 0; pixelY < pixelsPerCell; pixelY++)
+                {
+                    for (int pixelX = 0; pixelX < pixelsPerCell; pixelX++)
+                        pixels[(startY + pixelY) * width + startX + pixelX] = color;
+                }
+            }
+        }
+
+        _heatmapTexture.SetPixels32(pixels);
+        _heatmapTexture.Apply(false, false);
+        _heatmapMaterial.mainTexture = _heatmapTexture;
+        UpdateHeatmapMesh(grid);
+    }
+
+    private void EnsureHeatmapRenderer()
+    {
+        if (_heatmapObject != null)
+            return;
+        Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Texture");
+        if (shader == null)
+            return;
+
+        _heatmapObject = new GameObject("Timestep Contact Heatmap") { hideFlags = HideFlags.DontSave };
+        var filter = _heatmapObject.AddComponent<MeshFilter>();
+        var renderer = _heatmapObject.AddComponent<MeshRenderer>();
+        _heatmapMesh = new Mesh { name = "Timestep Contact Heatmap", hideFlags = HideFlags.DontSave };
+        _heatmapMaterial = new UnityEngine.Material(shader)
+        {
+            name = "Timestep Contact Heatmap",
+            hideFlags = HideFlags.DontSave
+        };
+        filter.sharedMesh = _heatmapMesh;
+        renderer.sharedMaterial = _heatmapMaterial;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+    }
+
+    private void EnsureHeatmapTexture(int width, int height)
+    {
+        if (_heatmapTexture != null && _heatmapTexture.width == width && _heatmapTexture.height == height)
+            return;
+        DestroyObject(_heatmapTexture);
+        _heatmapTexture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
+        {
+            name = "Timestep Contact Heatmap",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.DontSave
+        };
+    }
+
+    private void UpdateHeatmapMesh(FlowFieldGrid grid)
+    {
+        float width = grid.GridDimensions.x * grid.CellRadius * 2f;
+        float height = grid.GridDimensions.y * grid.CellRadius * 2f;
+        _heatmapMesh.Clear();
+        _heatmapMesh.vertices = new[]
+        {
+            new Vector3(0f, 0f, 0f), new Vector3(width, 0f, 0f),
+            new Vector3(0f, 0f, height), new Vector3(width, 0f, height)
+        };
+        _heatmapMesh.uv = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(0f, 1f), new Vector2(1f, 1f)
+        };
+        _heatmapMesh.triangles = new[] { 0, 2, 1, 2, 3, 1 };
+        _heatmapMesh.RecalculateBounds();
+        _heatmapObject.transform.position = new Vector3(
+            grid.GridOrigin.x,
+            grid.GridOrigin.y + 0.12f,
+            grid.GridOrigin.z);
+    }
+
+    private static Color32 HeatColor(float value, byte eventLevel)
+    {
+        if (eventLevel >= 2)
+            return new Color32(255, 45, 45, 205);
+        if (eventLevel == 1)
+            return new Color32(255, 145, 35, 190);
+        if (value <= 0.0001f)
+            return new Color32(0, 0, 0, 0);
+        Color low = new Color(0.05f, 0.45f, 0.9f, 0.12f);
+        Color middle = new Color(1f, 0.85f, 0.1f, 0.55f);
+        Color high = new Color(1f, 0.15f, 0.05f, 0.82f);
+        Color color = value < 0.6f
+            ? Color.Lerp(low, middle, value / 0.6f)
+            : Color.Lerp(middle, high, (value - 0.6f) / 0.4f);
+        return color;
+    }
+
+    private void SetHeatmapVisible(bool visible)
+    {
+        if (_heatmapObject != null)
+            _heatmapObject.SetActive(visible);
+    }
+
+    private static void DestroyObject(Object value)
+    {
+        if (value == null)
+            return;
+        if (Application.isPlaying)
+            Object.Destroy(value);
+        else
+            Object.DestroyImmediate(value);
+    }
+
     private void StartCapture(
         ref UnitContactSolverSettings settings,
         double simulationTime,
@@ -486,7 +776,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         float overlayScale,
         Stage3ContactDiagnosticCaptureSession captureSession,
         Stage3ContactDiagnosticAutoCapture automaticCapture,
-        double simulationTime)
+        double simulationTime,
+        float timeScale)
     {
         var text = new StringBuilder(256);
         text.Append("<size=19><b>单位接触诊断</b></size>   ")
@@ -501,7 +792,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append("   <color=#92A3B8>F12 自动对照</color> ").Append(ToggleText(automaticCapture.Active))
             .AppendLine()
             .Append("<color=#74849A>PageUp / PageDown 调整面板：")
-            .Append(overlayScale.ToString("F1")).Append("x　·　中键选择单位</color>");
+            .Append(overlayScale.ToString("F1"))
+            .Append("x　·　中键选择/清除单位　·　[ / ] 调整慢动作　当前 <b>")
+            .Append(timeScale.ToString("F3")).Append("x</b></color>");
         if (captureSession.Active)
         {
             text.Append("　<color=#FFC857>采集中 ")
@@ -530,48 +823,27 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         return text.ToString();
     }
 
-    private static string BuildStage3PanelText(
+    private static string BuildGlobalPanelText(
         UnitContactSolverSettings settings,
-        FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
-        DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
         Entity selectedEntity,
         Stage3SelectedBodyDiagnostic selectedBody)
     {
-        int broadOnly = 0;
-        int regular = 0;
-        int predictive = 0;
-        int predictiveDisabled = 0;
-        for (int i = 0; i < selectedPairs.Length; i++)
-        {
-            switch (selectedPairs[i].Kind)
-            {
-                case Stage3ContactDiagnosticPairKind.BroadPhaseRejected:
-                    broadOnly++;
-                    break;
-                case Stage3ContactDiagnosticPairKind.Regular:
-                    regular++;
-                    break;
-                case Stage3ContactDiagnosticPairKind.Predictive:
-                    predictive++;
-                    break;
-                case Stage3ContactDiagnosticPairKind.PredictiveDisabled:
-                    predictiveDisabled++;
-                    break;
-            }
-        }
-
         var residualCurve = new StringBuilder(192);
         float firstResidual = 0f;
         float lastResidual = 0f;
         float lastAverageResidual = 0f;
+        float lastRadialPenetration = 0f;
+        float lastAverageRadialPenetration = 0f;
         int residualSamples = 0;
         if (iterations.Length > 0)
         {
             Stage3ContactIterationDiagnostic last = iterations[iterations.Length - 1];
             lastResidual = last.MaxConstraintViolation;
             lastAverageResidual = last.AverageConstraintViolation;
+            lastRadialPenetration = last.MaxRadialPenetration;
+            lastAverageRadialPenetration = last.AverageRadialPenetration;
             for (int i = 0; i < iterations.Length && residualSamples < 10; i++)
             {
                 Stage3ContactIterationDiagnostic iteration = iterations[i];
@@ -594,162 +866,283 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (statistics.ActiveConstraintCount == 0 &&
             statistics.TotalWallPositionCorrection <= 0.000001f)
         {
-            state = StatusText("空闲样本：本帧没有有效约束", "#91A0B4");
+            state = StatusText("空闲：本帧没有有效接触或墙体修正", "#91A0B4");
         }
         else if (residualSamples > 1 && lastResidual > firstResidual + 0.00001f)
         {
-            state = StatusText("注意：单位接触残差正在上升", "#FF6B78");
+            state = StatusText("最后一个 substep 的约束残差正在上升", "#FF6B78");
+        }
+        else if (lastRadialPenetration > 0.0001f)
+        {
+            state = StatusText("timestep 结束仍有径向重叠", "#FFC857");
         }
         else if (statistics.MaxPenetration > 0.0001f)
         {
-            state = StatusText("求解已生效，但仍有剩余穿透", "#FFC857");
+            state = StatusText("本帧中途曾重叠，timestep 结束已清除", "#69E39B");
         }
         else
         {
-            state = StatusText("当前约束结果稳定", "#69E39B");
+            state = StatusText("当前接触结果稳定", "#69E39B");
         }
 
-        var text = new StringBuilder(1024);
-        text.AppendLine("<size=18><color=#62D8FF><b>Stage 3 · 权威接触求解</b></color></size>")
-            .AppendLine("<color=#71839A>这些数据真实参与单位的位置和速度结果</color>")
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#62D8FF><b>全局 · 求解结果与成本</b></color></size>")
+            .AppendLine("<color=#71839A>只看结果质量和整帧成本；候选缓存细节在另外两个面板</color>")
             .Append("<color=#91A0B7>状态　</color>").AppendLine(state)
-            .Append("<color=#91A0B7>配置　</color>子步 <b>").Append(settings.SubstepCount)
-            .Append("</b>　迭代 <b>").Append(settings.IterationCount)
-            .Append("</b>　软避让求值 <b>").Append(statistics.SoftAvoidanceEvaluationCount)
-            .AppendLine(" 次/帧</b>")
-            .Append("<color=#91A0B7>速度策略　</color><b>")
-            .Append(flowSettings.SoftAvoidanceVelocitySolver)
-            .Append("</b>　Shell ").Append(flowSettings.SoftAvoidanceShell.ToString("F2"))
+            .Append("<color=#91A0B7>配置　</color>Substep <b>").Append(settings.SubstepCount)
+            .Append("</b> × Iteration <b>").Append(settings.IterationCount).AppendLine("</b>")
+            .Append("<color=#91A0B7>平均速度　</color>")
+            .Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
+            .Append(" <color=#607086>→</color> ")
+            .Append(statistics.AverageSpeedAfterContact.ToString("F3"))
+            .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
+            .Append("<color=#91A0B7>径向重叠　</color>本帧中途最坏 <b>")
+            .Append(statistics.MaxPenetration.ToString("F5"))
+            .Append("</b>　timestep 最终 <b>")
+            .Append(lastRadialPenetration.ToString("F5"))
+            .Append("</b> / 均值 ").AppendLine(lastAverageRadialPenetration.ToString("F5"))
+            .Append("<color=#91A0B7>最后 substep 最终残差　</color>最大 <b>")
+            .Append(FormatResidual(lastResidual)).Append("</b>　平均 ")
+            .AppendLine(FormatResidual(lastAverageResidual))
+            .Append("<color=#91A0B7>最后 substep 收敛　</color>")
+            .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
+            .Append("<color=#91A0B7>单位接触修正　</color>累计 ")
+            .Append(statistics.TotalContactPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxContactPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>墙体修正　</color>累计 ")
+            .Append(statistics.TotalWallPositionCorrection.ToString("F4"))
+            .Append("　单次最大 <b>").Append(statistics.MaxWallPositionCorrection.ToString("F4")).AppendLine("</b>")
+            .Append("<color=#91A0B7>整帧耗时 μs　</color>Pair ")
+            .Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
+            .Append("　Solver <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds))
+            .Append("</b>　平均单轮 ").AppendLine(FormatMicroseconds(statistics.AverageIterationNanoseconds))
+            .Append("<color=#91A0B7>选中单位　</color>")
+            .Append(selectedEntity == Entity.Null
+                ? "<color=#607086>未选择</color>"
+                : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>");
+
+        if (selectedBody.IsValid != 0)
+        {
+            text.Append("　接触修正 ")
+                .Append(math.length(selectedBody.TimestepContactCorrection).ToString("F4"))
+                .Append("　墙体修正 ")
+                .Append(math.length(selectedBody.TimestepWallCorrection).ToString("F4"))
+                .Append("　Envelope ")
+                .Append(selectedBody.TimestepEscaped != 0
+                    ? "<color=#FF6B78><b>逃逸</b></color>"
+                    : "<color=#69E39B><b>安全</b></color>");
+        }
+
+        text.AppendLine()
+            .Append("<color=#607086>低速不等于无约束；只有 timestep 最终径向重叠用于状态，本帧中途最坏值只用于观察。</color>");
+        return text.ToString();
+    }
+
+    private static string BuildSubstepPanelText(
+        UnitContactSolverSettings settings,
+        FlowFieldSettings flowSettings,
+        PredictiveDiscContactStatistics statistics,
+        ShadowNeighborCacheStatistics shadow)
+    {
+        int evaluationCount = math.max(1, statistics.SoftAvoidanceEvaluationCount);
+        float candidatesPerSubstep =
+            (float)statistics.SoftAvoidanceCandidatePairCount / evaluationCount;
+        float activatedPerSubstep =
+            (float)statistics.SoftAvoidanceActivatedPairCount / evaluationCount;
+        float constraintsPerSubstep =
+            (float)statistics.ActiveConstraintCount / math.max(1, settings.SubstepCount);
+        float uniqueContacts = statistics.TimestepContactSetUniquePairCount;
+        string uniqueInflation = uniqueContacts > 0.0001f
+            ? (shadow.CachedCandidatePairCount / uniqueContacts).ToString("F2") + "x"
+            : "--";
+        string substepScanInflation =
+            uniqueContacts > 0.0001f && statistics.SoftAvoidanceFatAabbUseCount > 0
+                ? (shadow.CachedCandidatePairCount *
+                   statistics.SoftAvoidanceFatAabbUseCount /
+                   uniqueContacts).ToString("F2") + "x"
+                : "--";
+
+        string cacheState;
+        if (!settings.EnableFatAabbCache)
+            cacheState = StatusText("Fat AABB 未启用", "#91A0B4");
+        else if (shadow.FullBroadPhaseFallbackCount > 0)
+            cacheState = StatusText("已安全回退完整 Broad Phase", "#FFC857");
+        else if (shadow.CacheRebuildCount > 0)
+            cacheState = StatusText("本帧重建后使用", "#69E39B");
+        else if (shadow.CacheReuseCount > 0)
+            cacheState = StatusText("本帧复用持久缓存", "#69E39B");
+        else
+            cacheState = StatusText("等待缓存样本", "#91A0B4");
+
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#C99BFF><b>预测 + Substep 候选</b></color></size>")
+            .AppendLine("<color=#71839A>看每个 substep 的预测/软避让候选，以及 Fat AABB 复用代价</color>")
+            .Append("<color=#A999BA>状态　</color>").AppendLine(cacheState)
+            .Append("<color=#A999BA>Substep 求值　</color><b>")
+            .Append(statistics.SoftAvoidanceEvaluationCount).Append("/")
+            .Append(settings.SubstepCount).AppendLine("</b>")
+            .Append("<color=#A999BA>候选来源　</color>Fat AABB <b>")
+            .Append(statistics.SoftAvoidanceFatAabbUseCount).Append("/")
+            .Append(statistics.SoftAvoidanceEvaluationCount)
+            .Append(" 个 substep</b>　缓存 Narrow 检查 ")
+            .AppendLine(shadow.CachedNarrowPhasePairCheckCount.ToString())
+            .Append("<color=#A999BA>每 substep　</color>软候选 <b>")
+            .Append(candidatesPerSubstep.ToString("F1"))
+            .Append("</b>　软激活 ").Append(activatedPerSubstep.ToString("F1"))
+            .Append("　接触约束激活 <b>").Append(constraintsPerSubstep.ToString("F1")).AppendLine("</b>")
+            .Append("<color=#A999BA>预测 Pair　</color>风险 ")
+            .Append(statistics.PotentialPredictivePairCount)
+            .Append("　纳入 ContactSet <b>").Append(statistics.PredictivePairCount)
+            .Append("</b>　substep 激活累计 <b>")
+            .Append(statistics.PredictiveActivatedCount).AppendLine("</b>")
+            .Append("<color=#A999BA>Pair 生成来源　</color>实际 ")
+            .Append(statistics.ActualGeneratedPairCount)
+            .Append("　预测 <b>").Append(statistics.PredictiveGeneratedPairCount).AppendLine("</b>")
+            .Append("<color=#A999BA>软避让策略　</color><b>")
+            .Append(flowSettings.SoftAvoidanceVelocitySolver).Append("</b>　Shell ")
+            .Append(flowSettings.SoftAvoidanceShell.ToString("F2"))
             .Append("　Horizon ")
             .AppendLine(flowSettings.SoftAvoidanceVelocitySolver ==
                         SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle
                 ? flowSettings.RvoTimeHorizon.ToString("F2") + "s"
                 : "--")
-            .Append("<color=#91A0B7>软避让 Narrow　</color>本帧累计检查 <b>")
-            .Append(statistics.SoftAvoidanceCandidatePairCount)
-            .Append("</b>　累计激活 <b>").Append(statistics.SoftAvoidanceActivatedPairCount)
-            .AppendLine("</b>")
-            .Append("<color=#91A0B7>软避让候选来源　</color>Fat 缓存 <b>")
-            .Append(statistics.SoftAvoidanceFatAabbUseCount).Append("/")
-            .Append(statistics.SoftAvoidanceEvaluationCount).AppendLine(" 个 substep</b>")
-            .Append("<color=#91A0B7>接触 Narrow 漏斗　</color><color=#AFC4D8>本帧累计检查</color> <b>")
+            .AppendLine("<color=#BBA6D0><b>Fat AABB 持久缓存</b></color>")
+            .Append("<color=#A999BA>Margin　</color><b>")
+            .Append(settings.FatAabbCacheMargin.ToString("F3"))
+            .Append("</b>　唯一候选/ContactSet <b>").Append(uniqueInflation).AppendLine("</b>")
+            .Append("<color=#A999BA>整帧扫描倍率　</color>substep 候选扫描/ContactSet <b>")
+            .Append(substepScanInflation).AppendLine("</b>")
+            .Append("<color=#A999BA>缓存快照　</color>单位 ")
+            .Append(shadow.CurrentFrameCacheBodyCount)
+            .Append("　唯一候选 <b>").Append(shadow.CachedCandidatePairCount)
+            .Append("</b>　年龄 ").Append(shadow.CacheAgeFrames).AppendLine(" 帧")
+            .Append("<color=#A999BA>本帧读取　</color>")
+            .Append(shadow.CacheUseCount).Append("　直接复用 <b>")
+            .Append(shadow.CacheReuseCount).Append("</b>　重建 ")
+            .Append(shadow.CacheRebuildCount).Append("　完整回退 <b>")
+            .Append(shadow.FullBroadPhaseFallbackCount).AppendLine("</b>")
+            .Append("<color=#A999BA>Pair 映射　</color>构建 ")
+            .Append(shadow.CachePairMappingBuildCount).Append("　帧内复用 <b>")
+            .Append(shadow.CachePairMappingReuseCount).Append("</b>　修正单位检查 ")
+            .Append(shadow.CorrectedBodyValidationCount).AppendLine()
+            .Append("<color=#A999BA>失效　</color>总计 ")
+            .Append(shadow.CacheInvalidationCount).Append("　Entity ")
+            .Append(shadow.EntitySetInvalidationCount).Append("　边界 ")
+            .Append(shadow.BoundsInvalidationCount).Append("　求解后逃逸 <b>")
+            .Append(shadow.PostSolveInvalidationCount).AppendLine("</b>")
+            .Append("<color=#A999BA>耗时 μs　</color>软避让总计 ")
+            .Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
+            .Append("（每 substep ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds))
+            .Append("）　Fat 构建 ").Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
+            .Append("　验证 ").Append(FormatMicroseconds(shadow.ValidationNanoseconds))
+            .Append("　映射 <b>").Append(FormatMicroseconds(shadow.CachePairMappingNanoseconds)).AppendLine("</b>")
+            .Append("<color=#607086>重点看：每 substep 候选数、候选膨胀、映射复用，以及候选随 Substep 数是否线性增长。</color>");
+        return text.ToString();
+    }
+
+    private static string BuildTimestepPanelText(
+        UnitContactSolverSettings settings,
+        PredictiveDiscContactStatistics statistics,
+        DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
+        Entity selectedEntity,
+        Stage3SelectedBodyDiagnostic selectedBody)
+    {
+        int broadOnly = 0;
+        int regular = 0;
+        int predictive = 0;
+        int predictiveDisabled = 0;
+        int fallbackPairs = 0;
+        int activatedSubsteps = 0;
+        for (int i = 0; i < selectedPairs.Length; i++)
+        {
+            switch (selectedPairs[i].Kind)
+            {
+                case Stage3ContactDiagnosticPairKind.BroadPhaseRejected:
+                    broadOnly++;
+                    break;
+                case Stage3ContactDiagnosticPairKind.Regular:
+                    regular++;
+                    break;
+                case Stage3ContactDiagnosticPairKind.Predictive:
+                    predictive++;
+                    break;
+                case Stage3ContactDiagnosticPairKind.PredictiveDisabled:
+                    predictiveDisabled++;
+                    break;
+            }
+            fallbackPairs += selectedPairs[i].WasAddedByFallback != 0 ? 1 : 0;
+            activatedSubsteps += selectedPairs[i].ActivatedSubstepCount;
+        }
+
+        float uniquePairCount = statistics.TimestepContactSetUniquePairCount;
+        string activationRatio = uniquePairCount > 0f
+            ? (100f * statistics.TimestepContactSetUniqueActivatedPairCount / uniquePairCount).ToString("F1") + "%"
+            : "--";
+        string useState =
+            statistics.TimestepContactSetBuildCount == 1 &&
+            statistics.TimestepContactSetClassificationPassCount == 1 &&
+            statistics.TimestepContactSetSubstepUseCount == settings.SubstepCount
+                ? StatusText("一次分类，全部 substep 复用", "#69E39B")
+                : StatusText("生命周期计数与配置不一致", "#FFC857");
+
+        var text = new StringBuilder(768);
+        text.AppendLine("<size=18><color=#7BE0B1><b>Timestep 候选 · ContactSet</b></color></size>")
+            .AppendLine("<color=#71839A>看一次 timestep 构建后，跨全部 substep/iterations 的权威候选复用</color>")
+            .Append("<color=#8FB8A2>状态　</color>").AppendLine(useState)
+            .Append("<color=#8FB8A2>生命周期　</color>构建 <b>")
+            .Append(statistics.TimestepContactSetBuildCount)
+            .Append("</b>　分类 <b>").Append(statistics.TimestepContactSetClassificationPassCount)
+            .Append("</b>　substep 使用 <b>")
+            .Append(statistics.TimestepContactSetSubstepUseCount).Append("/")
+            .Append(settings.SubstepCount).AppendLine("</b>")
+            .Append("<color=#8FB8A2>构建漏斗　</color>Broad 候选 <b>")
             .Append(statistics.CandidatePairCount)
-            .Append("</b>　<color=#607086>→</color>　<color=#7AD7F0>通过</color> <b>")
-            .Append(statistics.ContactPairCount)
-            .Append("</b>　<color=#607086>→</color>　<color=#69E39B>累计激活</color> <b>")
-            .Append(statistics.ActiveConstraintCount).AppendLine("</b>")
-            .Append("<color=#91A0B7>Pair 来源（本帧累计）　</color>实际生成 <b>").Append(statistics.ActualGeneratedPairCount)
-            .Append("</b>　预测生成 <color=#D58CFF><b>").Append(statistics.PredictiveGeneratedPairCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#91A0B7>防换侧约束　</color>风险 <b>").Append(statistics.PotentialPredictivePairCount)
-            .Append("</b>　启用 <b>").Append(statistics.PredictivePairCount)
-            .Append("</b>　激活 <color=#FF7BA8><b>").Append(statistics.PredictiveActivatedCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#91A0B7>最终穿透　</color>最大 <b>").Append(statistics.MaxPenetration.ToString("F5"))
-            .Append("</b>　平均 ").AppendLine(statistics.AveragePenetration.ToString("F5"))
-            .Append("<color=#91A0B7>单位修正　</color>累计 ").Append(statistics.TotalContactPositionCorrection.ToString("F4"))
-            .Append("　单次最大 <b>").Append(statistics.MaxContactPositionCorrection.ToString("F4")).AppendLine("</b>")
-            .Append("<color=#91A0B7>墙壁修正　</color>累计 ").Append(statistics.TotalWallPositionCorrection.ToString("F4"))
-            .Append("　单次最大 <b>").Append(statistics.MaxWallPositionCorrection.ToString("F4")).AppendLine("</b>")
-            .Append("<color=#91A0B7>平均速度　</color>").Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
-            .Append(" <color=#607086>→</color> ").Append(statistics.AverageSpeedAfterContact.ToString("F3"))
-            .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
-            .Append("<color=#91A0B7>最终残差　</color>最大 <b>").Append(FormatResidual(lastResidual))
-            .Append("</b>　平均 ").AppendLine(FormatResidual(lastAverageResidual))
-            .Append("<color=#91A0B7>收敛曲线（轮前→最终）　</color>")
-            .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
-            .Append("<color=#91A0B7>耗时 μs　</color>软避让 ").Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
-            .Append("（单子步 ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds)).Append("）　Pair ")
-            .Append(FormatMicroseconds(statistics.PairGenerationNanoseconds))
-            .Append("　单轮 ").Append(FormatMicroseconds(statistics.AverageIterationNanoseconds))
-            .Append("　总计 <b>").Append(FormatMicroseconds(statistics.SolverNanoseconds)).AppendLine("</b>")
-            .Append("<color=#91A0B7>选中单位　</color>")
+            .Append("</b>　<color=#607086>→</color> ContactSet 唯一 Pair <b>")
+            .Append(statistics.TimestepContactSetUniquePairCount).AppendLine("</b>")
+            .Append("<color=#8FB8A2>唯一 Pair　</color>激活 <b>")
+            .Append(statistics.TimestepContactSetUniqueActivatedPairCount)
+            .Append("</b>　Dormant ").Append(statistics.TimestepContactSetDormantPairCount)
+            .Append("　激活率 <b>").Append(activationRatio).AppendLine("</b>")
+            .Append("<color=#8FB8A2>substep 累计　</color>激活约束 <b>")
+            .Append(statistics.ActiveConstraintCount)
+            .AppendLine("</b>（跨 substep 累加，不能与唯一 Pair 直接相减）")
+            .Append("<color=#8FB8A2>安全回退　</color>逃逸单位 <b>")
+            .Append(statistics.TimestepContactSetEscapeBodyCount)
+            .Append("</b>　首次 substep ")
+            .Append(statistics.TimestepContactSetFirstEscapeSubstep >= 0
+                ? statistics.TimestepContactSetFirstEscapeSubstep.ToString()
+                : "--")
+            .Append("　完整重建 <b>").Append(statistics.TimestepContactSetFullRebuildCount)
+            .Append("</b>　新增 Pair ").AppendLine(statistics.TimestepContactSetFallbackAddedPairCount.ToString())
+            .Append("<color=#8FB8A2>耗时 μs　</color>初建 <b>")
+            .Append(FormatMicroseconds(statistics.TimestepContactSetBuildNanoseconds))
+            .Append("</b>　回退 ")
+            .AppendLine(FormatMicroseconds(statistics.TimestepContactSetFallbackNanoseconds))
+            .Append("<color=#8FB8A2>选中单位　</color>")
             .Append(selectedEntity == Entity.Null
                 ? "<color=#607086>未选择</color>"
                 : $"<b>{selectedEntity.Index}:{selectedEntity.Version}</b>")
-            .Append("　显示 Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
-            .Append("<color=#91A0B7>Pair 分类　</color>宽相排除 ").Append(broadOnly)
-            .Append("　径向 ").Append(regular).Append("　防换侧 ").Append(predictive)
-            .Append("　防换侧关闭 ").AppendLine(predictiveDisabled.ToString());
+            .Append("　ContactSet Pair <b>").Append(selectedPairs.Length).AppendLine("</b>")
+            .Append("<color=#8FB8A2>选中 Pair 分类　</color>宽相排除 ")
+            .Append(broadOnly).Append("　径向 ").Append(regular)
+            .Append("　预测 ").Append(predictive)
+            .Append("　预测关闭 ").AppendLine(predictiveDisabled.ToString())
+            .Append("<color=#8FB8A2>选中 Pair 生命周期　</color>回退新增 ")
+            .Append(fallbackPairs).Append("　激活 substep 累计 ")
+            .AppendLine(activatedSubsteps.ToString());
 
         if (selectedBody.IsValid != 0)
         {
-            text.Append("<color=#91A0B7>选中单位修正　</color>接触 ")
-                .Append(math.length(selectedBody.ContactCorrection).ToString("F4"))
-                .Append("　墙壁 ")
-                .AppendLine(math.length(selectedBody.WallCorrection).ToString("F4"));
+            text.Append("<color=#8FB8A2>选中 Envelope　</color>")
+                .Append(selectedBody.TimestepEscaped != 0
+                    ? "<color=#FF6B78><b>逃逸</b></color>"
+                    : "<color=#69E39B><b>安全</b></color>")
+                .AppendLine();
         }
 
-        text.Append("<color=#607086>场景颜色：黄色/橙色径向 Pair　洋红/红色防换侧 Pair　蓝色防换侧关闭</color>");
+        text.Append("<color=#607086>重点看：构建/分类是否恒为 1、substep 使用是否等于配置、逃逸是否触发局部补充或完整回退。</color>");
         return text.ToString();
     }
-
-    private static string BuildShadowPanelText(
-        UnitContactSolverSettings settings,
-        PredictiveDiscContactStatistics statistics,
-        ShadowNeighborCacheStatistics shadow)
-    {
-        if (!settings.EnableFatAabbCache)
-        {
-            return "<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>\n" +
-                   "<color=#71839A>缓存候选 Entity Pair；每个子步仍重新执行 Narrow Phase</color>\n\n" +
-                   StatusText("当前未启用", "#91A0B4") + "\n\n" +
-                   "<color=#91A0B7>按 <b>F11</b> 启用；首次使用会从当前状态完整重建。</color>";
-        }
-
-        string state;
-        if (shadow.FullBroadPhaseFallbackCount > 0)
-            state = StatusText("Fat AABB 失效，已安全回退完整 Broad Phase", "#FFC857");
-        else if (shadow.CacheRebuildCount > 0)
-            state = StatusText("本帧已重建缓存", "#69E39B");
-        else if (shadow.CacheReuseCount > 0)
-            state = StatusText("正在复用缓存", "#69E39B");
-        else
-            state = StatusText("等待缓存样本", "#91A0B4");
-
-        float averageContacts =
-            (float)statistics.ContactPairCount / math.max(1, settings.SubstepCount);
-        string inflation = averageContacts > 0.0001f
-            ? (shadow.CachedCandidatePairCount / averageContacts).ToString("F2") + "x"
-            : "--";
-
-        var text = new StringBuilder(1024);
-        text.AppendLine("<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>")
-            .AppendLine("<color=#71839A>缓存只替代候选发现；接触分类和 XPBD 求解保持实时</color>")
-            .Append("<color=#A999BA>状态　</color>").AppendLine(state)
-            .Append("<color=#A999BA>额外边界　</color><b>").Append(settings.FatAabbCacheMargin.ToString("F3"))
-            .Append("</b>　唯一候选/平均接触 <b>").Append(inflation).AppendLine("</b>")
-            .AppendLine("<color=#BBA6D0><b>持久缓存状态</b></color>")
-            .Append("<color=#A999BA>有效性　</color>帧首 ").Append(shadow.CacheValidAtFrameStart)
-            .Append("　帧末 <b>").Append(shadow.CacheValidAtFrameEnd)
-            .Append("</b>　年龄 <b>").Append(shadow.CacheAgeFrames).AppendLine(" 帧</b>")
-            .Append("<color=#A999BA>缓存快照　</color>单位 ").Append(shadow.CurrentFrameCacheBodyCount)
-            .Append("　唯一候选 Pair <b>").Append(shadow.CachedCandidatePairCount)
-            .AppendLine("</b>")
-            .Append("<color=#A999BA>接触 Narrow　</color>本帧累计检查 <b>")
-            .Append(shadow.CachedNarrowPhasePairCheckCount).AppendLine("</b>")
-            .AppendLine("<color=#BBA6D0><b>本帧操作</b></color>")
-            .Append("<color=#A999BA>接触候选读取　</color>").Append(shadow.CacheUseCount)
-            .Append("　无需重建读取 <color=#69E39B><b>").Append(shadow.CacheReuseCount)
-            .Append("</b></color>　重建 <b>").Append(shadow.CacheRebuildCount)
-            .Append("</b>　完整回退 <color=#FFC857><b>").Append(shadow.FullBroadPhaseFallbackCount)
-            .AppendLine("</b></color>")
-            .Append("<color=#A999BA>Pair 映射　</color>构建 ").Append(shadow.CachePairMappingBuildCount)
-            .Append("　帧内复用 <b>").Append(shadow.CachePairMappingReuseCount)
-            .Append("</b>　修正单位检查 <b>").Append(shadow.CorrectedBodyValidationCount)
-            .AppendLine("</b>")
-            .Append("<color=#A999BA>失效　</color>总计 ").Append(shadow.CacheInvalidationCount)
-            .Append("　Entity集合 ").Append(shadow.EntitySetInvalidationCount)
-            .Append("　边界 ").Append(shadow.BoundsInvalidationCount)
-            .Append("　求解后逃逸 <b>").Append(shadow.PostSolveInvalidationCount).AppendLine("</b>")
-            .Append("<color=#A999BA>耗时 μs　</color>构建 ")
-            .Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
-            .Append("　验证 ").Append(FormatMicroseconds(shadow.ValidationNanoseconds))
-            .Append("　映射 <b>").Append(FormatMicroseconds(shadow.CachePairMappingNanoseconds)).AppendLine("</b>")
-            .Append("<color=#607086>Fat 缓存只省候选发现；Narrow 与速度修正仍按 substep 实时执行。</color>");
-        return text.ToString();
-    }
-
     private static string ToggleText(bool enabled)
     {
         return enabled
@@ -790,6 +1183,10 @@ public struct Stage3RuntimeControlState
     public bool VisualizeSelectedContacts;
     public bool EnableFatAabbCache;
     public float FatAabbCacheMargin;
+    public float TimestepContactMargin;
+    public bool VisualizeContactHeatmap;
+    public ContactHeatmapMode ContactHeatmapMode;
+    public float DiagnosticSlowMotionScale;
     public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
     public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
@@ -808,6 +1205,13 @@ public struct Stage3RuntimeControlState
         settings.VisualizeSelectedContacts = VisualizeSelectedContacts;
         settings.EnableFatAabbCache = EnableFatAabbCache;
         settings.FatAabbCacheMargin = math.max(0f, FatAabbCacheMargin);
+        settings.TimestepContactMargin = math.max(0f, TimestepContactMargin);
+        settings.VisualizeContactHeatmap = VisualizeContactHeatmap;
+        settings.ContactHeatmapMode = ContactHeatmapMode;
+        settings.DiagnosticSlowMotionScale = math.clamp(
+            DiagnosticSlowMotionScale,
+            0.025f,
+            1f);
 
         flowSettings.SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver;
         flowSettings.SoftAvoidanceResponseRate = math.max(0f, SoftAvoidanceResponseRate);
@@ -830,6 +1234,10 @@ public struct Stage3RuntimeControlState
             VisualizeSelectedContacts = settings.VisualizeSelectedContacts,
             EnableFatAabbCache = settings.EnableFatAabbCache,
             FatAabbCacheMargin = settings.FatAabbCacheMargin,
+            TimestepContactMargin = settings.TimestepContactMargin,
+            VisualizeContactHeatmap = settings.VisualizeContactHeatmap,
+            ContactHeatmapMode = settings.ContactHeatmapMode,
+            DiagnosticSlowMotionScale = settings.DiagnosticSlowMotionScale,
             SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver,
             SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
             SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
@@ -843,8 +1251,9 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
     public bool Visible;
     public bool ShowDiagnostics;
     public string HeaderText = string.Empty;
-    public string Stage3Text = string.Empty;
-    public string ShadowText = string.Empty;
+    public string GlobalText = string.Empty;
+    public string SubstepText = string.Empty;
+    public string TimestepText = string.Empty;
     public float Scale = 1.25f;
 
     private GUIStyle _headerStyle;
@@ -853,6 +1262,10 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
     private bool _runtimeControlsInitialized;
     private bool _runtimeControlChangePending;
     private bool _runtimeControlsLocked;
+    private bool _showGlobalPanel = true;
+    private bool _showSubstepPanel = true;
+    private bool _showTimestepPanel = true;
+    private bool _showRuntimeControls;
 
     public void SetRuntimeControls(Stage3RuntimeControlState controls, bool locked)
     {
@@ -898,25 +1311,45 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             DrawDiagnosticPanels();
 
         if (_runtimeControlsInitialized)
+        {
+            string parameterButtonText = _showRuntimeControls ? "关闭参数" : "打开参数";
+            if (GUI.Button(
+                    new Rect(Screen.width - 112f, 12f, 100f, 28f),
+                    parameterButtonText))
+            {
+                _showRuntimeControls = !_showRuntimeControls;
+            }
+        }
+
+        if (_runtimeControlsInitialized && _showRuntimeControls)
             DrawRuntimeControlPanel();
     }
 
     private void DrawDiagnosticPanels()
     {
-        const float cardWidth = 510f;
+        const float cardWidth = 410f;
         const float gap = 12f;
-        const float logicalWidth = cardWidth * 2f + gap;
+        int visiblePanelCount =
+            (_showGlobalPanel ? 1 : 0) +
+            (_showSubstepPanel ? 1 : 0) +
+            (_showTimestepPanel ? 1 : 0);
+        float panelRowWidth = visiblePanelCount > 0
+            ? cardWidth * visiblePanelCount + gap * (visiblePanelCount - 1)
+            : 0f;
+        float logicalWidth = math.max(760f, panelRowWidth);
         float headerHeight = math.max(
-            58f,
-            _headerStyle.CalcHeight(new GUIContent(HeaderText), logicalWidth - 28f) + 20f);
-        float stage3Height = _panelStyle.CalcHeight(
-            new GUIContent(Stage3Text),
-            cardWidth - 32f) + 28f;
-        float shadowHeight = _panelStyle.CalcHeight(
-            new GUIContent(ShadowText),
-            cardWidth - 32f) + 28f;
-        float cardHeight = math.max(390f, math.max(stage3Height, shadowHeight));
-        float logicalHeight = headerHeight + gap + cardHeight;
+            94f,
+            _headerStyle.CalcHeight(new GUIContent(HeaderText), logicalWidth - 28f) + 58f);
+        float cardHeight = 0f;
+        if (_showGlobalPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(GlobalText, cardWidth));
+        if (_showSubstepPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(SubstepText, cardWidth));
+        if (_showTimestepPanel)
+            cardHeight = math.max(cardHeight, CalculatePanelHeight(TimestepText, cardWidth));
+        if (visiblePanelCount > 0)
+            cardHeight = math.max(300f, cardHeight);
+        float logicalHeight = headerHeight + (visiblePanelCount > 0 ? gap + cardHeight : 0f);
         float fitScale = math.min(
             (Screen.width - 24f) / logicalWidth,
             (Screen.height - 24f) / logicalHeight);
@@ -934,33 +1367,94 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             HeaderText,
             _headerStyle);
 
+        float toggleY = headerRect.yMax - 38f;
+        const float toggleWidth = 152f;
+        float toggleX = headerRect.x + 14f;
+        bool visibilityChanged = false;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showGlobalPanel ? "全局数据：开" : "全局数据：关"))
+        {
+            _showGlobalPanel = !_showGlobalPanel;
+            visibilityChanged = true;
+        }
+        toggleX += toggleWidth + 8f;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showSubstepPanel ? "预测/Substep：开" : "预测/Substep：关"))
+        {
+            _showSubstepPanel = !_showSubstepPanel;
+            visibilityChanged = true;
+        }
+        toggleX += toggleWidth + 8f;
+        if (GUI.Button(
+                new Rect(toggleX, toggleY, toggleWidth, 28f),
+                _showTimestepPanel ? "Timestep：开" : "Timestep：关"))
+        {
+            _showTimestepPanel = !_showTimestepPanel;
+            visibilityChanged = true;
+        }
+
+        if (visibilityChanged)
+        {
+            GUI.matrix = previousMatrix;
+            return;
+        }
+
         float cardY = headerRect.yMax + gap;
-        var stage3Rect = new Rect(12f, cardY, cardWidth, cardHeight);
-        var shadowRect = new Rect(stage3Rect.xMax + gap, cardY, cardWidth, cardHeight);
-        DrawCardBackground(
-            stage3Rect,
-            new Color(0.025f, 0.065f, 0.09f, 0.95f),
-            new Color(0.18f, 0.68f, 0.88f, 1f));
-        DrawCardBackground(
-            shadowRect,
-            new Color(0.065f, 0.04f, 0.085f, 0.95f),
-            new Color(0.65f, 0.42f, 0.88f, 1f));
-        GUI.Label(
-            new Rect(stage3Rect.x + 16f, stage3Rect.y + 12f, stage3Rect.width - 32f, stage3Rect.height - 24f),
-            Stage3Text,
-            _panelStyle);
-        GUI.Label(
-            new Rect(shadowRect.x + 16f, shadowRect.y + 12f, shadowRect.width - 32f, shadowRect.height - 24f),
-            ShadowText,
-            _panelStyle);
+        float cardX = 12f;
+        if (_showGlobalPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                GlobalText,
+                new Color(0.025f, 0.065f, 0.09f, 0.95f),
+                new Color(0.18f, 0.68f, 0.88f, 1f));
+            cardX += cardWidth + gap;
+        }
+        if (_showSubstepPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                SubstepText,
+                new Color(0.065f, 0.04f, 0.085f, 0.95f),
+                new Color(0.65f, 0.42f, 0.88f, 1f));
+            cardX += cardWidth + gap;
+        }
+        if (_showTimestepPanel)
+        {
+            DrawDiagnosticCard(
+                new Rect(cardX, cardY, cardWidth, cardHeight),
+                TimestepText,
+                new Color(0.035f, 0.075f, 0.06f, 0.95f),
+                new Color(0.35f, 0.82f, 0.6f, 1f));
+        }
 
         GUI.matrix = previousMatrix;
+    }
+
+    private float CalculatePanelHeight(string text, float width)
+    {
+        return _panelStyle.CalcHeight(new GUIContent(text), width - 32f) + 28f;
+    }
+
+    private void DrawDiagnosticCard(
+        Rect rect,
+        string text,
+        Color background,
+        Color accent)
+    {
+        DrawCardBackground(rect, background, accent);
+        GUI.Label(
+            new Rect(rect.x + 16f, rect.y + 12f, rect.width - 32f, rect.height - 24f),
+            text,
+            _panelStyle);
     }
 
     private void DrawRuntimeControlPanel()
     {
         const float width = 450f;
-        const float height = 366f;
+        const float height = 458f;
         var rect = new Rect(12f, math.max(12f, Screen.height - height - 12f), width, height);
         DrawCardBackground(
             rect,
@@ -1006,6 +1500,19 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
         DrawIntControl("XPBD Iterations", ref _runtimeControls.Iterations, 1, 32);
         DrawFloatControl("Predictive Skin", ref _runtimeControls.PredictiveSkin, 0.01f, 0f, "F2");
         DrawFloatControl("Fat AABB Margin", ref _runtimeControls.FatAabbCacheMargin, 0.05f, 0f, "F2");
+        DrawFloatControl("Timestep Margin", ref _runtimeControls.TimestepContactMargin, 0.05f, 0f, "F2");
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("热力图模式", GUILayout.Width(155f));
+        if (GUILayout.Button(_runtimeControls.ContactHeatmapMode.ToString(), GUILayout.Height(24f)))
+        {
+            _runtimeControls.ContactHeatmapMode = (ContactHeatmapMode)(
+                ((int)_runtimeControls.ContactHeatmapMode + 1) % 3);
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
+
+        DrawSlowMotionControl();
 
         DrawToggleControl(
             "预测 Pair 生成",
@@ -1015,10 +1522,40 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             ref _runtimeControls.EnablePredictiveContacts);
         DrawToggleControl("Fat AABB 缓存", ref _runtimeControls.EnableFatAabbCache);
         DrawToggleControl("诊断数据", ref _runtimeControls.EnableDiagnostics);
+        DrawToggleControl("接触热力图", ref _runtimeControls.VisualizeContactHeatmap);
         DrawToggleControl("场景线框", ref _runtimeControls.VisualizeSelectedContacts);
 
         GUI.enabled = previousEnabled;
         GUILayout.EndArea();
+    }
+
+    private void DrawSlowMotionControl()
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("选中慢动作", GUILayout.Width(155f));
+        if (GUILayout.Button("÷2", GUILayout.Width(42f)))
+        {
+            _runtimeControls.DiagnosticSlowMotionScale = math.max(
+                0.025f,
+                _runtimeControls.DiagnosticSlowMotionScale * 0.5f);
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.Label(
+            _runtimeControls.DiagnosticSlowMotionScale.ToString("F3") + "x",
+            GUILayout.Width(64f));
+        if (GUILayout.Button("×2", GUILayout.Width(42f)))
+        {
+            _runtimeControls.DiagnosticSlowMotionScale = math.min(
+                1f,
+                _runtimeControls.DiagnosticSlowMotionScale * 2f);
+            MarkRuntimeControlsChanged();
+        }
+        if (GUILayout.Button("1x", GUILayout.Width(42f)))
+        {
+            _runtimeControls.DiagnosticSlowMotionScale = 1f;
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
     }
 
     private void DrawIntControl(string label, ref int value, int minimum, int maximum)
