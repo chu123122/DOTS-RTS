@@ -676,7 +676,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(6f);
         GUILayout.Label("跨帧 AABB 参数", _sectionStyle);
-        GUI.enabled = previousEnabled && _settingsDraft.EnableFatAabbCache != 0;
         _settingsDraft.FatAabbCacheMargin = DrawFloatSlider(
             "Fat AABB 外扩余量",
             _settingsDraft.FatAabbCacheMargin,
