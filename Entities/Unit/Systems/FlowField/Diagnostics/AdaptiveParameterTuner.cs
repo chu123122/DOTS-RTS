@@ -44,12 +44,38 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     [Header("Trials")]
     public List<ParameterTrial> TrialList = new()
     {
+        // 对照组
         new() { Label = "baseline" },
-        new() { Label = "adaptive_on",  EnableAdaptiveFatAabb = 1 },
-        new() { Label = "adaptive_off", EnableAdaptiveFatAabb = 0 },
-        new() { Label = "fatcache_off", EnableFatAabbCache = 0 },
-        new() { Label = "skin_0.1",     PredictiveSkin = 0.1f },
-        new() { Label = "skin_0.2",     PredictiveSkin = 0.2f },
+        new() { Label = "fatcache_off",       EnableFatAabbCache = 0 },
+
+        // Skin 对比
+        new() { Label = "skin_0.05",           PredictiveSkin = 0.05f },
+        new() { Label = "skin_0.1",            PredictiveSkin = 0.1f },
+        new() { Label = "skin_0.2",            PredictiveSkin = 0.2f },
+
+        // FatAabb 缓存 margin 对比
+        new() { Label = "margin_0.5",          FatAabbCacheMargin = 0.5f },
+        new() { Label = "margin_1.0",          FatAabbCacheMargin = 1.0f },
+        new() { Label = "margin_2.0",          FatAabbCacheMargin = 2.0f },
+
+        // 自适应开关（已修复路由 + 降低检测门槛）
+        new() { Label = "adp_on_loThresh",     EnableAdaptiveFatAabb = 1,
+                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
+                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f },
+        new() { Label = "adp_off_loThresh",    EnableAdaptiveFatAabb = 0,
+                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
+                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f },
+
+        // 自适应 + Skin 组合
+        new() { Label = "adp_skin_0.1",        EnableAdaptiveFatAabb = 1,
+                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
+                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f,
+                PredictiveSkin = 0.1f },
+
+        // 子步/迭代 对比
+        new() { Label = "substep_2_iter_2",     SubstepCount = 2, IterationCount = 2 },
+        new() { Label = "substep_2_iter_6",     SubstepCount = 2, IterationCount = 6 },
+        new() { Label = "substep_5_iter_3",     SubstepCount = 5, IterationCount = 3 },
     };
 
     private enum Phase { WaitingForScene, WaitingForButton, Spawning, PostSpawnWait, IssueMove, Warmup, Trial, Done }
@@ -332,7 +358,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             "CacheReuse,CacheRebuild,CacheHitRate," +
             "FallbackCount,InvalidationCount," +
             "AvgSolverNs,AvgIterationNs,AvgSoftAvoidNs," +
-            "EnableFatAabb,EnableAdaptive,EnableTimestepCache,PredictiveSkin");
+            "ContactPairs,ActivePairs,PredictivePairs," +
+            "EnableFatAabb,EnableAdaptive,PredictiveSkin,FatCacheMargin," +
+            "Substeps,Iterations,AdpCellSpan,AdpMinPerCell,AdpEnableScore");
 
         foreach (TrialResult r in _results)
         {
@@ -343,7 +371,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
                 $"{r.CacheReuseCount},{r.CacheRebuildCount},{hitRate:F4}," +
                 $"{r.FallbackCount},{r.InvalidationCount}," +
                 $"{r.AverageSolverNs:F0},{r.AverageIterationNs:F0},{r.AverageSoftAvoidanceNs:F0}," +
-                $"{r.EnableFatAabbCache},{r.EnableAdaptiveFatAabb},{r.EnableTimestepContactSetCache},{r.PredictiveSkin:F3}");
+                $"{r.AverageContactPairs:F0},{r.AverageActivePairs:F0},{r.AveragePredictivePairs:F0}," +
+                $"{r.EnableFatAabbCache},{r.EnableAdaptiveFatAabb},{r.PredictiveSkin:F3},{r.FatAabbCacheMargin:F3}," +
+                $"{r.SubstepCount},{r.IterationCount},{r.AdaptiveDetectionCellSpan},{r.AdaptiveMinimumUnitsPerCell},{r.AdaptiveEnableScore:F2}");
         }
 
         Debug.Log($"[Tuner] CSV 已输出: {path}");
@@ -357,6 +387,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         private long _solverTotal;
         private long _iterTotal;
         private long _softAvoidTotal;
+        private long _contactPairTotal;
+        private long _activePairTotal;
+        private long _predictivePairTotal;
         private int _cacheReuse;
         private int _cacheRebuild;
         private int _fallback;
@@ -369,6 +402,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             _solverTotal = 0;
             _iterTotal = 0;
             _softAvoidTotal = 0;
+            _contactPairTotal = 0;
+            _activePairTotal = 0;
+            _predictivePairTotal = 0;
             _cacheReuse = 0;
             _cacheRebuild = 0;
             _fallback = 0;
@@ -382,6 +418,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             _solverTotal += s.Overview.SolverNanoseconds;
             _iterTotal += s.Overview.IterationNanoseconds;
             _softAvoidTotal += s.Overview.SoftAvoidanceNanoseconds;
+            _contactPairTotal += s.ContactSet.ContactSetSize;
+            _activePairTotal += s.ContactSet.ActiveContactCount;
+            _predictivePairTotal += s.ContactSet.PredictiveContactCount;
             _cacheReuse += s.BroadPhase.ReuseCount;
             _cacheRebuild += s.BroadPhase.RebuildCount;
             _fallback += s.BroadPhase.FallbackCount;
@@ -407,10 +446,19 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
                 AverageSolverNs = (long)(_solverTotal * inv),
                 AverageIterationNs = (long)(_iterTotal * inv),
                 AverageSoftAvoidanceNs = (long)(_softAvoidTotal * inv),
+                AverageContactPairs = _contactPairTotal * inv,
+                AverageActivePairs = _activePairTotal * inv,
+                AveragePredictivePairs = _predictivePairTotal * inv,
                 EnableFatAabbCache = settings.EnableFatAabbCache,
                 EnableAdaptiveFatAabb = settings.EnableAdaptiveFatAabb,
                 EnableTimestepContactSetCache = settings.EnableTimestepContactSetCache,
                 PredictiveSkin = settings.PredictiveSkin,
+                FatAabbCacheMargin = settings.FatAabbCacheMargin,
+                SubstepCount = settings.SubstepCount,
+                IterationCount = settings.IterationCount,
+                AdaptiveDetectionCellSpan = settings.AdaptiveDetectionCellSpan,
+                AdaptiveMinimumUnitsPerCell = settings.AdaptiveMinimumUnitsPerCell,
+                AdaptiveEnableScore = settings.AdaptiveEnableScore,
             };
         }
     }
@@ -423,6 +471,13 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         public byte EnableAdaptiveFatAabb = 1;
         public byte EnableTimestepContactSetCache = 1;
         public float PredictiveSkin;
+        public float FatAabbCacheMargin;
+        public int SubstepCount;
+        public int IterationCount;
+        public int AdaptiveDetectionCellSpan;
+        public int AdaptiveMinimumUnitsPerCell;
+        public int AdaptiveMinimumUnitsPerRegion;
+        public float AdaptiveEnableScore;
 
         public void ApplyTo(ref SimulationDebuggerEffectiveSettings s)
         {
@@ -430,6 +485,20 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             s.EnableAdaptiveFatAabb = EnableAdaptiveFatAabb;
             s.EnableTimestepContactSetCache = EnableTimestepContactSetCache;
             s.PredictiveSkin = PredictiveSkin;
+            if (FatAabbCacheMargin > 0f)
+                s.FatAabbCacheMargin = FatAabbCacheMargin;
+            if (SubstepCount > 0)
+                s.SubstepCount = SubstepCount;
+            if (IterationCount > 0)
+                s.IterationCount = IterationCount;
+            if (AdaptiveDetectionCellSpan > 0)
+                s.AdaptiveDetectionCellSpan = AdaptiveDetectionCellSpan;
+            if (AdaptiveMinimumUnitsPerCell > 0)
+                s.AdaptiveMinimumUnitsPerCell = AdaptiveMinimumUnitsPerCell;
+            if (AdaptiveMinimumUnitsPerRegion > 0)
+                s.AdaptiveMinimumUnitsPerRegion = AdaptiveMinimumUnitsPerRegion;
+            if (AdaptiveEnableScore > 0f)
+                s.AdaptiveEnableScore = AdaptiveEnableScore;
         }
     }
 
@@ -446,10 +515,19 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         public long AverageSolverNs;
         public long AverageIterationNs;
         public long AverageSoftAvoidanceNs;
+        public float AverageContactPairs;
+        public float AverageActivePairs;
+        public float AveragePredictivePairs;
         public byte EnableFatAabbCache;
         public byte EnableAdaptiveFatAabb;
         public byte EnableTimestepContactSetCache;
         public float PredictiveSkin;
+        public float FatAabbCacheMargin;
+        public int SubstepCount;
+        public int IterationCount;
+        public int AdaptiveDetectionCellSpan;
+        public int AdaptiveMinimumUnitsPerCell;
+        public float AdaptiveEnableScore;
     }
 }
 }
