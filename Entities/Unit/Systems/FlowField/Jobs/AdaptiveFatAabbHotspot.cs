@@ -490,9 +490,9 @@ public partial struct SolveXpbdUnitContactsJob
             AdaptiveCellMetrics[cellIndex] = metric;
         }
 
-        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
+        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
             if (pair.BodyA < 0 || pair.BodyB < 0 ||
                 pair.BodyA >= States.Length || pair.BodyB >= States.Length)
                 continue;
