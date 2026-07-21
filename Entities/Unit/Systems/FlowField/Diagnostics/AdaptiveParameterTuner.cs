@@ -41,41 +41,54 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     [Header("移动")]
     public float MoveTargetSpread = 10f;
 
-    [Header("Trials")]
+    [Header("Trials — Fat AABB 收益分析")]
     public List<ParameterTrial> TrialList = new()
     {
-        // 对照组
-        new() { Label = "baseline" },
-        new() { Label = "fatcache_off",       EnableFatAabbCache = 0 },
+        // === 对照组 ===
+        new() { Label = "sweep_only",         EnableFatAabbCache = 0, EnableAdaptiveFatAabb = 0 },
+        new() { Label = "sweep_skin_0.1",     EnableFatAabbCache = 0, EnableAdaptiveFatAabb = 0, PredictiveSkin = 0.1f },
 
-        // Skin 对比
-        new() { Label = "skin_0.05",           PredictiveSkin = 0.05f },
-        new() { Label = "skin_0.1",            PredictiveSkin = 0.1f },
-        new() { Label = "skin_0.2",            PredictiveSkin = 0.2f },
+        // === margin 扫描 (Fat=ON, Adaptive=OFF, Skin=0) ===
+        new() { Label = "fat_m0",             EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0f },
+        new() { Label = "fat_m0.05",          EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f },
+        new() { Label = "fat_m0.1",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.1f },
+        new() { Label = "fat_m0.25",          EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.25f },
+        new() { Label = "fat_m0.5",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f },
+        new() { Label = "fat_m1.0",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 1.0f },
+        new() { Label = "fat_m2.0",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 2.0f },
 
-        // FatAabb 缓存 margin 对比
-        new() { Label = "margin_0.5",          FatAabbCacheMargin = 0.5f },
-        new() { Label = "margin_1.0",          FatAabbCacheMargin = 1.0f },
-        new() { Label = "margin_2.0",          FatAabbCacheMargin = 2.0f },
+        // === Skin 扫描 (Fat=ON, Margin=0.05, Adaptive=OFF) ===
+        new() { Label = "fat_skin_0",         EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0f },
+        new() { Label = "fat_skin_0.05",      EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.05f },
+        new() { Label = "fat_skin_0.1",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.1f },
+        new() { Label = "fat_skin_0.2",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.2f },
 
-        // 自适应开关（已修复路由 + 降低检测门槛）
-        new() { Label = "adp_on_loThresh",     EnableAdaptiveFatAabb = 1,
-                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
+        // === 子步/迭代扫描 (Fat=ON, Margin=0.5, Adaptive=OFF) ===
+        new() { Label = "s2_i2",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 2 },
+        new() { Label = "s2_i4",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 4 },
+        new() { Label = "s2_i6",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 6 },
+        new() { Label = "s4_i2",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 2 },
+        new() { Label = "s4_i4",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 4 },
+        new() { Label = "s4_i6",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 6 },
+        new() { Label = "s6_i3",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 6, IterationCount = 3 },
+
+        // === Adaptive 开关对比 (Margin=0.5) ===
+        new() { Label = "adp_off_m0.5",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f },
+        new() { Label = "adp_on_easy",        FatAabbCacheMargin = 0.5f,
+                AdaptiveDetectionCellSpan = 2, AdaptiveMinimumUnitsPerCell = 2,
                 AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f },
-        new() { Label = "adp_off_loThresh",    EnableAdaptiveFatAabb = 0,
-                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
-                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f },
+        new() { Label = "adp_on_default",     FatAabbCacheMargin = 0.5f,
+                AdaptiveDetectionCellSpan = 3, AdaptiveMinimumUnitsPerCell = 6,
+                AdaptiveMinimumUnitsPerRegion = 14, AdaptiveEnableScore = 0.68f },
+        new() { Label = "adp_on_hard",        FatAabbCacheMargin = 0.5f,
+                AdaptiveDetectionCellSpan = 4, AdaptiveMinimumUnitsPerCell = 10,
+                AdaptiveMinimumUnitsPerRegion = 24, AdaptiveEnableScore = 0.8f },
 
-        // 自适应 + Skin 组合
-        new() { Label = "adp_skin_0.1",        EnableAdaptiveFatAabb = 1,
-                AdaptiveDetectionCellSpan = 2,  AdaptiveMinimumUnitsPerCell = 2,
-                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f,
-                PredictiveSkin = 0.1f },
-
-        // 子步/迭代 对比
-        new() { Label = "substep_2_iter_2",     SubstepCount = 2, IterationCount = 2 },
-        new() { Label = "substep_2_iter_6",     SubstepCount = 2, IterationCount = 6 },
-        new() { Label = "substep_5_iter_3",     SubstepCount = 5, IterationCount = 3 },
+        // === 最优组合交叉 ===
+        new() { Label = "combo_1",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, PredictiveSkin = 0f },
+        new() { Label = "combo_2",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 2.0f, PredictiveSkin = 0f },
+        new() { Label = "combo_3",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0f },
+        new() { Label = "combo_4",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, PredictiveSkin = 0.05f },
     };
 
     private enum Phase { WaitingForScene, WaitingForButton, Spawning, PostSpawnWait, IssueMove, Warmup, Trial, Done }
