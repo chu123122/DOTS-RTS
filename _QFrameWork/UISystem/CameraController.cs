@@ -1,3 +1,4 @@
+using RTS.Unit.FlowField.Diagnostics;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -78,10 +79,13 @@ namespace Test
 
         private void HandleEdgeScroll(float deltaTime)
         {
-            if (!Application.isFocused ||
-                (blockEdgeScrollOverUi &&
-                 EventSystem.current != null &&
-                 EventSystem.current.IsPointerOverGameObject()))
+            if (!Application.isFocused)
+                return;
+            if (SimulationDebuggerPanel.IsPointerOverDebugger(Input.mousePosition))
+                return;
+            if (blockEdgeScrollOverUi &&
+                EventSystem.current != null &&
+                EventSystem.current.IsPointerOverGameObject())
                 return;
 
             Vector3 direction = CalculateEdgeScrollDirection(
@@ -103,6 +107,8 @@ namespace Test
 
         private void HandleZoomInput()
         {
+            if (SimulationDebuggerPanel.IsPointerOverDebugger(Input.mousePosition))
+                return;
             float scrollDelta = Input.mouseScrollDelta.y;
             if (Mathf.Approximately(scrollDelta, 0f))
                 return;
