@@ -2,8 +2,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode;
-using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace 通用
 {

@@ -20,11 +20,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     protected override void OnCreate()
     {
         RequireForUpdate<FlowFieldGrid>();
+        RequireForUpdate<FlowFieldSettings>();
         RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<UnitContactSolverSettings>();
-        RequireForUpdate<PredictiveDiscContactStatistics>();
-        RequireForUpdate<ShadowNeighborCacheStatistics>();
-        RequireForUpdate<Stage3ContactDiagnosticSelection>();
 
         _movementQuery = GetEntityQuery(
             ComponentType.ReadWrite<LocalTransform>(),
@@ -56,7 +54,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
-        var diagnosticSelection = SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
+        Entity diagnosticSelectedEntity = Entity.Null;
+        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))
+            diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
         if (!gridComponent.Grid.IsCreated) return;
         if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
 
@@ -163,7 +163,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
-            DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
+            DiagnosticSelectedEntity = diagnosticSelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,

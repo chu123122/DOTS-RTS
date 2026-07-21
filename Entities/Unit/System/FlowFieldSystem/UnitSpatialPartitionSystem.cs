@@ -6,7 +6,7 @@ using Unity.Transforms;
 using Unity.Jobs;
 using 通用; // 引用 FlowFieldUtils 所在的命名空间
 
-[UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
+[DisableAutoCreation]
 public partial class UnitSpatialPartitionSystem : SystemBase
 {
     protected override void OnCreate()

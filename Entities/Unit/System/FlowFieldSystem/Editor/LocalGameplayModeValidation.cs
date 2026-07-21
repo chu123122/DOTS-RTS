@@ -34,12 +34,14 @@ public static class LocalGameplayModeValidation
         ValidateLocalUnitSpawnAndIds();
         ValidateFixedDestinationSlotMath();
         ValidatePerSlotArrivalAndSteering();
+        ValidateMovementWithoutDiagnosticComponents();
         Debug.Log(
             "LOCAL_GAMEPLAY_VALIDATION_OK\n" +
             "move order: local consumption=1\n" +
             "local spawn ids: 1,2\n" +
             "fixed slots: unique, walkable, assigned=1\n" +
-            "per-slot movement: direct steer=1, settled=1");
+            "per-slot movement: direct steer=1, settled=1\n" +
+            "diagnostics optional: movement=1");
     }
 
     private static void ValidateMoveOrderWithoutNetworkWorld()
@@ -243,6 +245,102 @@ public static class LocalGameplayModeValidation
         {
             states.Dispose();
             footprints.Dispose();
+            gridCells.Dispose();
+        }
+    }
+
+    private static void ValidateMovementWithoutDiagnosticComponents()
+    {
+        var gridCells = new NativeArray<FlowFieldCell>(16, Allocator.TempJob);
+        try
+        {
+            for (int i = 0; i < gridCells.Length; i++)
+            {
+                gridCells[i] = new FlowFieldCell
+                {
+                    Cost = 1,
+                    IntegrationValue = 3,
+                    BestDirectionIndex = 2
+                };
+            }
+
+            using var world = new World("Diagnostic Optional Movement Validation", WorldFlags.Game);
+            world.SetTime(new Unity.Core.TimeData(1d, 0.1f));
+            EntityManager entityManager = world.EntityManager;
+            Entity manager = entityManager.CreateEntity(
+                typeof(FlowFieldGrid),
+                typeof(FlowFieldRuntimeState),
+                typeof(FlowFieldSettings),
+                typeof(UnitContactSolverSettings));
+            entityManager.SetComponentData(manager, new FlowFieldGrid
+            {
+                Grid = gridCells,
+                GridOrigin = float3.zero,
+                GridDimensions = new int2(4, 4),
+                CellRadius = 0.5f
+            });
+            entityManager.SetComponentData(
+                manager,
+                new FlowFieldRuntimeState { ActiveVersion = 1 });
+            entityManager.SetComponentData(manager, new FlowFieldSettings
+            {
+                GridOrigin = float3.zero,
+                GridDimensions = new int2(4, 4),
+                CellRadius = 0.5f,
+                SoftAvoidanceResponseRate = 1f,
+                SoftAvoidanceShell = 0.1f,
+                SettledSoftAvoidanceMultiplier = 1f,
+                RvoTimeHorizon = 1f
+            });
+            entityManager.SetComponentData(manager, new UnitContactSolverSettings
+            {
+                SubstepCount = 1,
+                IterationCount = 1,
+                Compliance = 0f,
+                PredictiveSkin = 0f,
+                EnableDiagnostics = false,
+                EnableFatAabbCache = false
+            });
+
+            Entity unit = entityManager.CreateEntity(
+                typeof(LocalInstance),
+                typeof(LocalTransform),
+                typeof(Velocity),
+                typeof(FlowArrivalState),
+                typeof(UnitMoveSpeed),
+                typeof(UnitMovementSettings),
+                typeof(UnitContactBody),
+                typeof(UnitMoveDestination));
+            entityManager.SetComponentData(unit, new LocalInstance { Id = 1 });
+            entityManager.SetComponentData(
+                unit,
+                LocalTransform.FromPosition(new float3(1f, 0f, 1f)));
+            entityManager.SetComponentData(unit, new UnitMoveSpeed { Value = 2f });
+            entityManager.SetComponentData(
+                unit,
+                new UnitMovementSettings { MaxForce = 20f, RotationSpeed = 10f });
+            entityManager.SetComponentData(
+                unit,
+                new UnitContactBody { InverseMass = 1f });
+            entityManager.SetComponentData(unit, new UnitMoveDestination
+            {
+                Position = new float3(3f, 0f, 1f),
+                ArrivalRadius = 0.1f,
+                DirectApproachIntegrationDistance = 0,
+                IsActive = 1
+            });
+
+            LocalUnitFlowMovementSystem system =
+                world.CreateSystemManaged<LocalUnitFlowMovementSystem>();
+            system.Update();
+            entityManager.CompleteAllTrackedJobs();
+
+            Require(
+                entityManager.GetComponentData<LocalTransform>(unit).Position.x > 1f,
+                "Movement system did not run without diagnostic singleton components.");
+        }
+        finally
+        {
             gridCells.Dispose();
         }
     }

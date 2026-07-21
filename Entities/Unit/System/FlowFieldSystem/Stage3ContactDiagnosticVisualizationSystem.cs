@@ -771,13 +771,6 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             : value.ToString("F5");
     }
 
-    private static string FormatCoverage(int hits, int misses)
-    {
-        int total = hits + misses;
-        return total > 0
-            ? ((float)hits / total * 100f).ToString("F1") + "%"
-            : "--";
-    }
 }
 
 public struct Stage3RuntimeControlState

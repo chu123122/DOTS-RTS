@@ -20,12 +20,10 @@ namespace 通用
 
             foreach (var (
                          physicsMass,
-                         rtsTeam, 
                          localTransform, 
                          entity) in
                      SystemAPI.Query<
                              RefRW<PhysicsMass>, 
-                             RefRO<RtsTeam>, 
                              RefRO<LocalTransform>>()
                          .WithAll<IsNewCreatingTag>()
                          .WithEntityAccess())
@@ -72,14 +70,6 @@ namespace 通用
                         physicsMass.ValueRW.InverseInertia = float3.zero;
                         physicsMass.ValueRW.InverseMass = 0; // 确保是 Kinematic
                     }
-
-                    // UI 和 队伍颜色
-                    var teamColor = rtsTeam.ValueRO.Value switch
-                    {
-                        TeamType.Blue => new float4(0, 0, 1, 1),
-                        TeamType.Red => new float4(1, 0, 0, 1),
-                        _ => new float4(1)
-                    };
 
                     OnCreateHealthBar?.Invoke(unitId, localTransform.ValueRO.Position);
                     ecb.RemoveComponent<IsNewCreatingTag>(entity);
