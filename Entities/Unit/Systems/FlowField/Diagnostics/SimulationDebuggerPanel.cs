@@ -15,6 +15,12 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     public Rect WindowRect = new Rect(18f, 18f, 520f, 520f);
     public bool AutoRefreshCaptureMask = true;
 
+    [Header("Zoom")]
+    [Range(0.5f, 2f)]
+    public float FontScale = 1f;
+    private const float ZoomStep = 0.1f;
+    private float _lastFontScale;
+
     private const int WindowId = 0x51A7;
     private Vector2 _scroll;
     private bool _showDetails;
@@ -58,6 +64,25 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             Visible = !Visible;
             RefreshCaptureMask();
         }
+
+        if (Visible)
+            HandleZoomInput();
+    }
+
+    private void HandleZoomInput()
+    {
+        bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+
+        if (ctrl && Input.GetKeyDown(KeyCode.Equals) || ctrl && Input.GetKeyDown(KeyCode.KeypadPlus))
+            FontScale = Mathf.Clamp(FontScale + ZoomStep, 0.5f, 2f);
+        else if (ctrl && Input.GetKeyDown(KeyCode.Minus) || ctrl && Input.GetKeyDown(KeyCode.KeypadMinus))
+            FontScale = Mathf.Clamp(FontScale - ZoomStep, 0.5f, 2f);
+        else if (ctrl && Input.GetKeyDown(KeyCode.Alpha0))
+            FontScale = 1f;
+
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (ctrl && Mathf.Abs(scroll) > 0.001f)
+            FontScale = Mathf.Clamp(FontScale + scroll * 0.2f, 0.5f, 2f);
     }
 
     private void OnGUI()
@@ -120,6 +145,12 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label("SIMULATION DEBUGGER", _headerStyle, GUILayout.ExpandWidth(true));
+
+        if (GUILayout.Button("−", GUILayout.Width(24f), GUILayout.Height(24f)))
+            FontScale = Mathf.Clamp(FontScale - ZoomStep, 0.5f, 2f);
+        GUILayout.Label($"{FontScale * 100f:0}%", _mutedStyle, GUILayout.Width(36f));
+        if (GUILayout.Button("+", GUILayout.Width(24f), GUILayout.Height(24f)))
+            FontScale = Mathf.Clamp(FontScale + ZoomStep, 0.5f, 2f);
 
         bool frozen = SimulationDebuggerRuntime.FreezeSnapshot;
         if (GUILayout.Button(frozen ? "继续" : "冻结", GUILayout.Width(54f), GUILayout.Height(24f)))
@@ -893,8 +924,14 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
     private void EnsureStyles()
     {
-        if (_headerStyle != null)
+        if (_headerStyle != null && Mathf.Approximately(_lastFontScale, FontScale))
             return;
+
+        _lastFontScale = FontScale;
+
+        DestroyRuntimeTexture(ref _panelTexture);
+        DestroyRuntimeTexture(ref _cardTexture);
+        DestroyRuntimeTexture(ref _activeTexture);
 
         _panelTexture = SolidTexture(new Color(0.065f, 0.075f, 0.095f, 0.97f));
         _cardTexture = SolidTexture(new Color(0.105f, 0.12f, 0.15f, 0.96f));
@@ -908,13 +945,13 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
         _headerStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 15,
+            fontSize = Mathf.RoundToInt(15f * FontScale),
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleLeft
         };
         _sectionStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 12,
+            fontSize = Mathf.RoundToInt(12f * FontScale),
             fontStyle = FontStyle.Bold,
             wordWrap = true,
             padding = new RectOffset(8, 8, 7, 7),
@@ -922,17 +959,17 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         };
         _metricLabelStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 11,
+            fontSize = Mathf.RoundToInt(11f * FontScale),
             normal = { textColor = new Color(0.63f, 0.7f, 0.8f) }
         };
         _metricValueStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 20,
+            fontSize = Mathf.RoundToInt(20f * FontScale),
             fontStyle = FontStyle.Bold
         };
         _mutedStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 10,
+            fontSize = Mathf.RoundToInt(10f * FontScale),
             wordWrap = true,
             normal = { textColor = new Color(0.58f, 0.64f, 0.72f) }
         };
@@ -943,7 +980,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         };
         _tabStyle = new GUIStyle(GUI.skin.button)
         {
-            fontSize = 11,
+            fontSize = Mathf.RoundToInt(11f * FontScale),
             normal = { background = _cardTexture },
             hover = { background = _cardTexture }
         };
