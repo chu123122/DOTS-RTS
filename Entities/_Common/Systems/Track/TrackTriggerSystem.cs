@@ -7,6 +7,7 @@ using Unity.Physics;
 using Unity.Transforms;
 using 通用;
 
+[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 public partial struct TrackTriggerSystem : ISystem
 {
@@ -16,7 +17,6 @@ public partial struct TrackTriggerSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<PhysicsWorldSingleton>();
-        state.RequireForUpdate<NetworkStreamInGame>();
 
         _collisionFilter = new CollisionFilter
         {
@@ -38,7 +38,7 @@ public partial struct TrackTriggerSystem : ISystem
                      entity) in
                  SystemAPI.Query<RefRO<LocalTransform>,
                          RefRO<TrackDistance>>()
-                     .WithEntityAccess().WithAll<IsUserUnitTag,Simulate>())
+                     .WithEntityAccess().WithAll<IsUserUnitTag>())
         {
             // 球体位置
             float3 sphereCenter = localTransform.ValueRO.Position;

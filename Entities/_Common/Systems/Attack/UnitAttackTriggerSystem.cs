@@ -9,6 +9,7 @@ using 通用;
 
 namespace Entities.Unit.System
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     public partial struct UnitAttackTriggerSystem:ISystem
     {
@@ -16,9 +17,7 @@ namespace Entities.Unit.System
 
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<NetworkTime>();
             state.RequireForUpdate<PhysicsWorldSingleton>();
-            state.RequireForUpdate<NetworkStreamInGame>();
 
             _collisionFilter = new CollisionFilter
             {
@@ -30,9 +29,6 @@ namespace Entities.Unit.System
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            if(!networkTime.IsFirstTimeFullyPredictingTick)return;
-            
             var  physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
             var  collisionWorld = physicsWorld.CollisionWorld;
             
@@ -42,7 +38,7 @@ namespace Entities.Unit.System
                          entity) in 
                      SystemAPI.Query<RefRO<LocalTransform>,
                              RefRO<AttackDistance>>().
-                         WithEntityAccess().WithAll<Simulate,IsUserUnitTag>())
+                         WithEntityAccess().WithAll<IsUserUnitTag>())
             {
                 float3 sphereCenter = localTransform.ValueRO.Position;
                 NativeList<DistanceHit> hits = new NativeList<DistanceHit>(Allocator.Temp);

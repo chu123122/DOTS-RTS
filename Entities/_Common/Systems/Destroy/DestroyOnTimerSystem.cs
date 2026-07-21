@@ -5,12 +5,12 @@ using Unity.NetCode;
 
 namespace TMG.NFE_Tutorial
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     public partial struct DestroyOnTimerSystem : ISystem
     {
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<NetworkTime>();
             state.RequireForUpdate<EndSimulationEntityCommandBufferSystem.Singleton>();
         }
 
@@ -20,12 +20,12 @@ namespace TMG.NFE_Tutorial
             var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
             var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
-            var currentTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            double currentTime = SystemAPI.Time.ElapsedTime;
 
-            foreach (var (destroyAtTick, entity) in SystemAPI.Query<DestroyAtTick>().WithAll<Simulate>()
+            foreach (var (destroyAtTime, entity) in SystemAPI.Query<DestroyAtTime>()
                          .WithNone<DestroyEntityTag>().WithEntityAccess())
             {
-                if (currentTick.Equals(destroyAtTick.Value) || currentTick.IsNewerThan(destroyAtTick.Value))
+                if (currentTime >= destroyAtTime.Value)
                 {
                     ecb.AddComponent<DestroyEntityTag>(entity);
                 }

@@ -10,6 +10,7 @@ using 通用;
 using Math = System.Math;
 using RaycastHit = Unity.Physics.RaycastHit;
 
+[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
 [UpdateInGroup(typeof(GhostInputSystemGroup))]
 public partial class UnitSelectedInputSystem : SystemBase
 {
@@ -77,7 +78,7 @@ public partial class UnitSelectedInputSystem : SystemBase
     private void OnDeSelectAllUnit()
     {
         foreach (var (unitSelected, entity) in SystemAPI.Query<RefRW<UnitSelected>>()
-                     .WithAll<GhostOwnerIsLocal>().WithEntityAccess())
+                     .WithEntityAccess())
         {
             unitSelected.ValueRW.Value = false;
         }

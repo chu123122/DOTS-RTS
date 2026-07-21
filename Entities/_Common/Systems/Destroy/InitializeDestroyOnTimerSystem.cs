@@ -1,31 +1,26 @@
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Mathematics;
 
 namespace TMG.NFE_Tutorial
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial struct InitializeDestroyOnTimerSystem : ISystem
     {
-        public void OnCreate(ref SystemState state)
-        {
-            state.RequireForUpdate<NetworkTime>();
-        }
-
         public void OnUpdate(ref SystemState state)
         {
             var ecb = new EntityCommandBuffer(Allocator.Temp);
-            var simulationTickRate = NetCodeConfig.Global.ClientServerTickRate.SimulationTickRate;
-            var currentTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            double currentTime = SystemAPI.Time.ElapsedTime;
 
             foreach (var (destroyOnTimer,
                          entity) in 
                      SystemAPI.Query<DestroyOnTimer>()
-                         .WithEntityAccess().WithNone<DestroyAtTick>())
+                         .WithEntityAccess().WithNone<DestroyAtTime>())
             {
-                var lifetimeInTicks = (uint)(destroyOnTimer.Value * simulationTickRate);
-                var targetTick = currentTick;
-                targetTick.Add(lifetimeInTicks);
-                ecb.AddComponent(entity, new DestroyAtTick { Value = targetTick });
+                ecb.AddComponent(entity, new DestroyAtTime
+                {
+                    Value = currentTime + math.max(0f, destroyOnTimer.Value)
+                });
             }
 
             ecb.Playback(state.EntityManager);

@@ -16,7 +16,6 @@ namespace Entities._Common
     }
     public struct DamageThisTick : IBufferElementData
     {
-        public NetworkTick Tick;
         public int Value;
     }
     

@@ -14,9 +14,6 @@ namespace 通用
         public float attackCooldown;
         public float3 firePointOffset;
 
-        public NetCodeConfig netCodeConfig;
-        private int SimulationTickRate => netCodeConfig.ClientServerTickRate.SimulationTickRate;
-
         public class Baker:Baker<AttackAbilityAuthoring>
         {
             public override void Bake(AttackAbilityAuthoring abilityAuthoring)
@@ -27,11 +24,11 @@ namespace 通用
                 AddComponent(entity,new AttackEntity(){Entity = Entity.Null});
                 AddComponent(entity,new AttackProperties()
                 {
-                    CooldownTickCount = (uint) (abilityAuthoring.attackCooldown*abilityAuthoring.SimulationTickRate),
+                    CooldownSeconds = math.max(0f, abilityAuthoring.attackCooldown),
                     AttackPrefab = GetEntity(abilityAuthoring.attackPrefab,TransformUsageFlags.Dynamic),
                     FirePointOffset = abilityAuthoring.firePointOffset
                 });
-                AddComponent(entity, new AttackCoolDown { Value = NetworkTick.Invalid });
+                AddComponent(entity, new AttackCoolDown { NextAttackTime = 0d });
             }
         }
     }

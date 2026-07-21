@@ -3,20 +3,19 @@ using Unity.NetCode;
 
 namespace Entities._Common
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
     public partial struct CalculateFrameDamageSystem:ISystem
     {
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<NetworkTime>();
         }
 
         public void OnUpdate(ref SystemState state)
         {
-            var currentTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             foreach (var (damageBuffer,damageThisTickBuffer) in 
                      SystemAPI.Query<DynamicBuffer<DamageBufferElement>,
-                         DynamicBuffer<DamageThisTick>>().WithAll<Simulate>())
+                         DynamicBuffer<DamageThisTick>>())
             {
                 if (damageBuffer.IsEmpty)
                 {
@@ -31,7 +30,7 @@ namespace Entities._Common
                     }
 
                     damageThisTickBuffer.Clear();
-                    damageThisTickBuffer.Add(new DamageThisTick { Tick = currentTick, Value = totalDamage });
+                    damageThisTickBuffer.Add(new DamageThisTick { Value = totalDamage });
                     damageBuffer.Clear();
                 }
             }

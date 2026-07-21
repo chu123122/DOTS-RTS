@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using DefaultNamespace;
 using Entities._Common.SpawnEntityRpc;
 using Unity.Entities;
-using Unity.NetCode;
+using _RePlaySystem.Base;
 
 namespace Entities._Common
 {
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial class ClientHelpSystem : ServiceSystemBase<ClientHelpSystem>
     {
         private readonly Dictionary<int, Entity> _entitiesInClientWorld = new();
@@ -21,20 +21,21 @@ namespace Entities._Common
             createEntityRpc.CreateEntityRpc();
         }
 
-        public Entity GetEntityByIndexInClientWorld(int ghostId)
+        public Entity GetEntityByIndexInClientWorld(int localId)
         {
-            if (_entitiesInClientWorld.TryGetValue(ghostId, out Entity entityInDic))
+            if (_entitiesInClientWorld.TryGetValue(localId, out Entity entityInDic))
                 return entityInDic;
-            foreach (var (ghostInstance, entity) in SystemAPI.Query<RefRO<GhostInstance>>().WithEntityAccess())
+            foreach (var (localInstance, entity) in
+                     SystemAPI.Query<RefRO<LocalInstance>>().WithEntityAccess())
             {
-                if (ghostInstance.ValueRO.ghostId == ghostId)
+                if (localInstance.ValueRO.Id == localId)
                 {
-                    _entitiesInClientWorld.Add(ghostId, entity);
+                    _entitiesInClientWorld.Add(localId, entity);
                     return entity;
                 }
             }
 
-            throw new InvalidOperationException($"无法查找到对应id:{ghostId}的Entity在本地世界");
+            throw new InvalidOperationException($"无法查找到对应id:{localId}的Entity在本地世界");
         }
     }
 }

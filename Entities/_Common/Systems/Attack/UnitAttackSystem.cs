@@ -8,21 +8,18 @@ using Unity.Transforms;
 
 namespace Entities.Unit.System
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     public partial struct UnitAttackSystem : ISystem
     {
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<NetworkTime>();
             state.RequireForUpdate<BeginSimulationEntityCommandBufferSystem.Singleton>();
         }
 
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            if(!networkTime.IsFirstTimeFullyPredictingTick)return;
-            
             var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
             var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
@@ -30,17 +27,16 @@ namespace Entities.Unit.System
             {
                 ECB = ecb.AsParallelWriter(),
                 TransformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true),
-                CurrentTick = networkTime.ServerTick
+                CurrentTime = SystemAPI.Time.ElapsedTime
             }.ScheduleParallel(state.Dependency);
         }
     }
 }
 
 [BurstCompile]
-[WithAll(typeof(Simulate))]
 public partial struct UnitAttackJob : IJobEntity
 {
-    [ReadOnly] public NetworkTick CurrentTick;
+    [ReadOnly] public double CurrentTime;
     [ReadOnly] public ComponentLookup<LocalTransform> TransformLookup;
 
     public EntityCommandBuffer.ParallelWriter ECB;
@@ -50,7 +46,7 @@ public partial struct UnitAttackJob : IJobEntity
         [ChunkIndexInQuery] int sortKey)
     {
         if(!TransformLookup.HasComponent(beAttackEntity.Entity))return;
-        if (attackCoolDown.Value.IsValid && !CurrentTick.IsNewerThan(attackCoolDown.Value)) return;
+        if (CurrentTime < attackCoolDown.NextAttackTime) return;
 
         float3 spawnPosition = TransformLookup[attackEntity].Position + attackProperties.FirePointOffset;
         float3 targetPosition = TransformLookup[beAttackEntity.Entity].Position;
@@ -61,9 +57,7 @@ public partial struct UnitAttackJob : IJobEntity
         newAttackTransform.Scale = 0.3f;
         ECB.SetComponent(sortKey, newAttack, newAttackTransform);
 
-        var newCooldownTick = CurrentTick;
-        newCooldownTick.Add(attackProperties.CooldownTickCount);
-
-        attackCoolDown.Value = newCooldownTick;
+        attackCoolDown.NextAttackTime =
+            CurrentTime + math.max(0f, attackProperties.CooldownSeconds);
     }
 }

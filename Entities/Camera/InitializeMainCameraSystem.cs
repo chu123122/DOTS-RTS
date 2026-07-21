@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace 客户端
 {
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial class InitializeMainCameraSystem:SystemBase
     {
         protected override void OnCreate()

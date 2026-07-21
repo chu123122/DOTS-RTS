@@ -12,6 +12,6 @@ public readonly partial struct AttackAspect : IAspect
     public int AttackDamage => _attackDamage.ValueRO.Damage;
     public Entity AttackEntity => _attackEntity.ValueRO.Entity;
     public bool CantAttack=>true;
-    public uint CoolDownTicks => _attackCooldownTick.ValueRO.CooldownTickCount;
+    public float CooldownSeconds => _attackCooldownTick.ValueRO.CooldownSeconds;
     public AttackCoolDown CooldownState => _attackCooldownTargetTick.ValueRO;
 }

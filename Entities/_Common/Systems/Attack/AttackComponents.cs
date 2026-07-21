@@ -21,11 +21,11 @@ public struct AttackDamage : IComponentData
 public struct AttackProperties : IComponentData
 {
     public float3 FirePointOffset;
-    public uint CooldownTickCount;
+    public float CooldownSeconds;
     public Entity AttackPrefab;
 }
 
 public struct AttackCoolDown : IComponentData
 {
-    public NetworkTick Value;
+    public double NextAttackTime;
 }

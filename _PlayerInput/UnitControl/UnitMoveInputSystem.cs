@@ -11,6 +11,7 @@ using RaycastHit = Unity.Physics.RaycastHit;
 
 namespace 客户端
 {
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     public partial class UnitMoveInputSystem : SystemBase, ICanGetServiceSystem,IGetService
     {
@@ -19,7 +20,7 @@ namespace 客户端
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkStreamInGame>();
+            RequireForUpdate<FlowFieldGlobalTarget>();
             _collisionFilter = new CollisionFilter
             {
                 BelongsTo = ~0u,
@@ -57,7 +58,7 @@ namespace 客户端
             {
                 bool hasSelectedUnit = false;
                 foreach (var unitSelected in
-                         SystemAPI.Query<RefRO<UnitSelected>>().WithAll<GhostOwnerIsLocal>())
+                         SystemAPI.Query<RefRO<UnitSelected>>())
                 {
                     if (unitSelected.ValueRO.Value)
                     {
@@ -74,13 +75,6 @@ namespace 客户端
                     TargetPosition = closestHit.Position
                 });
                 EntityManager.SetComponentEnabled<MoveOrder>(flowFieldEntity, true);
-
-                Entity requestEntity = EntityManager.CreateEntity();
-                EntityManager.AddComponentData(requestEntity, new RequestMoveOrderRPC
-                {
-                    TargetPosition = closestHit.Position
-                });
-                EntityManager.AddComponent<SendRpcCommandRequest>(requestEntity);
 
                 RequestCommandRpcSystem requestCommandRpcSystem =
                     this.GetService<RequestCommandRpcSystem>();

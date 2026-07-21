@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode;
 
+[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 public partial class RtsCommandSystem : SystemBase
 {
@@ -10,14 +11,10 @@ public partial class RtsCommandSystem : SystemBase
     {
         RequireForUpdate<FlowFieldGlobalTarget>();
         RequireForUpdate<MoveOrder>();
-        RequireForUpdate<NetworkTime>();
     }
 
     protected override void OnUpdate()
     {
-        var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-        if (!networkTime.IsFirstTimeFullyPredictingTick) return;
-
         var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
         var currentTarget = SystemAPI.GetComponent<FlowFieldGlobalTarget>(gridEntity);
         var moveOrder = EntityManager.GetComponentData<MoveOrder>(gridEntity);
