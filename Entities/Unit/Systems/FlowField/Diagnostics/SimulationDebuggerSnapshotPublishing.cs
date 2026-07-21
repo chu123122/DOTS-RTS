@@ -54,6 +54,8 @@ public abstract partial class BaseFlowMovementSystem
             SystemAPI.GetSingleton<FlowFieldSettings>(),
             solverSettings,
             adaptiveSettings);
+        snapshot.Experiment = SimulationDebuggerRuntime.UpdateExperimentIdentity(
+            snapshot.EffectiveSettings);
 
         PredictiveDiscContactStatistics contactStatistics = default;
         ShadowNeighborCacheStatistics shadowStatistics = default;
@@ -76,7 +78,8 @@ public abstract partial class BaseFlowMovementSystem
             hasContactStatistics,
             contactStatistics,
             snapshot.SubstepCount,
-            hasShadowStatistics ? shadowStatistics.FullBroadPhaseFallbackCount : 0);
+            hasShadowStatistics ? shadowStatistics.FullBroadPhaseFallbackCount : 0,
+            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
         bool wantsSpatial = (captureMask & (
             SimulationDebuggerCaptureMask.OverviewHeatmap |
@@ -188,10 +191,13 @@ public abstract partial class BaseFlowMovementSystem
         bool hasStatistics,
         PredictiveDiscContactStatistics statistics,
         int substepCount,
-        int fallbackCount)
+        int fallbackCount,
+        bool cacheEnabled)
     {
         var result = new TimestepContactSetMetrics
         {
+            CacheEnabled = (byte)(cacheEnabled ? 1 : 0),
+            ContactGenerationCount = (cacheEnabled ? 1 : substepCount) + math.max(0, fallbackCount),
             SubstepCount = substepCount,
             SupplementOrFallbackCount = fallbackCount,
             Health = hasStatistics
@@ -217,7 +223,7 @@ public abstract partial class BaseFlowMovementSystem
         result.PredictiveActivationRatio = statistics.PredictivePairCount > 0
             ? statistics.PredictiveActivatedCount / (float)statistics.PredictivePairCount
             : 0f;
-        result.AvoidedContactGenerationCount = result.ContactSetSize > 0
+        result.AvoidedContactGenerationCount = cacheEnabled && result.ContactSetSize > 0
             ? math.max(0, substepCount - 1)
             : 0;
 

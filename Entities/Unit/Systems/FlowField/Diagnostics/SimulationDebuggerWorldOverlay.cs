@@ -15,6 +15,8 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
     [Min(0f)] public float PairHeight = 0.18f;
     public bool DrawRegions = true;
     public bool DrawSelectedBroadCells = true;
+    public bool DrawHeatmapGridLines = true;
+    [Range(0f, 1f)] public float HeatmapGridLineAlpha = 0.32f;
 
     private Material _material;
 
@@ -37,7 +39,7 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
     private void OnRenderObject()
     {
         if (!SimulationDebuggerRuntime.OverlayEnabled ||
-            SimulationDebuggerRuntime.ActiveHeatmap == SimulationDebuggerHeatmap.None ||
+            SimulationDebuggerRuntime.WorldHeatmap == SimulationDebuggerHeatmap.None ||
             !SimulationDebuggerRuntime.TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot) ||
             snapshot.Cells.Count == 0)
             return;
@@ -52,11 +54,11 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
         for (int i = 0; i < snapshot.Cells.Count; i++)
         {
             SimulationDebuggerCellSample cell = snapshot.Cells[i];
-            float value = GetHeatmapValue(cell, SimulationDebuggerRuntime.ActiveHeatmap);
+            float value = GetHeatmapValue(cell, SimulationDebuggerRuntime.WorldHeatmap);
             if (value <= 0.001f && cell.UnitCount == 0)
                 continue;
             Color color = HeatmapColor(
-                SimulationDebuggerRuntime.ActiveHeatmap,
+                SimulationDebuggerRuntime.WorldHeatmap,
                 value,
                 SimulationDebuggerRuntime.HeatmapOpacity);
             GL.Color(color);
@@ -66,13 +68,32 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
             GL.Vertex3(cell.Min.x, HeatmapHeight, cell.Max.y);
         }
         GL.End();
+
+        if (DrawHeatmapGridLines)
+        {
+            GL.Begin(GL.LINES);
+            GL.Color(new Color(0.02f, 0.03f, 0.04f, HeatmapGridLineAlpha));
+            for (int i = 0; i < snapshot.Cells.Count; i++)
+            {
+                SimulationDebuggerCellSample cell = snapshot.Cells[i];
+                GL.Vertex3(cell.Min.x, HeatmapHeight + 0.002f, cell.Min.y);
+                GL.Vertex3(cell.Max.x, HeatmapHeight + 0.002f, cell.Min.y);
+                GL.Vertex3(cell.Max.x, HeatmapHeight + 0.002f, cell.Min.y);
+                GL.Vertex3(cell.Max.x, HeatmapHeight + 0.002f, cell.Max.y);
+                GL.Vertex3(cell.Max.x, HeatmapHeight + 0.002f, cell.Max.y);
+                GL.Vertex3(cell.Min.x, HeatmapHeight + 0.002f, cell.Max.y);
+                GL.Vertex3(cell.Min.x, HeatmapHeight + 0.002f, cell.Max.y);
+                GL.Vertex3(cell.Min.x, HeatmapHeight + 0.002f, cell.Min.y);
+            }
+            GL.End();
+        }
         GL.PopMatrix();
     }
 
     private void DrawRegionsAndSelection(SimulationDebuggerFrameSnapshot snapshot)
     {
         if (DrawRegions &&
-            SimulationDebuggerRuntime.ActiveView == SimulationDebuggerView.PersistentBroadPhase)
+            SimulationDebuggerRuntime.WorldOverlayView == SimulationDebuggerView.PersistentBroadPhase)
         {
             for (int i = 0; i < snapshot.Regions.Count; i++)
             {

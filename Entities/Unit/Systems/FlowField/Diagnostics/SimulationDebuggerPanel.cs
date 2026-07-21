@@ -3,27 +3,64 @@ using UnityEngine;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
+[Serializable]
+public sealed class SimulationDebuggerWindowState
+{
+    public Rect Rect;
+    public bool Visible = true;
+    public bool ShowDetails;
+    public bool ShowGridHeatmap = true;
+    public SimulationDebuggerHeatmap Heatmap;
+    [NonSerialized] public Vector2 Scroll;
+    [NonSerialized] public bool Resizing;
+    [NonSerialized] public Vector2 ResizeStartMouse;
+    [NonSerialized] public Vector2 ResizeStartSize;
+
+    public static SimulationDebuggerWindowState Create(
+        Rect rect,
+        SimulationDebuggerHeatmap heatmap)
+    {
+        return new SimulationDebuggerWindowState
+        {
+            Rect = rect,
+            Heatmap = heatmap,
+            Visible = true,
+            ShowGridHeatmap = true
+        };
+    }
+}
+
 /// <summary>
 /// Runtime IMGUI front-end for the unified simulation diagnostics snapshot.
 /// Add it to any scene object, or let the editor/development bootstrap create it.
 /// </summary>
-public sealed class SimulationDebuggerPanel : MonoBehaviour
+public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 {
     [Header("Window")]
     public bool Visible = true;
     public KeyCode ToggleKey = KeyCode.F8;
-    public Rect WindowRect = new Rect(18f, 18f, 520f, 520f);
     public bool AutoRefreshCaptureMask = true;
 
-    [Header("Zoom")]
-    [Range(0.5f, 2f)]
-    public float FontScale = 1f;
-    private const float ZoomStep = 0.1f;
-    private float _lastFontScale;
+    [Header("四窗口布局")]
+    public SimulationDebuggerWindowState OverviewWindow =
+        SimulationDebuggerWindowState.Create(new Rect(18f, 58f, 510f, 440f), SimulationDebuggerHeatmap.OverallPressure);
+    public SimulationDebuggerWindowState AabbWindow =
+        SimulationDebuggerWindowState.Create(new Rect(542f, 58f, 510f, 440f), SimulationDebuggerHeatmap.AabbBenefit);
+    public SimulationDebuggerWindowState ContactWindow =
+        SimulationDebuggerWindowState.Create(new Rect(18f, 512f, 510f, 440f), SimulationDebuggerHeatmap.ContactActivation);
+    public SimulationDebuggerWindowState SettingsWindow =
+        SimulationDebuggerWindowState.Create(new Rect(542f, 512f, 510f, 520f), SimulationDebuggerHeatmap.None);
+    public Rect LauncherRect = new Rect(18f, 18f, 620f, 34f);
 
-    private const int WindowId = 0x51A7;
+    private const int LauncherWindowId = 0x51A0;
+    private const int OverviewWindowId = 0x51A1;
+    private const int AabbWindowId = 0x51A2;
+    private const int ContactWindowId = 0x51A3;
+    private const int SettingsWindowId = 0x51A4;
     private Vector2 _scroll;
     private bool _showDetails;
+    private SimulationDebuggerView _currentView;
+    private SimulationDebuggerWindowState _activeWindowState;
     private bool _settingsInitialized;
     private SimulationDebuggerEffectiveSettings _settingsDraft;
     private GUIStyle _windowStyle;
@@ -64,25 +101,6 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             Visible = !Visible;
             RefreshCaptureMask();
         }
-
-        if (Visible)
-            HandleZoomInput();
-    }
-
-    private void HandleZoomInput()
-    {
-        bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-
-        if (ctrl && Input.GetKeyDown(KeyCode.Equals) || ctrl && Input.GetKeyDown(KeyCode.KeypadPlus))
-            FontScale = Mathf.Clamp(FontScale + ZoomStep, 0.5f, 2f);
-        else if (ctrl && Input.GetKeyDown(KeyCode.Minus) || ctrl && Input.GetKeyDown(KeyCode.KeypadMinus))
-            FontScale = Mathf.Clamp(FontScale - ZoomStep, 0.5f, 2f);
-        else if (ctrl && Input.GetKeyDown(KeyCode.Alpha0))
-            FontScale = 1f;
-
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (ctrl && Mathf.Abs(scroll) > 0.001f)
-            FontScale = Mathf.Clamp(FontScale + scroll * 0.2f, 0.5f, 2f);
     }
 
     private void OnGUI()
@@ -91,42 +109,95 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             return;
 
         EnsureStyles();
-        WindowRect = GUILayout.Window(
-            WindowId,
-            WindowRect,
-            DrawWindow,
+        LauncherRect = GUI.Window(
+            LauncherWindowId,
+            LauncherRect,
+            DrawLauncherWindow,
             GUIContent.none,
-            _windowStyle,
-            GUILayout.MinWidth(440f),
-            GUILayout.MinHeight(360f));
-        WindowRect.x = Mathf.Clamp(WindowRect.x, 0f, Mathf.Max(0f, Screen.width - 80f));
-        WindowRect.y = Mathf.Clamp(WindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+            _windowStyle);
 
-        if (Event.current.type == EventType.ScrollWheel &&
-            WindowRect.Contains(Event.current.mousePosition))
-        {
-            Event.current.Use();
-        }
+        DrawIndependentWindow(OverviewWindowId, SimulationDebuggerView.Overview, OverviewWindow);
+        DrawIndependentWindow(AabbWindowId, SimulationDebuggerView.PersistentBroadPhase, AabbWindow);
+        DrawIndependentWindow(ContactWindowId, SimulationDebuggerView.TimestepContactSet, ContactWindow);
+        DrawIndependentWindow(SettingsWindowId, SimulationDebuggerView.RuntimeSettings, SettingsWindow);
     }
 
-    private void DrawWindow(int id)
+    private void DrawLauncherWindow(int id)
     {
-        DrawHeader();
-        DrawTabs();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("仿真诊断", _headerStyle, GUILayout.Width(78f));
+        DrawWindowVisibilityButton("整体", OverviewWindow);
+        DrawWindowVisibilityButton("跨帧 AABB", AabbWindow);
+        DrawWindowVisibilityButton("跨子步接触", ContactWindow);
+        DrawWindowVisibilityButton("设置", SettingsWindow);
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button(SimulationDebuggerRuntime.FreezeSnapshot ? "继续" : "冻结", GUILayout.Width(48f)))
+            SimulationDebuggerRuntime.FreezeSnapshot = !SimulationDebuggerRuntime.FreezeSnapshot;
+        if (GUILayout.Button(SimulationDebuggerRuntime.OverlayEnabled ? "场景图层" : "图层关闭", GUILayout.Width(68f)))
+            SimulationDebuggerRuntime.OverlayEnabled = !SimulationDebuggerRuntime.OverlayEnabled;
+        if (GUILayout.Button("×", GUILayout.Width(24f)))
+        {
+            Visible = false;
+            RefreshCaptureMask();
+        }
+        GUILayout.EndHorizontal();
+        GUI.DragWindow(new Rect(0f, 0f, LauncherRect.width - 28f, 28f));
+    }
+
+    private void DrawWindowVisibilityButton(string label, SimulationDebuggerWindowState state)
+    {
+        bool next = GUILayout.Toggle(state.Visible, label, _tabStyle, GUILayout.Height(23f));
+        if (next == state.Visible)
+            return;
+        state.Visible = next;
+        RefreshCaptureMask();
+    }
+
+    private void DrawIndependentWindow(
+        int id,
+        SimulationDebuggerView view,
+        SimulationDebuggerWindowState state)
+    {
+        if (state == null || !state.Visible)
+            return;
+
+        Rect returnedRect = GUI.Window(
+            id,
+            state.Rect,
+            _ => DrawViewWindow(view, state),
+            GUIContent.none,
+            _windowStyle);
+        float desiredWidth = state.Rect.width;
+        float desiredHeight = state.Rect.height;
+        state.Rect = returnedRect;
+        state.Rect.width = Mathf.Max(360f, desiredWidth);
+        state.Rect.height = Mathf.Max(260f, desiredHeight);
+        state.Rect.x = Mathf.Clamp(state.Rect.x, -state.Rect.width + 90f, Screen.width - 80f);
+        state.Rect.y = Mathf.Clamp(state.Rect.y, 0f, Screen.height - 35f);
+    }
+
+    private void DrawViewWindow(
+        SimulationDebuggerView view,
+        SimulationDebuggerWindowState state)
+    {
+        _currentView = view;
+        _activeWindowState = state;
+        _scroll = state.Scroll;
+        _showDetails = state.ShowDetails;
+
+        DrawWindowHeader(view, state);
         _scroll = GUILayout.BeginScrollView(_scroll, false, true);
 
         if (!SimulationDebuggerRuntime.TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot))
         {
-            GUILayout.Space(24f);
-            GUILayout.Label("等待 Simulation 诊断快照…", _sectionStyle);
-            GUILayout.Label(
-                "确认 FlowMovementSystem 正在运行，并且 Capture Mask 未设为 None。",
-                _mutedStyle);
+            GUILayout.Space(20f);
+            GUILayout.Label("等待仿真诊断快照…", _sectionStyle);
+            GUILayout.Label("确认单位移动系统正在运行，并且该窗口已启用采样。", _mutedStyle);
         }
         else
         {
             DrawFrameStrip(snapshot);
-            switch (SimulationDebuggerRuntime.ActiveView)
+            switch (view)
             {
                 case SimulationDebuggerView.Overview:
                     DrawOverview(snapshot);
@@ -144,70 +215,90 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         }
 
         GUILayout.EndScrollView();
-        GUI.DragWindow(new Rect(0f, 0f, WindowRect.width - 42f, 30f));
+        state.Scroll = _scroll;
+        state.ShowDetails = _showDetails;
+        HandleResize(state);
+        GUI.DragWindow(new Rect(0f, 0f, state.Rect.width - 54f, 30f));
     }
 
-    private void DrawHeader()
+    private void DrawWindowHeader(
+        SimulationDebuggerView view,
+        SimulationDebuggerWindowState state)
     {
         GUILayout.BeginHorizontal();
-        GUILayout.Label("SIMULATION DEBUGGER", _headerStyle, GUILayout.ExpandWidth(true));
-
-        if (GUILayout.Button("−", GUILayout.Width(24f), GUILayout.Height(24f)))
-            FontScale = Mathf.Clamp(FontScale - ZoomStep, 0.5f, 2f);
-        GUILayout.Label($"{FontScale * 100f:0}%", _mutedStyle, GUILayout.Width(36f));
-        if (GUILayout.Button("+", GUILayout.Width(24f), GUILayout.Height(24f)))
-            FontScale = Mathf.Clamp(FontScale + ZoomStep, 0.5f, 2f);
-
-        bool frozen = SimulationDebuggerRuntime.FreezeSnapshot;
-        if (GUILayout.Button(frozen ? "继续" : "冻结", GUILayout.Width(54f), GUILayout.Height(24f)))
-            SimulationDebuggerRuntime.FreezeSnapshot = !frozen;
-
-        bool overlay = SimulationDebuggerRuntime.OverlayEnabled;
-        if (GUILayout.Button(overlay ? "Overlay" : "Overlay ×", GUILayout.Width(72f), GUILayout.Height(24f)))
-            SimulationDebuggerRuntime.OverlayEnabled = !overlay;
-
-        if (GUILayout.Button("×", GUILayout.Width(28f), GUILayout.Height(24f)))
+        GUILayout.Label(ViewTitle(view), _headerStyle, GUILayout.ExpandWidth(true));
+        if (view != SimulationDebuggerView.RuntimeSettings &&
+            GUILayout.Button("映射到场景", GUILayout.Width(78f), GUILayout.Height(23f)))
         {
-            Visible = false;
+            SimulationDebuggerRuntime.WorldHeatmap = state.Heatmap;
+            SimulationDebuggerRuntime.WorldOverlayView = view;
+            SimulationDebuggerRuntime.OverlayEnabled = true;
+        }
+        if (GUILayout.Button("×", GUILayout.Width(25f), GUILayout.Height(23f)))
+        {
+            state.Visible = false;
             RefreshCaptureMask();
         }
         GUILayout.EndHorizontal();
     }
 
-    private void DrawTabs()
+    private void HandleResize(SimulationDebuggerWindowState state)
     {
-        GUILayout.BeginHorizontal();
-        DrawTab("整体", SimulationDebuggerView.Overview);
-        DrawTab("跨帧 AABB", SimulationDebuggerView.PersistentBroadPhase);
-        DrawTab("跨子步 Contact", SimulationDebuggerView.TimestepContactSet);
-        DrawTab("设置", SimulationDebuggerView.RuntimeSettings);
-        GUILayout.EndHorizontal();
-        GUILayout.Space(5f);
+        Rect grip = new Rect(state.Rect.width - 18f, state.Rect.height - 18f, 18f, 18f);
+        GUI.Label(grip, "◢", _mutedStyle);
+        Event evt = Event.current;
+        if (evt.type == EventType.MouseDown && grip.Contains(evt.mousePosition))
+        {
+            state.Resizing = true;
+            state.ResizeStartMouse = evt.mousePosition;
+            state.ResizeStartSize = new Vector2(state.Rect.width, state.Rect.height);
+            evt.Use();
+        }
+        else if (evt.type == EventType.MouseDrag && state.Resizing)
+        {
+            Vector2 delta = evt.mousePosition - state.ResizeStartMouse;
+            state.Rect.width = Mathf.Max(360f, state.ResizeStartSize.x + delta.x);
+            state.Rect.height = Mathf.Max(260f, state.ResizeStartSize.y + delta.y);
+            evt.Use();
+        }
+        else if (evt.type == EventType.MouseUp && state.Resizing)
+        {
+            state.Resizing = false;
+            evt.Use();
+        }
     }
 
-    private void DrawTab(string label, SimulationDebuggerView view)
+    private static string ViewTitle(SimulationDebuggerView view)
     {
-        bool active = SimulationDebuggerRuntime.ActiveView == view;
-        GUIStyle style = active ? _activeTabStyle : _tabStyle;
-        if (!GUILayout.Button(label, style, GUILayout.Height(30f)))
-            return;
-
-        SimulationDebuggerRuntime.ActiveView = view;
-        _showDetails = false;
-        SetDefaultHeatmap(view);
-        RefreshCaptureMask();
+        return view switch
+        {
+            SimulationDebuggerView.Overview => "整体仿真",
+            SimulationDebuggerView.PersistentBroadPhase => "跨帧 AABB",
+            SimulationDebuggerView.TimestepContactSet => "跨子步接触缓存",
+            _ => "运行时设置"
+        };
     }
 
     private void DrawFrameStrip(SimulationDebuggerFrameSnapshot snapshot)
     {
         GUILayout.BeginHorizontal();
-        GUILayout.Label($"Frame {snapshot.FrameId}", _mutedStyle);
+        GUILayout.Label($"帧 {snapshot.FrameId}", _mutedStyle);
+        GUILayout.Space(10f);
+        GUILayout.Label(
+            $"实验 {snapshot.Experiment.ShortId} · 配置 #{snapshot.Experiment.ConfigurationId}",
+            _mutedStyle);
         GUILayout.FlexibleSpace();
         GUILayout.Label(
-            $"dt {snapshot.DeltaTime * 1000f:0.00} ms  ·  " +
-            $"{snapshot.SubstepCount} substeps  ·  {snapshot.IterationCount} iterations",
+            $"时间步 {snapshot.DeltaTime * 1000f:0.00} 毫秒  ·  " +
+            $"{snapshot.SubstepCount} 子步  ·  {snapshot.IterationCount} 轮迭代",
             _mutedStyle);
         GUILayout.EndHorizontal();
+        if (snapshot.Experiment.IsWarmup != 0)
+        {
+            GUILayout.Label(
+                $"配置切换后的预热阶段：第 {snapshot.Experiment.FramesSinceChanged + 1} 帧，暂不建议纳入正式对比。",
+                _mutedStyle);
+        }
         GUILayout.Space(6f);
     }
 
@@ -232,6 +323,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.SolverCorrection
             });
         DrawHeatmapLegend();
+        DrawPanelGridHeatmap(snapshot);
         DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
@@ -241,7 +333,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label("阶段详情", _sectionStyle);
         DrawTimeBreakdown(metrics);
         DrawDetailRow("Broad 候选", metrics.CandidatePairCount.ToString("N0"));
-        DrawDetailRow("Contact Set", metrics.ContactPairCount.ToString("N0"));
+        DrawDetailRow("接触缓存", metrics.ContactPairCount.ToString("N0"));
         DrawDetailRow("最大墙体修正", metrics.MaxWallCorrection.ToString("0.000"));
         DrawDetailRow("最大速度变化", metrics.MaxVelocityChange.ToString("0.000"));
     }
@@ -268,6 +360,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.EscapeRisk
             });
         DrawHeatmapLegend();
+        DrawPanelGridHeatmap(snapshot);
         DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
@@ -279,7 +372,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("缓存年龄", $"{metrics.CacheAgeFrames} 帧");
         DrawDetailRow("缓存候选 Pair", metrics.CachedCandidatePairCount.ToString("N0"));
         DrawDetailRow("最终 Contact", metrics.FinalContactPairCount.ToString("N0"));
-        DrawDetailRow("Invalidation", metrics.InvalidationCount.ToString("N0"));
+        DrawDetailRow("失效次数", metrics.InvalidationCount.ToString("N0"));
         DrawDetailRow("估算收益评分", metrics.EstimatedBenefitScore.ToString("+0.00;-0.00;0.00"));
     }
 
@@ -290,13 +383,16 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
-        DrawMetric("Contact Set", metrics.ContactSetSize.ToString("N0"), "整个 timestep 复用的约束拓扑");
-        DrawMetric("接触激活率", Percent(metrics.ActivationRatio), "至少一次真正产生约束作用的 Contact");
-        DrawMetric("补充 / 回退", metrics.SupplementOrFallbackCount.ToString("N0"), "初始 Contact Set 未覆盖的异常路径");
+        DrawMetric(
+            metrics.CacheEnabled != 0 ? "整步接触集" : "子步接触集",
+            metrics.ContactSetSize.ToString("N0"),
+            metrics.CacheEnabled != 0 ? "一个时间步只生成一次并跨子步复用" : "每个子步重新生成，仅在迭代内复用");
+        DrawMetric("接触激活率", Percent(metrics.ActivationRatio), "至少一次真正产生约束作用的接触");
+        DrawMetric("补充 / 回退", metrics.SupplementOrFallbackCount.ToString("N0"), "初始接触集未覆盖的异常路径");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
-            "Contact Set 热力图",
+            "接触缓存热力图",
             new[]
             {
                 SimulationDebuggerHeatmap.ContactActivation,
@@ -304,24 +400,27 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.ContactSupplementRisk
             });
         DrawHeatmapLegend();
+        DrawPanelGridHeatmap(snapshot);
         DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
         if (!_showDetails)
             return;
 
-        GUILayout.Label("缓存组成", _sectionStyle);
-        DrawDetailRow("Actual / Near", metrics.ActualContactCount.ToString("N0"));
-        DrawDetailRow("Predictive", metrics.PredictiveContactCount.ToString("N0"));
-        DrawDetailRow("Predictive 已激活", metrics.PredictiveActivatedCount.ToString("N0"));
+        GUILayout.Label("接触集组成", _sectionStyle);
+        DrawDetailRow("生成模式", metrics.CacheEnabled != 0 ? "每时间步一次" : "每子步一次");
+        DrawDetailRow("本帧生成次数", metrics.ContactGenerationCount.ToString("N0"));
+        DrawDetailRow("当前 / 临近接触", metrics.ActualContactCount.ToString("N0"));
+        DrawDetailRow("预测接触", metrics.PredictiveContactCount.ToString("N0"));
+        DrawDetailRow("预测接触已激活", metrics.PredictiveActivatedCount.ToString("N0"));
         DrawDetailRow("缓存但未激活", metrics.InactiveContactCount.ToString("N0"));
         DrawDetailRow("避免重复生成", $"{metrics.AvoidedContactGenerationCount} 次");
-        DrawDetailRow("Predictive 激活率", Percent(metrics.PredictiveActivationRatio));
+        DrawDetailRow("预测接触激活率", Percent(metrics.PredictiveActivationRatio));
     }
 
     private void DrawSettingsSummary(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改会在下一个 timestep 边界统一生效");
+        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改会在下一个时间步开始前统一生效");
         GUILayout.Space(8f);
 
         if (!_settingsInitialized)
@@ -330,117 +429,142 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             _settingsInitialized = true;
         }
 
-        GUILayout.Label("Global / XPBD", _sectionStyle);
+        GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
+        GUILayout.Label(
+            "三个变量互相独立：A 为跨帧 AABB，B 为跨子步接触集，C 为软避让求解器。",
+            _mutedStyle);
+        _settingsDraft.EnableFatAabbCache = DrawToggle(
+            "A：跨帧 AABB 候选缓存",
+            _settingsDraft.EnableFatAabbCache,
+            snapshot.EffectiveSettings.EnableFatAabbCache);
+        _settingsDraft.EnableTimestepContactSetCache = DrawToggle(
+            "B：跨子步接触集缓存",
+            _settingsDraft.EnableTimestepContactSetCache,
+            snapshot.EffectiveSettings.EnableTimestepContactSetCache);
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("C：软避让求解器", _mutedStyle, GUILayout.Width(170f));
+        string[] solverModes = { "预测引导", "RVO 互惠避让" };
+        _settingsDraft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(_settingsDraft.SoftAvoidanceVelocitySolver, 0, 1),
+            solverModes,
+            2,
+            _tabStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label(
+            $"当前有效：{SoftSolverLabel(snapshot.EffectiveSettings.SoftAvoidanceVelocitySolver)}",
+            _mutedStyle);
+        GUILayout.EndHorizontal();
+        DrawDetailRow(
+            "当前实验编号",
+            $"{snapshot.Experiment.ShortId} / 配置 #{snapshot.Experiment.ConfigurationId}");
+        DrawDetailRow(
+            "统计阶段",
+            snapshot.Experiment.IsWarmup != 0
+                ? $"预热中（{snapshot.Experiment.FramesSinceChanged + 1} 帧）"
+                : "可纳入正式对比");
+
+        GUILayout.Space(6f);
+        GUILayout.Label("全局与 XPBD", _sectionStyle);
         _settingsDraft.SubstepCount = DrawIntSlider(
-            "Substeps",
+            "子步数量",
             _settingsDraft.SubstepCount,
             snapshot.EffectiveSettings.SubstepCount,
             1,
             16);
         _settingsDraft.IterationCount = DrawIntSlider(
-            "Iterations",
+            "每子步迭代次数",
             _settingsDraft.IterationCount,
             snapshot.EffectiveSettings.IterationCount,
             1,
             24);
         _settingsDraft.Compliance = DrawFloatSlider(
-            "Compliance",
+            "柔顺度",
             _settingsDraft.Compliance,
             snapshot.EffectiveSettings.Compliance,
             0f,
             0.1f,
             "0.0000");
         _settingsDraft.EnableDiagnostics = DrawToggle(
-            "Solver diagnostics",
+            "求解器详细诊断",
             _settingsDraft.EnableDiagnostics,
             snapshot.EffectiveSettings.EnableDiagnostics);
 
         GUILayout.Space(6f);
-        GUILayout.Label("Soft Avoidance", _sectionStyle);
+        GUILayout.Label("软避让参数", _sectionStyle);
+        DrawDetailRow("当前求解器", SoftSolverLabel(_settingsDraft.SoftAvoidanceVelocitySolver));
         _settingsDraft.SoftAvoidanceResponseRate = DrawFloatSlider(
-            "Response rate",
+            "响应速度",
             _settingsDraft.SoftAvoidanceResponseRate,
             snapshot.EffectiveSettings.SoftAvoidanceResponseRate,
             0f,
             20f,
             "0.00");
         _settingsDraft.SoftAvoidanceShell = DrawFloatSlider(
-            "Surface shell",
+            "表面缓冲距离",
             _settingsDraft.SoftAvoidanceShell,
             snapshot.EffectiveSettings.SoftAvoidanceShell,
             0f,
             4f,
             "0.00");
         _settingsDraft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
-            "Settled multiplier",
+            "已到达单位避让倍率",
             _settingsDraft.SettledSoftAvoidanceMultiplier,
             snapshot.EffectiveSettings.SettledSoftAvoidanceMultiplier,
             0f,
             2f,
             "0.00");
+        bool previousEnabled = GUI.enabled;
+        GUI.enabled = previousEnabled && _settingsDraft.SoftAvoidanceVelocitySolver == 1;
         _settingsDraft.RvoTimeHorizon = DrawFloatSlider(
-            "RVO horizon",
+            "RVO 预测时间",
             _settingsDraft.RvoTimeHorizon,
             snapshot.EffectiveSettings.RvoTimeHorizon,
             0.05f,
             5f,
             "0.00");
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("Velocity solver", _mutedStyle, GUILayout.Width(170f));
-        string[] solverModes = { "Steering", "Reciprocal" };
-        _settingsDraft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
-            Mathf.Clamp(_settingsDraft.SoftAvoidanceVelocitySolver, 0, 1),
-            solverModes,
-            2,
-            _tabStyle);
-        GUILayout.EndHorizontal();
+        GUI.enabled = previousEnabled;
 
         GUILayout.Space(6f);
-        GUILayout.Label("Persistent Broad Phase", _sectionStyle);
-        _settingsDraft.EnableFatAabbCache = DrawToggle(
-            "Enable Fat AABB",
-            _settingsDraft.EnableFatAabbCache,
-            snapshot.EffectiveSettings.EnableFatAabbCache);
-        bool previousEnabled = GUI.enabled;
+        GUILayout.Label("跨帧 AABB 参数", _sectionStyle);
         GUI.enabled = previousEnabled && _settingsDraft.EnableFatAabbCache != 0;
         _settingsDraft.FatAabbCacheMargin = DrawFloatSlider(
-            "Fat margin",
+            "Fat AABB 外扩余量",
             _settingsDraft.FatAabbCacheMargin,
             snapshot.EffectiveSettings.FatAabbCacheMargin,
             0f,
             5f,
             "0.00");
         _settingsDraft.EnableAdaptiveFatAabb = DrawToggle(
-            "Adaptive hotspot routing",
+            "启用拥挤热点自适应",
             _settingsDraft.EnableAdaptiveFatAabb,
             snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
         _settingsDraft.AdaptiveDetectionCellSpan = DrawIntSlider(
-            "Detection cell span",
+            "检测格子跨度",
             _settingsDraft.AdaptiveDetectionCellSpan,
             snapshot.EffectiveSettings.AdaptiveDetectionCellSpan,
             1,
             8);
         _settingsDraft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
-            "Min units / cell",
+            "每格最少单位数",
             _settingsDraft.AdaptiveMinimumUnitsPerCell,
             snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerCell,
             1,
             32);
         _settingsDraft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
-            "Min units / region",
+            "每区最少单位数",
             _settingsDraft.AdaptiveMinimumUnitsPerRegion,
             snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerRegion,
             1,
             128);
         _settingsDraft.AdaptiveEnableScore = DrawFloatSlider(
-            "Enable score",
+            "启用阈值",
             _settingsDraft.AdaptiveEnableScore,
             snapshot.EffectiveSettings.AdaptiveEnableScore,
             0f,
             1f,
             "0.00");
         _settingsDraft.AdaptiveDisableScore = DrawFloatSlider(
-            "Disable score",
+            "关闭阈值",
             _settingsDraft.AdaptiveDisableScore,
             snapshot.EffectiveSettings.AdaptiveDisableScore,
             0f,
@@ -449,18 +573,23 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         GUI.enabled = previousEnabled;
 
         GUILayout.Space(6f);
-        GUILayout.Label("Timestep Contact Set", _sectionStyle);
+        GUILayout.Label("跨子步接触集参数", _sectionStyle);
+        DrawDetailRow(
+            "生成生命周期",
+            _settingsDraft.EnableTimestepContactSetCache != 0
+                ? "每时间步生成一次，跨全部子步复用"
+                : "每个子步重新生成");
         _settingsDraft.EnablePredictivePairGeneration = DrawToggle(
-            "Predictive pair generation",
+            "生成预测接触对",
             _settingsDraft.EnablePredictivePairGeneration,
             snapshot.EffectiveSettings.EnablePredictivePairGeneration);
         GUI.enabled = previousEnabled && _settingsDraft.EnablePredictivePairGeneration != 0;
         _settingsDraft.EnablePredictiveContacts = DrawToggle(
-            "Predictive contact solve",
+            "启用预测半空间约束",
             _settingsDraft.EnablePredictiveContacts,
             snapshot.EffectiveSettings.EnablePredictiveContacts);
         _settingsDraft.PredictiveSkin = DrawFloatSlider(
-            "Predictive skin",
+            "预测接触外扩距离",
             _settingsDraft.PredictiveSkin,
             snapshot.EffectiveSettings.PredictiveSkin,
             0f,
@@ -469,27 +598,33 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         GUI.enabled = previousEnabled;
 
         GUILayout.Space(6f);
-        GUILayout.Label("Diagnostics", _sectionStyle);
+        GUILayout.Label("诊断与显示", _sectionStyle);
         SimulationDebuggerRuntime.SummarySampleIntervalFrames = DrawIntSlider(
-            "Summary interval",
+            "汇总采样间隔（帧）",
             SimulationDebuggerRuntime.SummarySampleIntervalFrames,
             SimulationDebuggerRuntime.SummarySampleIntervalFrames,
             1,
             30);
         SimulationDebuggerRuntime.SpatialSampleIntervalFrames = DrawIntSlider(
-            "Spatial interval",
+            "空间采样间隔（帧）",
             SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
             SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
             1,
             30);
+        SimulationDebuggerRuntime.ExperimentWarmupFrames = DrawIntSlider(
+            "实验预热帧数",
+            SimulationDebuggerRuntime.ExperimentWarmupFrames,
+            SimulationDebuggerRuntime.ExperimentWarmupFrames,
+            0,
+            300);
         SimulationDebuggerRuntime.MaximumVisualizedPairs = DrawIntSlider(
-            "Max pair lines",
+            "最多绘制接触线",
             SimulationDebuggerRuntime.MaximumVisualizedPairs,
             SimulationDebuggerRuntime.MaximumVisualizedPairs,
             1,
             128);
         SimulationDebuggerRuntime.HeatmapOpacity = DrawFloatSlider(
-            "Heatmap opacity",
+            "场景热力图透明度",
             SimulationDebuggerRuntime.HeatmapOpacity,
             SimulationDebuggerRuntime.HeatmapOpacity,
             0f,
@@ -498,11 +633,11 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(10f);
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button("应用 Override", GUILayout.Height(30f)))
+        if (GUILayout.Button("应用运行时设置", GUILayout.Height(30f)))
             SimulationDebuggerRuntime.SubmitSettings(_settingsDraft);
-        if (GUILayout.Button("读取 Effective", GUILayout.Height(30f)))
+        if (GUILayout.Button("读取当前有效值", GUILayout.Height(30f)))
             _settingsDraft = snapshot.EffectiveSettings;
-        if (GUILayout.Button("恢复 Authoring", GUILayout.Height(30f)))
+        if (GUILayout.Button("恢复场景配置", GUILayout.Height(30f)))
         {
             SimulationDebuggerRuntime.RequestSettingsReset();
             if (SimulationDebuggerRuntime.TryGetBaselineSettings(out SimulationDebuggerEffectiveSettings baseline))
@@ -510,8 +645,13 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         }
         GUILayout.EndHorizontal();
         GUILayout.Label(
-            "Adaptive 参数只有场景中存在 AdaptiveFatAabbSettings singleton 时才会写回。",
+            "自适应热点参数只有在场景中存在对应单例配置时才会写回。",
             _mutedStyle);
+    }
+
+    private static string SoftSolverLabel(int solverMode)
+    {
+        return solverMode == 1 ? "RVO 互惠避让" : "预测引导";
     }
 
     private int DrawIntSlider(
@@ -558,9 +698,163 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         return (byte)(enabled ? 1 : 0);
     }
 
+    private void DrawPanelGridHeatmap(SimulationDebuggerFrameSnapshot snapshot)
+    {
+        if (_activeWindowState == null ||
+            _activeWindowState.Heatmap == SimulationDebuggerHeatmap.None)
+            return;
+
+        GUILayout.BeginHorizontal();
+        _activeWindowState.ShowGridHeatmap = GUILayout.Toggle(
+            _activeWindowState.ShowGridHeatmap,
+            "显示网格热力图",
+            GUILayout.Width(126f));
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button("映射到游戏地图", GUILayout.Width(110f), GUILayout.Height(23f)))
+        {
+            SimulationDebuggerRuntime.WorldHeatmap = _activeWindowState.Heatmap;
+            SimulationDebuggerRuntime.WorldOverlayView = _currentView;
+            SimulationDebuggerRuntime.OverlayEnabled = true;
+        }
+        GUILayout.EndHorizontal();
+
+        if (!_activeWindowState.ShowGridHeatmap)
+            return;
+
+        if (snapshot.Cells.Count == 0)
+        {
+            GUILayout.Label("当前快照没有空间网格数据。", _mutedStyle);
+            return;
+        }
+
+        Rect available = GUILayoutUtility.GetRect(
+            100f,
+            Mathf.Clamp(_activeWindowState.Rect.height * 0.34f, 130f, 300f),
+            GUILayout.ExpandWidth(true));
+        if (Event.current.type != EventType.Repaint &&
+            Event.current.type != EventType.MouseMove)
+            return;
+
+        int minX = int.MaxValue;
+        int minY = int.MaxValue;
+        int maxX = int.MinValue;
+        int maxY = int.MinValue;
+        for (int i = 0; i < snapshot.Cells.Count; i++)
+        {
+            var coordinate = snapshot.Cells[i].Coordinate;
+            minX = Mathf.Min(minX, coordinate.x);
+            minY = Mathf.Min(minY, coordinate.y);
+            maxX = Mathf.Max(maxX, coordinate.x);
+            maxY = Mathf.Max(maxY, coordinate.y);
+        }
+
+        int width = Mathf.Max(1, maxX - minX + 1);
+        int height = Mathf.Max(1, maxY - minY + 1);
+        float scale = Mathf.Min(available.width / width, available.height / height);
+        float mapWidth = scale * width;
+        float mapHeight = scale * height;
+        Rect mapRect = new Rect(
+            available.x + (available.width - mapWidth) * 0.5f,
+            available.y + (available.height - mapHeight) * 0.5f,
+            mapWidth,
+            mapHeight);
+        EditorSafeDrawRect(mapRect, new Color(0.035f, 0.045f, 0.06f, 0.96f));
+
+        SimulationDebuggerCellSample? hovered = null;
+        for (int i = 0; i < snapshot.Cells.Count; i++)
+        {
+            SimulationDebuggerCellSample cell = snapshot.Cells[i];
+            int localX = cell.Coordinate.x - minX;
+            int localY = maxY - cell.Coordinate.y;
+            Rect cellRect = new Rect(
+                mapRect.x + localX * scale,
+                mapRect.y + localY * scale,
+                scale,
+                scale);
+            float value = GetPanelHeatmapValue(cell, _activeWindowState.Heatmap);
+            Color fill = HeatmapPanelColor(_activeWindowState.Heatmap, value);
+            float inset = scale >= 5f ? 1f : 0.25f;
+            Rect fillRect = new Rect(
+                cellRect.x + inset,
+                cellRect.y + inset,
+                Mathf.Max(0f, cellRect.width - inset * 2f),
+                Mathf.Max(0f, cellRect.height - inset * 2f));
+            EditorSafeDrawRect(fillRect, fill);
+
+            if (snapshot.HasSelectedUnit &&
+                snapshot.SelectedUnit.CurrentPosition.x >= cell.Min.x &&
+                snapshot.SelectedUnit.CurrentPosition.x <= cell.Max.x &&
+                snapshot.SelectedUnit.CurrentPosition.z >= cell.Min.y &&
+                snapshot.SelectedUnit.CurrentPosition.z <= cell.Max.y)
+            {
+                DrawGuiRectOutline(cellRect, Color.white, scale >= 6f ? 2f : 1f);
+            }
+
+            if (cellRect.Contains(Event.current.mousePosition))
+                hovered = cell;
+        }
+        DrawGuiRectOutline(mapRect, new Color(0.45f, 0.52f, 0.62f), 1f);
+
+        if (hovered.HasValue)
+        {
+            SimulationDebuggerCellSample cell = hovered.Value;
+            GUI.Label(
+                new Rect(mapRect.x + 6f, mapRect.y + 5f, mapRect.width - 12f, 22f),
+                $"格子 ({cell.Coordinate.x}, {cell.Coordinate.y})  单位 {cell.UnitCount}  数值 {GetPanelHeatmapValue(cell, _activeWindowState.Heatmap):0.000}",
+                _mutedStyle);
+        }
+    }
+
+    private static float GetPanelHeatmapValue(
+        SimulationDebuggerCellSample cell,
+        SimulationDebuggerHeatmap mode)
+    {
+        return Mathf.Clamp01(mode switch
+        {
+            SimulationDebuggerHeatmap.OverallPressure => cell.OverallPressure,
+            SimulationDebuggerHeatmap.UnitDensity => cell.Density,
+            SimulationDebuggerHeatmap.SolverCorrection => cell.SolverCorrection,
+            SimulationDebuggerHeatmap.AabbBenefit => cell.AabbBenefit,
+            SimulationDebuggerHeatmap.AabbSlack => cell.AabbSlack,
+            SimulationDebuggerHeatmap.CandidateExpansion => cell.CandidateExpansion,
+            SimulationDebuggerHeatmap.EscapeRisk => cell.EscapeRisk,
+            SimulationDebuggerHeatmap.ContactActivation => cell.ContactActivation,
+            SimulationDebuggerHeatmap.ContactWaste => cell.ContactWaste,
+            SimulationDebuggerHeatmap.ContactSupplementRisk => cell.ContactSupplementRisk,
+            _ => 0f
+        });
+    }
+
+    private static Color HeatmapPanelColor(
+        SimulationDebuggerHeatmap mode,
+        float value)
+    {
+        bool positive = mode == SimulationDebuggerHeatmap.AabbBenefit ||
+                        mode == SimulationDebuggerHeatmap.AabbSlack ||
+                        mode == SimulationDebuggerHeatmap.ContactActivation;
+        Color low = positive
+            ? new Color(0.55f, 0.10f, 0.08f, 0.90f)
+            : new Color(0.08f, 0.18f, 0.42f, 0.82f);
+        Color middle = new Color(0.92f, 0.68f, 0.10f, 0.92f);
+        Color high = positive
+            ? new Color(0.08f, 0.68f, 0.30f, 0.96f)
+            : new Color(0.88f, 0.10f, 0.05f, 0.96f);
+        return value < 0.5f
+            ? Color.Lerp(low, middle, value * 2f)
+            : Color.Lerp(middle, high, (value - 0.5f) * 2f);
+    }
+
+    private static void DrawGuiRectOutline(Rect rect, Color color, float thickness)
+    {
+        EditorSafeDrawRect(new Rect(rect.x, rect.y, rect.width, thickness), color);
+        EditorSafeDrawRect(new Rect(rect.x, rect.yMax - thickness, rect.width, thickness), color);
+        EditorSafeDrawRect(new Rect(rect.x, rect.y, thickness, rect.height), color);
+        EditorSafeDrawRect(new Rect(rect.xMax - thickness, rect.y, thickness, rect.height), color);
+    }
+
     private void DrawHeatmapLegend()
     {
-        SimulationDebuggerHeatmap mode = SimulationDebuggerRuntime.ActiveHeatmap;
+        SimulationDebuggerHeatmap mode = _activeWindowState?.Heatmap ?? SimulationDebuggerHeatmap.None;
         if (mode == SimulationDebuggerHeatmap.None)
             return;
 
@@ -608,7 +902,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label($"Body {unit.BodyIndex}", _mutedStyle);
         GUILayout.EndHorizontal();
 
-        switch (SimulationDebuggerRuntime.ActiveView)
+        switch (_currentView)
         {
             case SimulationDebuggerView.Overview:
                 DrawDetailRow("软避让邻居", unit.SoftNeighborCount.ToString("N0"));
@@ -649,11 +943,11 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             SimulationDebuggerPairSample pair = snapshot.SelectedPairs[i];
-            string state = pair.State == SimulationDebuggerPairState.Active ? "Active" : "Cached";
+            string state = pair.State == SimulationDebuggerPairState.Active ? "已激活" : "已缓存";
             string kind = PairKindLabel(pair.Kind);
             GUILayout.Label(
                 $"{i + 1,2}. {kind,-10} {state,-6}  sep {pair.CurrentSeparation,7:0.000}  " +
-                $"λ {pair.Lambda,7:0.000}  substep {pair.FirstActivatedSubstep}",
+                $"λ {pair.Lambda,7:0.000}  子步 {pair.FirstActivatedSubstep}",
                 _mutedStyle);
         }
         if (snapshot.SelectedPairs.Count > count)
@@ -681,11 +975,11 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     {
         return kind switch
         {
-            SimulationDebuggerPairKind.PredictiveContact => "Predictive",
-            SimulationDebuggerPairKind.NearContact => "Near",
-            SimulationDebuggerPairKind.SupplementedContact => "Supplement",
-            SimulationDebuggerPairKind.BroadCandidate => "Candidate",
-            _ => "Actual"
+            SimulationDebuggerPairKind.PredictiveContact => "预测接触",
+            SimulationDebuggerPairKind.NearContact => "临近接触",
+            SimulationDebuggerPairKind.SupplementedContact => "后补接触",
+            SimulationDebuggerPairKind.BroadCandidate => "候选对",
+            _ => "当前接触"
         };
     }
 
@@ -739,16 +1033,15 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         for (int i = 0; i < modes.Length; i++)
         {
             SimulationDebuggerHeatmap mode = modes[i];
-            bool active = SimulationDebuggerRuntime.ActiveHeatmap == mode;
+            bool active = _activeWindowState != null && _activeWindowState.Heatmap == mode;
             if (GUILayout.Button(
                     HeatmapLabel(mode),
                     active ? _activeTabStyle : _tabStyle,
                     GUILayout.Height(25f)))
             {
-                SimulationDebuggerRuntime.ActiveHeatmap = active
+                _activeWindowState.Heatmap = active
                     ? SimulationDebuggerHeatmap.None
                     : mode;
-                SimulationDebuggerRuntime.OverlayEnabled = true;
                 RefreshCaptureMask();
             }
         }
@@ -818,42 +1111,40 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             return;
         }
 
-        SimulationDebuggerCaptureMask mask = SimulationDebuggerCaptureMask.Summary;
-        switch (SimulationDebuggerRuntime.ActiveView)
+        SimulationDebuggerCaptureMask mask = SimulationDebuggerCaptureMask.None;
+        if (OverviewWindow != null && OverviewWindow.Visible)
         {
-            case SimulationDebuggerView.Overview:
-                mask |= SimulationDebuggerCaptureMask.OverviewHeatmap |
-                        SimulationDebuggerCaptureMask.SelectedUnit |
-                        SimulationDebuggerCaptureMask.Proxies;
-                break;
-            case SimulationDebuggerView.PersistentBroadPhase:
-                mask |= SimulationDebuggerCaptureMask.AabbHeatmap |
-                        SimulationDebuggerCaptureMask.Regions |
-                        SimulationDebuggerCaptureMask.Proxies |
-                        SimulationDebuggerCaptureMask.SelectedUnit;
-                break;
-            case SimulationDebuggerView.TimestepContactSet:
-                mask |= SimulationDebuggerCaptureMask.ContactSetHeatmap |
-                        SimulationDebuggerCaptureMask.SelectedUnit |
-                        SimulationDebuggerCaptureMask.SelectedPairs |
-                        SimulationDebuggerCaptureMask.Proxies;
-                break;
+            mask |= SimulationDebuggerCaptureMask.Summary |
+                    SimulationDebuggerCaptureMask.OverviewHeatmap |
+                    SimulationDebuggerCaptureMask.SelectedUnit |
+                    SimulationDebuggerCaptureMask.Proxies;
+            if (OverviewWindow.ShowDetails)
+                mask |= SimulationDebuggerCaptureMask.DetailedCounters;
         }
-
-        if (_showDetails)
-            mask |= SimulationDebuggerCaptureMask.DetailedCounters;
-        SimulationDebuggerRuntime.CaptureMask = mask;
-    }
-
-    private static void SetDefaultHeatmap(SimulationDebuggerView view)
-    {
-        SimulationDebuggerRuntime.ActiveHeatmap = view switch
+        if (AabbWindow != null && AabbWindow.Visible)
         {
-            SimulationDebuggerView.Overview => SimulationDebuggerHeatmap.OverallPressure,
-            SimulationDebuggerView.PersistentBroadPhase => SimulationDebuggerHeatmap.AabbBenefit,
-            SimulationDebuggerView.TimestepContactSet => SimulationDebuggerHeatmap.ContactActivation,
-            _ => SimulationDebuggerHeatmap.None
-        };
+            mask |= SimulationDebuggerCaptureMask.Summary |
+                    SimulationDebuggerCaptureMask.AabbHeatmap |
+                    SimulationDebuggerCaptureMask.Regions |
+                    SimulationDebuggerCaptureMask.Proxies |
+                    SimulationDebuggerCaptureMask.SelectedUnit;
+            if (AabbWindow.ShowDetails)
+                mask |= SimulationDebuggerCaptureMask.DetailedCounters;
+        }
+        if (ContactWindow != null && ContactWindow.Visible)
+        {
+            mask |= SimulationDebuggerCaptureMask.Summary |
+                    SimulationDebuggerCaptureMask.ContactSetHeatmap |
+                    SimulationDebuggerCaptureMask.SelectedUnit |
+                    SimulationDebuggerCaptureMask.SelectedPairs |
+                    SimulationDebuggerCaptureMask.Proxies;
+            if (ContactWindow.ShowDetails)
+                mask |= SimulationDebuggerCaptureMask.DetailedCounters;
+        }
+        if (SettingsWindow != null && SettingsWindow.Visible)
+            mask |= SimulationDebuggerCaptureMask.Summary;
+
+        SimulationDebuggerRuntime.CaptureMask = mask;
     }
 
     private static string OverviewStatus(SimulationOverviewMetrics metrics)
@@ -878,11 +1169,13 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
     private static string ContactSetStatus(TimestepContactSetMetrics metrics)
     {
+        if (metrics.CacheEnabled == 0)
+            return "对比模式：每个子步重新生成接触集，不进行跨子步持久化。";
         if (metrics.Health == SimulationDebuggerHealth.Critical)
-            return "本 timestep 出现后补或回退，初始 Contact Set 可能不完整。";
+            return "本时间步出现后补或回退，初始接触集可能不完整。";
         if (metrics.Health == SimulationDebuggerHealth.Warning)
-            return "缓存中未激活 Contact 较多，生成范围可能过于保守。";
-        return "同一 Contact Set 正在跨 substep 稳定复用。";
+            return "缓存中未激活接触较多，生成范围可能过于保守。";
+        return "同一接触集正在跨子步稳定复用。";
     }
 
     private static string HeatmapLabel(SimulationDebuggerHeatmap mode)
@@ -930,14 +1223,8 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
     private void EnsureStyles()
     {
-        if (_headerStyle != null && Mathf.Approximately(_lastFontScale, FontScale))
+        if (_headerStyle != null)
             return;
-
-        _lastFontScale = FontScale;
-
-        DestroyRuntimeTexture(ref _panelTexture);
-        DestroyRuntimeTexture(ref _cardTexture);
-        DestroyRuntimeTexture(ref _activeTexture);
 
         _panelTexture = SolidTexture(new Color(0.065f, 0.075f, 0.095f, 0.97f));
         _cardTexture = SolidTexture(new Color(0.105f, 0.12f, 0.15f, 0.96f));
@@ -951,13 +1238,13 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
 
         _headerStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = Mathf.RoundToInt(15f * FontScale),
+            fontSize = 15,
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleLeft
         };
         _sectionStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = Mathf.RoundToInt(12f * FontScale),
+            fontSize = 12,
             fontStyle = FontStyle.Bold,
             wordWrap = true,
             padding = new RectOffset(8, 8, 7, 7),
@@ -965,17 +1252,17 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         };
         _metricLabelStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = Mathf.RoundToInt(11f * FontScale),
+            fontSize = 11,
             normal = { textColor = new Color(0.63f, 0.7f, 0.8f) }
         };
         _metricValueStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = Mathf.RoundToInt(20f * FontScale),
+            fontSize = 20,
             fontStyle = FontStyle.Bold
         };
         _mutedStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = Mathf.RoundToInt(10f * FontScale),
+            fontSize = 10,
             wordWrap = true,
             normal = { textColor = new Color(0.58f, 0.64f, 0.72f) }
         };
@@ -986,7 +1273,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         };
         _tabStyle = new GUIStyle(GUI.skin.button)
         {
-            fontSize = Mathf.RoundToInt(11f * FontScale),
+            fontSize = 11,
             normal = { background = _cardTexture },
             hover = { background = _cardTexture }
         };
