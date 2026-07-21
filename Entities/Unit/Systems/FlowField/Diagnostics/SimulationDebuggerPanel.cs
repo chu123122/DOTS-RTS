@@ -68,8 +68,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private bool _showDetails;
     private SimulationDebuggerView _currentView;
     private SimulationDebuggerWindowState _activeWindowState;
-    private bool _settingsInitialized;
-    private SimulationDebuggerEffectiveSettings _settingsDraft;
     private GUIStyle _windowStyle;
     private GUIStyle _headerStyle;
     private GUIStyle _sectionStyle;
@@ -573,32 +571,28 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawSettingsSummary(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改会在下一个时间步开始前统一生效");
+        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改即时生效");
         GUILayout.Space(8f);
 
-        if (!_settingsInitialized)
-        {
-            _settingsDraft = snapshot.EffectiveSettings;
-            _settingsInitialized = true;
-        }
+        SimulationDebuggerEffectiveSettings draft = snapshot.EffectiveSettings;
 
         GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
         GUILayout.Label(
             "三个变量互相独立：A 为跨帧 AABB，B 为跨子步接触集，C 为软避让求解器。",
             _mutedStyle);
-        _settingsDraft.EnableFatAabbCache = DrawToggle(
+        draft.EnableFatAabbCache = DrawToggle(
             "A：跨帧 AABB 候选缓存",
-            _settingsDraft.EnableFatAabbCache,
+            draft.EnableFatAabbCache,
             snapshot.EffectiveSettings.EnableFatAabbCache);
-        _settingsDraft.EnableTimestepContactSetCache = DrawToggle(
+        draft.EnableTimestepContactSetCache = DrawToggle(
             "B：跨子步接触集缓存",
-            _settingsDraft.EnableTimestepContactSetCache,
+            draft.EnableTimestepContactSetCache,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache);
         GUILayout.BeginHorizontal();
         GUILayout.Label("C：软避让求解器", _mutedStyle, GUILayout.Width(170f));
         string[] solverModes = { "预测引导", "RVO 互惠避让" };
-        _settingsDraft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
-            Mathf.Clamp(_settingsDraft.SoftAvoidanceVelocitySolver, 0, 1),
+        draft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(draft.SoftAvoidanceVelocitySolver, 0, 1),
             solverModes,
             2,
             _tabStyle);
@@ -618,59 +612,59 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(6f);
         GUILayout.Label("全局与 XPBD", _sectionStyle);
-        _settingsDraft.SubstepCount = DrawIntSlider(
+        draft.SubstepCount = DrawIntSlider(
             "子步数量",
-            _settingsDraft.SubstepCount,
+            draft.SubstepCount,
             snapshot.EffectiveSettings.SubstepCount,
             1,
             16);
-        _settingsDraft.IterationCount = DrawIntSlider(
+        draft.IterationCount = DrawIntSlider(
             "每子步迭代次数",
-            _settingsDraft.IterationCount,
+            draft.IterationCount,
             snapshot.EffectiveSettings.IterationCount,
             1,
             24);
-        _settingsDraft.Compliance = DrawFloatSlider(
+        draft.Compliance = DrawFloatSlider(
             "柔顺度",
-            _settingsDraft.Compliance,
+            draft.Compliance,
             snapshot.EffectiveSettings.Compliance,
             0f,
             0.1f,
             "0.0000");
-        _settingsDraft.EnableDiagnostics = DrawToggle(
+        draft.EnableDiagnostics = DrawToggle(
             "求解器详细诊断",
-            _settingsDraft.EnableDiagnostics,
+            draft.EnableDiagnostics,
             snapshot.EffectiveSettings.EnableDiagnostics);
 
         GUILayout.Space(6f);
         GUILayout.Label("软避让参数", _sectionStyle);
-        DrawDetailRow("当前求解器", SoftSolverLabel(_settingsDraft.SoftAvoidanceVelocitySolver));
-        _settingsDraft.SoftAvoidanceResponseRate = DrawFloatSlider(
+        DrawDetailRow("当前求解器", SoftSolverLabel(draft.SoftAvoidanceVelocitySolver));
+        draft.SoftAvoidanceResponseRate = DrawFloatSlider(
             "响应速度",
-            _settingsDraft.SoftAvoidanceResponseRate,
+            draft.SoftAvoidanceResponseRate,
             snapshot.EffectiveSettings.SoftAvoidanceResponseRate,
             0f,
             20f,
             "0.00");
-        _settingsDraft.SoftAvoidanceShell = DrawFloatSlider(
+        draft.SoftAvoidanceShell = DrawFloatSlider(
             "表面缓冲距离",
-            _settingsDraft.SoftAvoidanceShell,
+            draft.SoftAvoidanceShell,
             snapshot.EffectiveSettings.SoftAvoidanceShell,
             0f,
             4f,
             "0.00");
-        _settingsDraft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
+        draft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
             "已到达单位避让倍率",
-            _settingsDraft.SettledSoftAvoidanceMultiplier,
+            draft.SettledSoftAvoidanceMultiplier,
             snapshot.EffectiveSettings.SettledSoftAvoidanceMultiplier,
             0f,
             2f,
             "0.00");
         bool previousEnabled = GUI.enabled;
-        GUI.enabled = previousEnabled && _settingsDraft.SoftAvoidanceVelocitySolver == 1;
-        _settingsDraft.RvoTimeHorizon = DrawFloatSlider(
+        GUI.enabled = previousEnabled && draft.SoftAvoidanceVelocitySolver == 1;
+        draft.RvoTimeHorizon = DrawFloatSlider(
             "RVO 预测时间",
-            _settingsDraft.RvoTimeHorizon,
+            draft.RvoTimeHorizon,
             snapshot.EffectiveSettings.RvoTimeHorizon,
             0.05f,
             5f,
@@ -679,48 +673,48 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(6f);
         GUILayout.Label("跨帧 AABB 参数", _sectionStyle);
-        _settingsDraft.FatAabbCacheMargin = DrawFloatSlider(
+        draft.FatAabbCacheMargin = DrawFloatSlider(
             "Fat AABB 外扩余量",
-            _settingsDraft.FatAabbCacheMargin,
+            draft.FatAabbCacheMargin,
             snapshot.EffectiveSettings.FatAabbCacheMargin,
             0f,
             5f,
             "0.00");
-        _settingsDraft.EnableAdaptiveFatAabb = DrawToggle(
+        draft.EnableAdaptiveFatAabb = DrawToggle(
             "启用拥挤热点自适应",
-            _settingsDraft.EnableAdaptiveFatAabb,
+            draft.EnableAdaptiveFatAabb,
             snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
-        _settingsDraft.AdaptiveDetectionCellSpan = DrawIntSlider(
+        draft.AdaptiveDetectionCellSpan = DrawIntSlider(
             "检测格子跨度",
-            _settingsDraft.AdaptiveDetectionCellSpan,
+            draft.AdaptiveDetectionCellSpan,
             snapshot.EffectiveSettings.AdaptiveDetectionCellSpan,
             1,
             8);
-        _settingsDraft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
+        draft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
             "每格最少单位数",
-            _settingsDraft.AdaptiveMinimumUnitsPerCell,
+            draft.AdaptiveMinimumUnitsPerCell,
             snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerCell,
             1,
             32);
-        _settingsDraft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
+        draft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
             "每区最少单位数",
-            _settingsDraft.AdaptiveMinimumUnitsPerRegion,
+            draft.AdaptiveMinimumUnitsPerRegion,
             snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerRegion,
             1,
             128);
-        _settingsDraft.AdaptiveEnableScore = DrawFloatSlider(
+        draft.AdaptiveEnableScore = DrawFloatSlider(
             "启用阈值",
-            _settingsDraft.AdaptiveEnableScore,
+            draft.AdaptiveEnableScore,
             snapshot.EffectiveSettings.AdaptiveEnableScore,
             0f,
             1f,
             "0.00");
-        _settingsDraft.AdaptiveDisableScore = DrawFloatSlider(
+        draft.AdaptiveDisableScore = DrawFloatSlider(
             "关闭阈值",
-            _settingsDraft.AdaptiveDisableScore,
+            draft.AdaptiveDisableScore,
             snapshot.EffectiveSettings.AdaptiveDisableScore,
             0f,
-            _settingsDraft.AdaptiveEnableScore,
+            draft.AdaptiveEnableScore,
             "0.00");
         GUI.enabled = previousEnabled;
 
@@ -728,21 +722,21 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label("跨子步接触集参数", _sectionStyle);
         DrawDetailRow(
             "生成生命周期",
-            _settingsDraft.EnableTimestepContactSetCache != 0
+            draft.EnableTimestepContactSetCache != 0
                 ? "每时间步生成一次，跨全部子步复用"
                 : "每个子步重新生成");
-        _settingsDraft.EnablePredictivePairGeneration = DrawToggle(
+        draft.EnablePredictivePairGeneration = DrawToggle(
             "生成预测接触对",
-            _settingsDraft.EnablePredictivePairGeneration,
+            draft.EnablePredictivePairGeneration,
             snapshot.EffectiveSettings.EnablePredictivePairGeneration);
-        GUI.enabled = previousEnabled && _settingsDraft.EnablePredictivePairGeneration != 0;
-        _settingsDraft.EnablePredictiveContacts = DrawToggle(
+        GUI.enabled = previousEnabled && draft.EnablePredictivePairGeneration != 0;
+        draft.EnablePredictiveContacts = DrawToggle(
             "启用预测半空间约束",
-            _settingsDraft.EnablePredictiveContacts,
+            draft.EnablePredictiveContacts,
             snapshot.EffectiveSettings.EnablePredictiveContacts);
-        _settingsDraft.PredictiveSkin = DrawFloatSlider(
+        draft.PredictiveSkin = DrawFloatSlider(
             "预测接触外扩距离",
-            _settingsDraft.PredictiveSkin,
+            draft.PredictiveSkin,
             snapshot.EffectiveSettings.PredictiveSkin,
             0f,
             3f,
@@ -783,33 +777,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             0.8f,
             "0.00");
 
-        GUILayout.Space(10f);
-        GUILayout.BeginHorizontal();
-        // 左侧：按钮列
-        Color savedBg = GUI.backgroundColor;
-        GUILayout.BeginVertical(GUILayout.Width(130f));
-        GUI.backgroundColor = new Color(0.2f, 0.5f, 0.85f);
-        if (GUILayout.Button("▶ 应用设置", GUILayout.Height(36f)))
-            SimulationDebuggerRuntime.SubmitSettings(_settingsDraft);
-        GUI.backgroundColor = savedBg;
-        GUILayout.Space(4f);
-        if (GUILayout.Button("↺ 读取有效值", GUILayout.Height(28f)))
-            _settingsDraft = snapshot.EffectiveSettings;
-        GUILayout.Space(2f);
-        if (GUILayout.Button("⟲ 恢复默认", GUILayout.Height(28f)))
-        {
-            SimulationDebuggerRuntime.RequestSettingsReset();
-            if (SimulationDebuggerRuntime.TryGetBaselineSettings(out SimulationDebuggerEffectiveSettings baseline))
-                _settingsDraft = baseline;
-        }
-        GUILayout.EndVertical();
-        // 右侧：说明
-        GUILayout.BeginVertical();
-        GUILayout.Label(
-            "修改参数后点击左侧「应用设置」提交。\n有效值 ≠ 草稿值时面板会显示差异。",
-            _mutedStyle);
-        GUILayout.EndVertical();
-        GUILayout.EndHorizontal();
+        // 自动提交：每帧检查 draft 是否与有效值有差异，有则提交。
+        if (!draft.Equals(snapshot.EffectiveSettings))
+            SimulationDebuggerRuntime.SubmitSettings(draft);
     }
 
     private static string SoftSolverLabel(int solverMode)
