@@ -16,6 +16,10 @@ public static class SimulationDebuggerRuntime
     private static SimulationDebuggerEffectiveSettings _pendingSettings;
     private static bool _hasPendingSettings;
     private static bool _resetSettingsRequested;
+    private static byte _timestepContactSetCacheEnabled = 1;
+    private static uint _experimentConfigurationId;
+    private static int _experimentFramesSinceChanged;
+    private static int _experimentLastKey = int.MinValue;
 
     public static SimulationDebuggerCaptureMask CaptureMask { get; set; } =
         SimulationDebuggerCaptureMask.Summary;
@@ -23,8 +27,15 @@ public static class SimulationDebuggerRuntime
     public static SimulationDebuggerView ActiveView { get; set; } =
         SimulationDebuggerView.Overview;
 
+    // ActiveHeatmap/ActiveView are retained for compatibility with older callers.
     public static SimulationDebuggerHeatmap ActiveHeatmap { get; set; } =
         SimulationDebuggerHeatmap.None;
+
+    public static SimulationDebuggerHeatmap WorldHeatmap { get; set; } =
+        SimulationDebuggerHeatmap.None;
+
+    public static SimulationDebuggerView WorldOverlayView { get; set; } =
+        SimulationDebuggerView.Overview;
 
     public static Entity SelectedEntity { get; set; } = Entity.Null;
     public static bool OverlayEnabled { get; set; } = true;
@@ -32,7 +43,54 @@ public static class SimulationDebuggerRuntime
     public static int MaximumVisualizedPairs { get; set; } = 32;
     public static int SummarySampleIntervalFrames { get; set; } = 1;
     public static int SpatialSampleIntervalFrames { get; set; } = 2;
+    public static int ExperimentWarmupFrames { get; set; } = 45;
     public static float HeatmapOpacity { get; set; } = 0.28f;
+
+
+    public static bool TimestepContactSetCacheEnabled
+    {
+        get
+        {
+            lock (Gate)
+                return _timestepContactSetCacheEnabled != 0;
+        }
+        set
+        {
+            lock (Gate)
+                _timestepContactSetCacheEnabled = (byte)(value ? 1 : 0);
+        }
+    }
+
+    public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        SimulationDebuggerEffectiveSettings settings)
+    {
+        lock (Gate)
+        {
+            int key = (settings.EnableFatAabbCache != 0 ? 1 : 0) |
+                      (settings.EnableTimestepContactSetCache != 0 ? 2 : 0) |
+                      ((settings.SoftAvoidanceVelocitySolver & 1) << 2);
+            if (_experimentLastKey != key)
+            {
+                _experimentLastKey = key;
+                _experimentConfigurationId++;
+                _experimentFramesSinceChanged = 0;
+            }
+            else
+            {
+                _experimentFramesSinceChanged++;
+            }
+
+            return new SimulationExperimentMetrics
+            {
+                PersistentBroadPhaseCache = settings.EnableFatAabbCache,
+                TimestepContactSetCache = settings.EnableTimestepContactSetCache,
+                SoftAvoidanceSolver = settings.SoftAvoidanceVelocitySolver,
+                ConfigurationId = _experimentConfigurationId,
+                FramesSinceChanged = _experimentFramesSinceChanged,
+                IsWarmup = (byte)(_experimentFramesSinceChanged < ExperimentWarmupFrames ? 1 : 0)
+            };
+        }
+    }
 
     public static ulong PublishedVersion
     {
@@ -140,12 +198,15 @@ public static class SimulationDebuggerRuntime
         CaptureMask = SimulationDebuggerCaptureMask.Summary;
         ActiveView = SimulationDebuggerView.Overview;
         ActiveHeatmap = SimulationDebuggerHeatmap.None;
+        WorldHeatmap = SimulationDebuggerHeatmap.None;
+        WorldOverlayView = SimulationDebuggerView.Overview;
         SelectedEntity = Entity.Null;
         OverlayEnabled = true;
         FreezeSnapshot = false;
         MaximumVisualizedPairs = 32;
         SummarySampleIntervalFrames = 1;
         SpatialSampleIntervalFrames = 2;
+        ExperimentWarmupFrames = 45;
         HeatmapOpacity = 0.28f;
         lock (Gate)
         {
@@ -154,6 +215,10 @@ public static class SimulationDebuggerRuntime
             _pendingSettings = default;
             _hasPendingSettings = false;
             _resetSettingsRequested = false;
+            _timestepContactSetCacheEnabled = 1;
+            _experimentConfigurationId = 0;
+            _experimentFramesSinceChanged = 0;
+            _experimentLastKey = int.MinValue;
         }
     }
 }

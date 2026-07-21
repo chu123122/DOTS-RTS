@@ -30,6 +30,8 @@ public abstract partial class BaseFlowMovementSystem
         solverSettings.EnablePredictivePairGeneration = requested.EnablePredictivePairGeneration != 0;
         solverSettings.EnablePredictiveContacts = requested.EnablePredictiveContacts != 0;
         solverSettings.EnableFatAabbCache = requested.EnableFatAabbCache != 0;
+        SimulationDebuggerRuntime.TimestepContactSetCacheEnabled =
+            requested.EnableTimestepContactSetCache != 0;
         solverSettings.FatAabbCacheMargin = math.max(0f, requested.FatAabbCacheMargin);
         solverSettings.EnableDiagnostics = requested.EnableDiagnostics != 0;
 
@@ -76,6 +78,8 @@ public abstract partial class BaseFlowMovementSystem
                 (byte)(solverSettings.EnablePredictiveContacts ? 1 : 0),
             EnableFatAabbCache =
                 (byte)(solverSettings.EnableFatAabbCache ? 1 : 0),
+            EnableTimestepContactSetCache =
+                (byte)(SimulationDebuggerRuntime.TimestepContactSetCacheEnabled ? 1 : 0),
             FatAabbCacheMargin = solverSettings.FatAabbCacheMargin,
             EnableDiagnostics =
                 (byte)(solverSettings.EnableDiagnostics ? 1 : 0),

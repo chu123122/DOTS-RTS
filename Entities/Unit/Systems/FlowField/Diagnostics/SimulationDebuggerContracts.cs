@@ -80,6 +80,7 @@ public struct SimulationDebuggerEffectiveSettings
     public byte EnablePredictivePairGeneration;
     public byte EnablePredictiveContacts;
     public byte EnableFatAabbCache;
+    public byte EnableTimestepContactSetCache;
     public float FatAabbCacheMargin;
     public byte EnableDiagnostics;
 
@@ -95,6 +96,21 @@ public struct SimulationDebuggerEffectiveSettings
     public int AdaptiveMinimumUnitsPerRegion;
     public float AdaptiveEnableScore;
     public float AdaptiveDisableScore;
+}
+
+
+[Serializable]
+public struct SimulationExperimentMetrics
+{
+    public byte PersistentBroadPhaseCache;
+    public byte TimestepContactSetCache;
+    public int SoftAvoidanceSolver;
+    public uint ConfigurationId;
+    public int FramesSinceChanged;
+    public byte IsWarmup;
+
+    public string ShortId =>
+        $"A{PersistentBroadPhaseCache}-B{TimestepContactSetCache}-C{SoftAvoidanceSolver}";
 }
 
 [Serializable]
@@ -137,6 +153,8 @@ public struct PersistentBroadPhaseMetrics
 public struct TimestepContactSetMetrics
 {
     public SimulationDebuggerHealth Health;
+    public byte CacheEnabled;
+    public int ContactGenerationCount;
     public int ContactSetSize;
     public int ActiveContactCount;
     public int InactiveContactCount;
@@ -257,6 +275,7 @@ public sealed class SimulationDebuggerFrameSnapshot
     public PersistentBroadPhaseMetrics BroadPhase;
     public TimestepContactSetMetrics ContactSet;
     public SimulationDebuggerEffectiveSettings EffectiveSettings;
+    public SimulationExperimentMetrics Experiment;
     public SimulationDebuggerUnitSample SelectedUnit;
     public bool HasSelectedUnit;
 
