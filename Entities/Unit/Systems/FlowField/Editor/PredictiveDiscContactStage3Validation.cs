@@ -49,6 +49,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
         ScenarioResult timestepContactSet = ValidateTimestepContactSetReuse();
+        ScenarioResult substepContactSet = ValidateSubstepContactSetRegeneration();
         ValidateFatAabbDoesNotSweepFromWorldOrigin();
         ValidateDiagnosticReadbackIsolation();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
@@ -200,6 +201,29 @@ public static class PredictiveDiscContactStage3Validation
                 result.HeatSamples[0].ActivePairDegree == 1 &&
                 result.HeatSamples[1].ActivePairDegree == 1,
             "Contact heat samples did not reflect the reused timestep pair.");
+        return result;
+    }
+
+    private static ScenarioResult ValidateSubstepContactSetRegeneration()
+    {
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(0, 0, 0), float3.zero, 0.25f),
+            CreateBody(new float3(0.2f, 0, 0), float3.zero, 0.25f)
+        };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 4,
+            skin: 0.05f,
+            substepCount: 4,
+            enableTimestepContactSetCache: false);
+        Require(result.Statistics.TimestepContactSetBuildCount == 4,
+            "Per-substep mode did not rebuild the Contact Set once per substep.");
+        Require(result.Statistics.TimestepContactSetClassificationPassCount == 4,
+            "Per-substep mode did not classify contacts once per substep.");
+        Require(result.Statistics.TimestepContactSetSubstepUseCount == 4,
+            "Per-substep Contact Sets were not consumed by all substeps.");
         return result;
     }
 
@@ -782,7 +806,8 @@ public static class PredictiveDiscContactStage3Validation
         SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
             SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
         float rvoTimeHorizon = 0.5f,
-        float timestepContactMargin = 0.25f)
+        float timestepContactMargin = 0.25f,
+        bool enableTimestepContactSetCache = true)
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
@@ -807,7 +832,8 @@ public static class PredictiveDiscContactStage3Validation
                 enablePredictivePairGeneration,
                 softAvoidanceVelocitySolver,
                 rvoTimeHorizon,
-                timestepContactMargin);
+                timestepContactMargin,
+                enableTimestepContactSetCache);
         }
         finally
         {
@@ -836,7 +862,8 @@ public static class PredictiveDiscContactStage3Validation
         SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
             SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
         float rvoTimeHorizon = 0.5f,
-        float timestepContactMargin = 0.25f)
+        float timestepContactMargin = 0.25f,
+        bool enableTimestepContactSetCache = true)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
@@ -906,6 +933,7 @@ public static class PredictiveDiscContactStage3Validation
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
                 EnableFatAabbCache = enableFatAabbCache,
+                EnableTimestepContactSetCache = enableTimestepContactSetCache,
                 FatAabbCacheMargin = fatAabbMargin,
                 TimestepContactMargin = timestepContactMargin,
                 DiagnosticSelectedEntity = Entity.Null,

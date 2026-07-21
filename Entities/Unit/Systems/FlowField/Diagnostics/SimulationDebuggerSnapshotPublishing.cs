@@ -209,18 +209,24 @@ public abstract partial class BaseFlowMovementSystem
         if (!hasStatistics)
             return result;
 
-        result.ContactSetSize = statistics.ContactPairCount;
-        result.ActiveContactCount = statistics.ActiveConstraintCount;
+        // 跨子步缓存开启时，同一 Pair 可能在多个 substep 中反复激活；默认面板
+        // 应展示“唯一接触拓扑”的覆盖率。关闭缓存时则展示各子步生成工作的总量。
+        result.ContactSetSize = cacheEnabled
+            ? statistics.TimestepContactSetUniquePairCount
+            : statistics.ContactPairCount;
+        result.ActiveContactCount = cacheEnabled
+            ? statistics.TimestepContactSetUniqueActivatedPairCount
+            : statistics.ActiveConstraintCount;
         result.InactiveContactCount = math.max(
             0,
-            statistics.ContactPairCount - statistics.ActiveConstraintCount);
+            result.ContactSetSize - result.ActiveContactCount);
         result.PredictiveContactCount = statistics.PredictivePairCount;
         result.PredictiveActivatedCount = statistics.PredictiveActivatedCount;
         result.ActualContactCount = math.max(
             0,
-            statistics.ContactPairCount - statistics.PredictivePairCount);
-        result.ActivationRatio = statistics.ContactPairCount > 0
-            ? statistics.ActiveConstraintCount / (float)statistics.ContactPairCount
+            result.ContactSetSize - statistics.PredictivePairCount);
+        result.ActivationRatio = result.ContactSetSize > 0
+            ? math.saturate(result.ActiveContactCount / (float)result.ContactSetSize)
             : 0f;
         result.PredictiveActivationRatio = statistics.PredictivePairCount > 0
             ? statistics.PredictiveActivatedCount / (float)statistics.PredictivePairCount
