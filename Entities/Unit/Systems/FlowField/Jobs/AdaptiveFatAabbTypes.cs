@@ -64,6 +64,12 @@ public struct AdaptiveFatAabbDebugCell
     public float2 Min;
     public float2 Max;
     public float Score;
+    public float DensityScore;
+    public float PersistenceScore;
+    public float PressureScore;
+    public float EscapeRiskScore;
+    public float AverageCorrection;
+    public float CachePenalty;
     public int UnitCount;
     public byte Active;
 }
@@ -76,6 +82,7 @@ public struct AdaptiveFatAabbDebugRegion
     public float2 HaloMax;
     public float Score;
     public int StableId;
+    public int UnitCount;
     public byte Active;
 }
 
@@ -86,7 +93,9 @@ public struct AdaptiveFatAabbDebugProxy
     public float2 CoreMax;
     public float2 FatMin;
     public float2 FatMax;
+    public float MinimumSlack;
     public int RegionIndex;
+    public byte Escaped;
 }
 
 public struct AdaptiveFatAabbCacheFeedback

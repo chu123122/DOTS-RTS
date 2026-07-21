@@ -101,6 +101,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             adaptiveSettings = configuredAdaptiveSettings;
         adaptiveSettings = adaptiveSettings.Sanitized();
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
+        PublishSimulationDebuggerSnapshot(gridComponent, contactSolverSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = Entity.Null;
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))

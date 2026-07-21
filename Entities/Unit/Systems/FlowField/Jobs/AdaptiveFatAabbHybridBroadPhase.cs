@@ -126,6 +126,11 @@ public partial struct SolveXpbdUnitContactsJob
                 neighborPadding,
                 out float2 coreMin,
                 out float2 coreMax);
+            float minimumSlack = CalculateMinimumBoundsSlack(
+                coreMin,
+                coreMax,
+                proxy.FatMin,
+                proxy.FatMax);
             AdaptiveDebugProxies.Add(new AdaptiveFatAabbDebugProxy
             {
                 Entity = proxy.Entity,
@@ -133,7 +138,9 @@ public partial struct SolveXpbdUnitContactsJob
                 CoreMax = coreMax,
                 FatMin = proxy.FatMin,
                 FatMax = proxy.FatMax,
-                RegionIndex = AdaptiveBodyRouting[bodyIndex].FatRegionIndex
+                MinimumSlack = minimumSlack,
+                RegionIndex = AdaptiveBodyRouting[bodyIndex].FatRegionIndex,
+                Escaped = (byte)(minimumSlack < 0f ? 1 : 0)
             });
         }
     }
@@ -245,6 +252,11 @@ public partial struct SolveXpbdUnitContactsJob
             ShadowCurrentProxies.Add(proxy);
             validBodyCount++;
 
+            float minimumSlack = CalculateMinimumBoundsSlack(
+                coreMin,
+                coreMax,
+                proxy.FatMin,
+                proxy.FatMax);
             AdaptiveDebugProxies.Add(new AdaptiveFatAabbDebugProxy
             {
                 Entity = state.Entity,
@@ -252,7 +264,9 @@ public partial struct SolveXpbdUnitContactsJob
                 CoreMax = coreMax,
                 FatMin = proxy.FatMin,
                 FatMax = proxy.FatMax,
-                RegionIndex = routing.FatRegionIndex
+                MinimumSlack = minimumSlack,
+                RegionIndex = routing.FatRegionIndex,
+                Escaped = (byte)(minimumSlack < 0f ? 1 : 0)
             });
 
             int2 minCell = (int2)math.floor((proxy.FatMin - GridOrigin.xz) / cellSize);
@@ -429,5 +443,16 @@ public partial struct SolveXpbdUnitContactsJob
         AdaptiveDebugProxies.Clear();
         FatAabbCacheState.Value = default;
     }
+    private static float CalculateMinimumBoundsSlack(
+        float2 coreMin,
+        float2 coreMax,
+        float2 fatMin,
+        float2 fatMax)
+    {
+        float2 lowerSlack = coreMin - fatMin;
+        float2 upperSlack = fatMax - coreMax;
+        return math.cmin(math.min(lowerSlack, upperSlack));
+    }
+
 }
 }
