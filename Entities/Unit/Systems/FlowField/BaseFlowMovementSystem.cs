@@ -30,6 +30,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<AdaptiveFatAabbRegionHistory> _adaptiveRegionHistory;
     private NativeReference<int> _adaptiveNextRegionId;
     private NativeReference<AdaptiveFatAabbCacheFeedback> _adaptiveCacheFeedback;
+    private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs;
+    private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
+    private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
     private int2 _adaptiveCellDimensions;
     private int _adaptiveCellSpan;
 
@@ -61,6 +64,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _adaptiveNextRegionId = new NativeReference<int>(Allocator.Persistent);
         _adaptiveNextRegionId.Value = 1;
         _adaptiveCacheFeedback = new NativeReference<AdaptiveFatAabbCacheFeedback>(Allocator.Persistent);
+        _simulationDebuggerSelectedPairs =
+            new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
+        _simulationDebuggerSelectedUnit =
+            new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
+        _simulationDebuggerSelectedUnitValid =
+            new NativeReference<byte>(Allocator.Persistent);
     }
 
     protected override void OnDestroy()
@@ -88,6 +97,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _adaptiveNextRegionId.Dispose();
         if (_adaptiveCacheFeedback.IsCreated)
             _adaptiveCacheFeedback.Dispose();
+        if (_simulationDebuggerSelectedPairs.IsCreated)
+            _simulationDebuggerSelectedPairs.Dispose();
+        if (_simulationDebuggerSelectedUnit.IsCreated)
+            _simulationDebuggerSelectedUnit.Dispose();
+        if (_simulationDebuggerSelectedUnitValid.IsCreated)
+            _simulationDebuggerSelectedUnitValid.Dispose();
     }
 
     protected override void OnUpdate()
@@ -268,6 +283,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             AdaptiveRegionHistoryScratch = adaptiveRegionHistoryScratch,
             AdaptiveNextRegionId = _adaptiveNextRegionId,
             AdaptiveCacheFeedback = _adaptiveCacheFeedback,
+            SimulationDebuggerCaptureMask = SimulationDebuggerRuntime.CaptureMask,
+            SimulationDebuggerMaximumPairs = SimulationDebuggerRuntime.MaximumVisualizedPairs,
+            SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
+            SimulationDebuggerSelectedUnit = _simulationDebuggerSelectedUnit,
+            SimulationDebuggerSelectedUnitValid = _simulationDebuggerSelectedUnitValid,
             States = states,
             Statistics = contactStatistics,
             ShadowStatistics = shadowStatistics,

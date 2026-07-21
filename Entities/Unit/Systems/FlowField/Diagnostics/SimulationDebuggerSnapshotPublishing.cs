@@ -61,7 +61,7 @@ public abstract partial class BaseFlowMovementSystem
             SimulationDebuggerCaptureMask.AabbHeatmap |
             SimulationDebuggerCaptureMask.ContactSetHeatmap)) != 0;
         if (wantsSpatial)
-            CopySimulationDebuggerCells(snapshot);
+            CopySimulationDebuggerCells(snapshot, grid);
 
         if ((captureMask & SimulationDebuggerCaptureMask.Regions) != 0)
             CopySimulationDebuggerRegions(snapshot);
@@ -70,7 +70,7 @@ public abstract partial class BaseFlowMovementSystem
             (captureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0)
             CopySimulationDebuggerProxies(snapshot);
 
-        CaptureSelectedEntityBounds(snapshot);
+        CaptureSelectedEntityDetails(snapshot);
         SimulationDebuggerRuntime.Publish(snapshot);
     }
 
@@ -206,7 +206,9 @@ public abstract partial class BaseFlowMovementSystem
         return result;
     }
 
-    private void CopySimulationDebuggerCells(SimulationDebuggerFrameSnapshot snapshot)
+    private void CopySimulationDebuggerCells(
+        SimulationDebuggerFrameSnapshot snapshot,
+        FlowFieldGrid grid)
     {
         AdaptiveFatAabbCacheFeedback feedback = _adaptiveCacheFeedback.IsCreated
             ? _adaptiveCacheFeedback.Value
@@ -218,7 +220,7 @@ public abstract partial class BaseFlowMovementSystem
                 cell.PressureScore * (1f - cell.EscapeRiskScore * 0.5f));
             snapshot.Cells.Add(new SimulationDebuggerCellSample
             {
-                Coordinate = CellCoordinateFromBounds(cell.Min),
+                Coordinate = CellCoordinateFromBounds(cell.Min, grid),
                 Min = cell.Min,
                 Max = cell.Max,
                 UnitCount = cell.UnitCount,
@@ -230,7 +232,7 @@ public abstract partial class BaseFlowMovementSystem
                 SolverCorrection = math.saturate(cell.PressureScore),
                 AabbBenefit = math.saturate(
                     0.5f + 0.5f * (feedback.ReuseRatio - cell.CachePenalty)),
-                AabbSlack = 0f,
+                AabbSlack = NormalizeCellSlack(cell.Min, cell.Max),
                 CandidateExpansion = math.saturate(
                     feedback.CandidateExpansionRatio / math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit)),
                 EscapeRisk = math.saturate(math.max(
@@ -282,10 +284,36 @@ public abstract partial class BaseFlowMovementSystem
         }
     }
 
-    private void CaptureSelectedEntityBounds(SimulationDebuggerFrameSnapshot snapshot)
+    private void CaptureSelectedEntityDetails(SimulationDebuggerFrameSnapshot snapshot)
     {
         Entity selected = SimulationDebuggerRuntime.SelectedEntity;
-        if (selected == Entity.Null)
+        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection selection) &&
+            selection.SelectedEntity != Entity.Null)
+        {
+            selected = selection.SelectedEntity;
+            SimulationDebuggerRuntime.SelectedEntity = selected;
+        }
+
+        if (_simulationDebuggerSelectedUnitValid.IsCreated &&
+            _simulationDebuggerSelectedUnitValid.Value != 0)
+        {
+            SimulationDebuggerUnitSample selectedUnit = _simulationDebuggerSelectedUnit.Value;
+            if (selected == Entity.Null || selectedUnit.Entity == selected)
+            {
+                snapshot.SelectedUnit = selectedUnit;
+                snapshot.HasSelectedUnit = true;
+            }
+        }
+
+        if ((snapshot.CapturedMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0)
+        {
+            int limit = math.max(1, SimulationDebuggerRuntime.MaximumVisualizedPairs);
+            int count = math.min(limit, _simulationDebuggerSelectedPairs.Length);
+            for (int i = 0; i < count; i++)
+                snapshot.SelectedPairs.Add(_simulationDebuggerSelectedPairs[i]);
+        }
+
+        if (snapshot.HasSelectedUnit || selected == Entity.Null)
             return;
 
         for (int i = 0; i < snapshot.Proxies.Count; i++)
@@ -293,7 +321,6 @@ public abstract partial class BaseFlowMovementSystem
             SimulationDebuggerProxySample proxy = snapshot.Proxies[i];
             if (proxy.Entity != selected)
                 continue;
-
             snapshot.SelectedUnit = new SimulationDebuggerUnitSample
             {
                 Entity = selected,
@@ -308,12 +335,33 @@ public abstract partial class BaseFlowMovementSystem
         }
     }
 
-    private int2 CellCoordinateFromBounds(float2 min)
+    private float NormalizeCellSlack(float2 cellMin, float2 cellMax)
+    {
+        float minimumSlack = float.MaxValue;
+        bool found = false;
+        float2 center = (cellMin + cellMax) * 0.5f;
+        for (int i = 0; i < _adaptiveDebugProxies.Length; i++)
+        {
+            AdaptiveFatAabbDebugProxy proxy = _adaptiveDebugProxies[i];
+            float2 proxyCenter = (proxy.CoreMin + proxy.CoreMax) * 0.5f;
+            if (proxyCenter.x < cellMin.x || proxyCenter.x > cellMax.x ||
+                proxyCenter.y < cellMin.y || proxyCenter.y > cellMax.y)
+                continue;
+            minimumSlack = math.min(minimumSlack, proxy.MinimumSlack);
+            found = true;
+        }
+        if (!found)
+            return 0f;
+        float referenceSize = math.max(0.0001f, math.cmax(cellMax - cellMin));
+        return math.saturate(minimumSlack / referenceSize);
+    }
+
+    private int2 CellCoordinateFromBounds(float2 min, FlowFieldGrid grid)
     {
         float worldCellSize = math.max(
             0.0001f,
-            SystemAPI.GetSingleton<FlowFieldGrid>().CellRadius * 2f * math.max(1, _adaptiveCellSpan));
-        return (int2)math.floor((min - SystemAPI.GetSingleton<FlowFieldGrid>().GridOrigin.xz) / worldCellSize);
+            grid.CellRadius * 2f * math.max(1, _adaptiveCellSpan));
+        return (int2)math.floor((min - grid.GridOrigin.xz) / worldCellSize);
     }
 }
 }
