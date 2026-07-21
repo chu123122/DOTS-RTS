@@ -1440,20 +1440,21 @@ internal static class SimulationDebuggerPanelBootstrap
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreatePanelWhenMissing()
     {
-        SimulationDebuggerPanel panel =
-            UnityEngine.Object.FindFirstObjectByType<SimulationDebuggerPanel>();
-        GameObject gameObject;
-        if (panel == null)
+        // 先清理上一次 Play Mode 遗留的旧面板。
+        var existing = UnityEngine.Object.FindObjectsByType<SimulationDebuggerPanel>(
+            UnityEngine.FindObjectsSortMode.None);
+        foreach (var old in existing)
         {
-            gameObject = new GameObject("Simulation Debugger");
-            gameObject.hideFlags = HideFlags.DontSave;
-            panel = gameObject.AddComponent<SimulationDebuggerPanel>();
-            UnityEngine.Object.DontDestroyOnLoad(gameObject);
+            if (old != null && old.gameObject != null)
+                UnityEngine.Object.Destroy(old.gameObject);
         }
-        else
+
+        var gameObject = new GameObject("Simulation Debugger")
         {
-            gameObject = panel.gameObject;
-        }
+            hideFlags = HideFlags.DontSave
+        };
+        gameObject.AddComponent<SimulationDebuggerPanel>();
+        UnityEngine.Object.DontDestroyOnLoad(gameObject);
 
         if (gameObject.GetComponent<SimulationDebuggerWorldOverlay>() == null)
             gameObject.AddComponent<SimulationDebuggerWorldOverlay>();
