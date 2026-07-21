@@ -1,3 +1,4 @@
+using Unity.Entities;
 using Unity.Mathematics;
 using RTS.Unit.FlowField.Diagnostics;
 
