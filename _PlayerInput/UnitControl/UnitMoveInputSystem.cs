@@ -1,15 +1,14 @@
 using _RePlaySystem.Base;
 using DefaultNamespace;
 using Unity.Entities;
+using Unity.Mathematics;
 using RTS.Unit.Components;
 using RTS.Unit.FlowField;
 using Unity.NetCode;
-using Unity.Physics;
 using UnityEngine;
 using UnityEngine.UIElements;
 using 简单战斗.ServiceLocator;
 using 通用;
-using RaycastHit = Unity.Physics.RaycastHit;
 
 namespace 客户端
 {
@@ -18,16 +17,10 @@ namespace 客户端
     public partial class UnitMoveInputSystem : SystemBase, ICanGetServiceSystem,IGetService
     {
         private PlayerAction _playerAction;
-        private CollisionFilter _collisionFilter;
 
         protected override void OnCreate()
         {
             RequireForUpdate<FlowFieldGlobalTarget>();
-            _collisionFilter = new CollisionFilter
-            {
-                BelongsTo = ~0u,
-                CollidesWith = 1 << 0,
-            };
         }
 
         protected override void OnUpdate()
@@ -40,23 +33,17 @@ namespace 客户端
 
         private void OnSelectUnitMovePosition()
         {
-            CollisionWorld collisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().CollisionWorld;
             Entity cameraEntity = SystemAPI.GetSingletonEntity<MainCameraTag>();
             Camera mainCamera = EntityManager.GetComponentObject<MainCameraComponents>(cameraEntity).Value;
-
-            Vector3 mousePosition = Input.mousePosition;
-            mousePosition.z = 100f;
-            if (mainCamera == null) Debug.LogWarning("camera is null");
-            Vector3 worldPosition = mainCamera.ScreenToWorldPoint(mousePosition);
-
-            RaycastInput selectionInput = new RaycastInput
+            if (mainCamera == null)
             {
-                Start = mainCamera.transform.position,
-                End = worldPosition,
-                Filter = _collisionFilter,
-            };
+                Debug.LogWarning("无法下达移动命令：Main Camera 不可用。");
+                return;
+            }
 
-            if (collisionWorld.CastRay(selectionInput, out RaycastHit closestHit))
+            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            var groundPlane = new Plane(Vector3.up, Vector3.zero);
+            if (groundPlane.Raycast(ray, out float enter))
             {
                 bool hasSelectedUnit = false;
                 foreach (var unitSelected in
@@ -69,12 +56,17 @@ namespace 客户端
                     }
                 }
 
-                if (!hasSelectedUnit) return;
+                if (!hasSelectedUnit)
+                {
+                    Debug.LogWarning("移动命令未发送：当前没有选中的单位。");
+                    return;
+                }
 
                 Entity flowFieldEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
+                float3 targetPosition = ray.GetPoint(enter);
                 EntityManager.SetComponentData(flowFieldEntity, new MoveOrder
                 {
-                    TargetPosition = closestHit.Position
+                    TargetPosition = targetPosition
                 });
                 EntityManager.SetComponentEnabled<MoveOrder>(flowFieldEntity, true);
 
@@ -82,8 +74,12 @@ namespace 客户端
                     this.GetService<RequestCommandRpcSystem>();
                 requestCommandRpcSystem.SendInputCommand(
                     InputCommandType.Move, 
-                    closestHit.Position
+                    targetPosition
                 );
+            }
+            else
+            {
+                Debug.LogWarning("移动命令未发送：鼠标射线没有与地面平面相交。");
             }
         }
     }

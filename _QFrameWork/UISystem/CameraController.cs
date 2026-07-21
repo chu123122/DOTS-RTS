@@ -11,8 +11,15 @@ namespace Test
     {
         [Range(0,2)]
         public float movementSensitivity = 1f;
+
+        [Min(0f)]
+        public float zoomSensitivity = 5f;
+
+        public float minCameraHeight = 10f;
+        public float maxCameraHeight = 60f;
         
         private Camera _camera;
+        private float _cameraHeightOffset;
         private Vector3 _startPosition;
         private Vector3 _currentPosition;
         private Vector3 _newPosition;
@@ -20,14 +27,35 @@ namespace Test
         private void Awake()
         {
             _camera = Camera.main;
+            _cameraHeightOffset = _camera.transform.position.y - transform.position.y;
             _newPosition = transform.position;
         }
 
         private void Update()
         {
             HandleMouseInput();
+            HandleZoomInput();
             transform.position = Vector3.Lerp(transform.position, _newPosition, Time.deltaTime * movementSensitivity);
         }
+
+        /// <summary>
+        /// 通过移动父节点调整实际摄像机的世界高度。
+        /// </summary>
+        private void HandleZoomInput()
+        {
+            float scrollDelta = Input.mouseScrollDelta.y;
+            if (Mathf.Approximately(scrollDelta, 0f))
+            {
+                return;
+            }
+
+            float targetCameraHeight = Mathf.Clamp(
+                _newPosition.y + _cameraHeightOffset - scrollDelta * zoomSensitivity,
+                minCameraHeight,
+                maxCameraHeight);
+            _newPosition.y = targetCameraHeight - _cameraHeightOffset;
+        }
+
         /// <summary>
         /// 处理鼠标的输入（旧版输入系统）
         /// </summary>
@@ -52,8 +80,10 @@ namespace Test
                 if (plane.Raycast(ray, out var entry))
                 {
                     _currentPosition = ray.GetPoint(entry);
- 
-                    _newPosition = transform.position + _startPosition - _currentPosition;
+
+                    Vector3 draggedPosition = transform.position + _startPosition - _currentPosition;
+                    draggedPosition.y = _newPosition.y;
+                    _newPosition = draggedPosition;
                 }
             }
 

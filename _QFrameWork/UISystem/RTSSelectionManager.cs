@@ -63,7 +63,10 @@ public class RTSSelectionManager : MonoBehaviour
             }
             else
             {
-                // 这里可以是"单选"逻辑，或者交给你的 Raycast 系统
+                // 本地模式直接用屏幕空间选择，避免依赖 Physics Raycast、
+                // 碰撞分类以及当前 Active Scene 名称。
+                Vector2 padding = Vector2.one * minSelectionSize;
+                SelectUnitsInScreenRect(startMousePos - padding, startMousePos + padding);
             }
         }
     }
@@ -109,6 +112,7 @@ public class RTSSelectionManager : MonoBehaviour
 
         // 是否按住了 Shift 键 (加选)
         bool isAdditive = Input.GetKey(KeyCode.LeftShift);
+        int selectedCount = 0;
 
         for (int i = 0; i < entities.Length; i++)
         {
@@ -116,7 +120,7 @@ public class RTSSelectionManager : MonoBehaviour
             Vector3 screenPos = mainCam.WorldToScreenPoint(transforms[i].Position);
 
             // 检查是否在框内
-            bool isInside = selectionRect.Contains(screenPos);
+            bool isInside = screenPos.z > 0f && selectionRect.Contains(screenPos);
 
             UnitSelected currentState = selectedStates[i];
             
@@ -131,12 +135,14 @@ public class RTSSelectionManager : MonoBehaviour
 
             // 写回 ECS
             entityManager.SetComponentData(entities[i], currentState);
+            if (currentState.Value)
+                selectedCount++;
         }
 
         entities.Dispose();
         transforms.Dispose();
         selectedStates.Dispose();
         
-        Debug.Log("框选完成，状态已更新 ECS");
+        Debug.Log($"单位选择完成：当前选中 {selectedCount} 个单位。");
     }
 }

@@ -141,6 +141,7 @@ public struct PredictiveDiscContactStatistics : IComponentData
 public struct FlowFieldRuntimeState : IComponentData
 {
     public uint ActiveVersion;
+    public uint ActiveRequestVersion;
 }
 
 /// <summary>

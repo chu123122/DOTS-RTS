@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.NetCode;
 using Unity.Physics;
 using RTS.Unit.Components;
 using RTS.Unit.FlowField;
@@ -19,6 +20,7 @@ namespace RTS.Unit.FlowField.Systems
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup))]
+    [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
     public partial class FlowFieldBakeSystem : SystemBase
     {
         private JobHandle _bakeHandle;
@@ -186,6 +188,7 @@ namespace RTS.Unit.FlowField.Systems
             FlowFieldRuntimeState runtimeState =
                 EntityManager.GetComponentData<FlowFieldRuntimeState>(managerEntity);
             runtimeState.ActiveVersion++;
+            runtimeState.ActiveRequestVersion = _scheduledRequestVersion;
             EntityManager.SetComponentData(managerEntity, runtimeState);
 
             if (_scheduledCostDirty)

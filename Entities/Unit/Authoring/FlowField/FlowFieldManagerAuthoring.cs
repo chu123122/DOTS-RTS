@@ -130,8 +130,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             AddBuffer<Stage3ContactHeatSample>(entity);
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
-            AddComponent(entity, new RecalculateFlowFieldTag());
-            SetComponentEnabled<RecalculateFlowFieldTag>(entity, false);
+            // 启动时先烘焙一次 Cost/Integration/Vector Field。
+            // RtsCommandSystem 会保留首条 MoveOrder，直到 ActiveVersion 发布，
+            // 避免 FlowFieldGrid 尚未创建时形成循环等待。
+            AddComponent(entity, new RecalculateFlowFieldTag { RequestVersion = 1 });
+            SetComponentEnabled<RecalculateFlowFieldTag>(entity, true);
             AddComponent(entity, new FlowFieldVisualizationSettings
             {
                 Visible = authoring.showGrid,

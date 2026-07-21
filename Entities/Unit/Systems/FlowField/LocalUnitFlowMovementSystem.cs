@@ -9,6 +9,7 @@ namespace RTS.Unit.FlowField.Systems
 using _RePlaySystem.Base; 
 
 [UpdateInGroup(typeof(SimulationSystemGroup))] 
+[UpdateAfter(typeof(FlowFieldBakeSystem))]
 public partial class LocalUnitFlowMovementSystem : BaseFlowMovementSystem
 {
     protected override void OnCreate()

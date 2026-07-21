@@ -68,6 +68,7 @@ public static class LocalGameplayModeValidation
                 typeof(FlowFieldGlobalTarget),
                 typeof(FlowFieldGrid),
                 typeof(MoveOrder),
+                typeof(FlowFieldRuntimeState),
                 typeof(RecalculateFlowFieldTag));
             entityManager.SetComponentData(
                 managerEntity,
@@ -85,6 +86,9 @@ public static class LocalGameplayModeValidation
             entityManager.SetComponentData(
                 managerEntity,
                 new RecalculateFlowFieldTag { RequestVersion = 7 });
+            entityManager.SetComponentData(
+                managerEntity,
+                new FlowFieldRuntimeState { ActiveVersion = 0 });
             entityManager.SetComponentEnabled<MoveOrder>(managerEntity, true);
             entityManager.SetComponentEnabled<RecalculateFlowFieldTag>(managerEntity, false);
 
@@ -100,6 +104,22 @@ public static class LocalGameplayModeValidation
                 LocalTransform.FromPosition(new float3(1f, 0f, 1f)));
 
             RtsCommandSystem system = world.CreateSystemManaged<RtsCommandSystem>();
+            system.Update();
+
+            Require(entityManager.IsComponentEnabled<MoveOrder>(managerEntity),
+                "Move order was consumed before the initial Flow Field became ready.");
+            Require(
+                entityManager.GetComponentData<RecalculateFlowFieldTag>(managerEntity)
+                    .RequestVersion == 7,
+                "Deferred move order mutated the Flow Field request.");
+
+            entityManager.SetComponentData(
+                managerEntity,
+                new FlowFieldRuntimeState
+                {
+                    ActiveVersion = 1,
+                    ActiveRequestVersion = 7
+                });
             system.Update();
 
             Require(
@@ -208,6 +228,7 @@ public static class LocalGameplayModeValidation
                 GridOrigin = float3.zero,
                 GridDimensions = new int2(3, 3),
                 CellRadius = 0.5f,
+                ActiveRequestVersion = 1,
                 CollisionFootprints = footprints,
                 States = states
             };
@@ -220,10 +241,27 @@ public static class LocalGameplayModeValidation
                 Position = new float3(1.8f, 0f, 1f),
                 ArrivalRadius = 0.2f,
                 DirectApproachIntegrationDistance = 2,
+                OrderVersion = 2,
                 IsActive = 1
             };
             var arrival = new FlowArrivalState { IsSettled = false };
 
+            job.Execute(
+                Entity.Null,
+                0,
+                LocalTransform.FromPosition(new float3(1f, 0f, 1f)),
+                new Velocity { Value = new float3(-1f, 0f, 0f) },
+                speed,
+                settings,
+                contactBody,
+                destination,
+                ref arrival);
+            Require(arrival.IsSettled &&
+                    math.lengthsq(states[0].CurrentVelocity) <= 0.000001f &&
+                    math.lengthsq(states[0].IndependentForce) <= 0.000001f,
+                "Unit did not stop while waiting for its matching Flow Field request.");
+
+            destination.OrderVersion = 1;
             job.Execute(
                 Entity.Null,
                 0,
@@ -291,7 +329,11 @@ public static class LocalGameplayModeValidation
             });
             entityManager.SetComponentData(
                 manager,
-                new FlowFieldRuntimeState { ActiveVersion = 1 });
+                new FlowFieldRuntimeState
+                {
+                    ActiveVersion = 1,
+                    ActiveRequestVersion = 1
+                });
             entityManager.SetComponentData(manager, new FlowFieldSettings
             {
                 GridOrigin = float3.zero,
@@ -337,6 +379,7 @@ public static class LocalGameplayModeValidation
                 Position = new float3(3f, 0f, 1f),
                 ArrivalRadius = 0.1f,
                 DirectApproachIntegrationDistance = 0,
+                OrderVersion = 1,
                 IsActive = 1
             });
 

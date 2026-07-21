@@ -59,12 +59,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     {
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
+        var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
         Entity diagnosticSelectedEntity = Entity.Null;
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))
             diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
         if (!gridComponent.Grid.IsCreated) return;
-        if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
+        if (flowFieldRuntimeState.ActiveVersion == 0) return;
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
@@ -101,6 +102,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
+            ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
             CollisionFootprints = collisionFootprints,
             States = states
         };

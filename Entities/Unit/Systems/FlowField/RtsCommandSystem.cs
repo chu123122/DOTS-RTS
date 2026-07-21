@@ -20,12 +20,19 @@ public partial class RtsCommandSystem : SystemBase
     {
         RequireForUpdate<FlowFieldGlobalTarget>();
         RequireForUpdate<FlowFieldGrid>();
+        RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<MoveOrder>();
     }
 
     protected override void OnUpdate()
     {
         var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
+
+        // 首次 Flow Field 尚未发布时保留 MoveOrder 的 enabled 状态。
+        // 启动烘焙完成后的下一帧会继续消费同一条指令。
+        if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0)
+            return;
+
         var moveOrder = EntityManager.GetComponentData<MoveOrder>(gridEntity);
         EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
 
