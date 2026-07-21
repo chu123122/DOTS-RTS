@@ -22,6 +22,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<ShadowFatBodyProxy> _shadowPreviousProxies;
     private NativeList<ShadowEntityPair> _shadowPreviousPairs;
     private NativeReference<FatAabbCacheState> _fatAabbCacheState;
+    private NativeList<AdaptiveFatAabbCellHistory> _adaptiveCellHistory;
+    private NativeList<AdaptiveFatAabbRegion> _adaptiveRegions;
+    private NativeList<AdaptiveFatAabbDebugCell> _adaptiveDebugCells;
+    private NativeList<AdaptiveFatAabbDebugRegion> _adaptiveDebugRegions;
+    private NativeList<AdaptiveFatAabbDebugProxy> _adaptiveDebugProxies;
+    private int2 _adaptiveCellDimensions;
+    private int _adaptiveCellSpan;
 
     protected override void OnCreate()
     {
@@ -42,6 +49,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _shadowPreviousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.Persistent);
         _shadowPreviousPairs = new NativeList<ShadowEntityPair>(Allocator.Persistent);
         _fatAabbCacheState = new NativeReference<FatAabbCacheState>(Allocator.Persistent);
+        _adaptiveCellHistory = new NativeList<AdaptiveFatAabbCellHistory>(Allocator.Persistent);
+        _adaptiveRegions = new NativeList<AdaptiveFatAabbRegion>(Allocator.Persistent);
+        _adaptiveDebugCells = new NativeList<AdaptiveFatAabbDebugCell>(Allocator.Persistent);
+        _adaptiveDebugRegions = new NativeList<AdaptiveFatAabbDebugRegion>(Allocator.Persistent);
+        _adaptiveDebugProxies = new NativeList<AdaptiveFatAabbDebugProxy>(Allocator.Persistent);
     }
 
     protected override void OnDestroy()
@@ -53,6 +65,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _shadowPreviousPairs.Dispose();
         if (_fatAabbCacheState.IsCreated)
             _fatAabbCacheState.Dispose();
+        if (_adaptiveCellHistory.IsCreated)
+            _adaptiveCellHistory.Dispose();
+        if (_adaptiveRegions.IsCreated)
+            _adaptiveRegions.Dispose();
+        if (_adaptiveDebugCells.IsCreated)
+            _adaptiveDebugCells.Dispose();
+        if (_adaptiveDebugRegions.IsCreated)
+            _adaptiveDebugRegions.Dispose();
+        if (_adaptiveDebugProxies.IsCreated)
+            _adaptiveDebugProxies.Dispose();
     }
 
     protected override void OnUpdate()
@@ -60,6 +82,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
+        AdaptiveFatAabbSettings adaptiveSettings = AdaptiveFatAabbSettings.Default;
+        if (SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings))
+            adaptiveSettings = configuredAdaptiveSettings;
+        adaptiveSettings = adaptiveSettings.Sanitized();
+        EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
+        DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = Entity.Null;
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))
             diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
@@ -152,6 +180,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob);
         var selectedBodyDiagnostic =
             new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
+        int adaptiveCellCount = math.max(1, _adaptiveCellDimensions.x * _adaptiveCellDimensions.y);
+        var adaptiveCellMetrics = new NativeArray<AdaptiveFatAabbCellMetric>(
+            adaptiveCellCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var adaptiveBodyRouting = new NativeArray<AdaptiveFatAabbBodyRouting>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var adaptiveFloodQueue = new NativeList<int>(adaptiveCellCount, Allocator.TempJob);
+        var adaptiveFloodCells = new NativeList<int>(adaptiveCellCount, Allocator.TempJob);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -169,6 +208,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
+            AdaptiveSettings = adaptiveSettings,
+            AdaptiveCellDimensions = _adaptiveCellDimensions,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -187,6 +228,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowPreviousProxies = _shadowPreviousProxies,
             ShadowPreviousPairs = _shadowPreviousPairs,
             FatAabbCacheState = _fatAabbCacheState,
+            AdaptiveCellHistory = _adaptiveCellHistory.AsArray(),
+            AdaptiveCellMetrics = adaptiveCellMetrics,
+            AdaptiveBodyRouting = adaptiveBodyRouting,
+            AdaptiveFloodQueue = adaptiveFloodQueue,
+            AdaptiveFloodCells = adaptiveFloodCells,
+            AdaptiveRegions = _adaptiveRegions,
+            AdaptiveDebugCells = _adaptiveDebugCells,
+            AdaptiveDebugRegions = _adaptiveDebugRegions,
+            AdaptiveDebugProxies = _adaptiveDebugProxies,
             States = states,
             Statistics = contactStatistics,
             ShadowStatistics = shadowStatistics,
@@ -245,6 +295,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle iterationDiagnosticDisposeHandle =
             iterationDiagnostics.Dispose(publishStatisticsHandle);
         JobHandle pairDiagnosticDisposeHandle = pairDiagnostics.Dispose(publishStatisticsHandle);
+        JobHandle adaptiveCellMetricDisposeHandle = adaptiveCellMetrics.Dispose(applyMovementHandle);
+        JobHandle adaptiveBodyRoutingDisposeHandle = adaptiveBodyRouting.Dispose(applyMovementHandle);
+        JobHandle adaptiveFloodQueueDisposeHandle = adaptiveFloodQueue.Dispose(applyMovementHandle);
+        JobHandle adaptiveFloodCellsDisposeHandle = adaptiveFloodCells.Dispose(applyMovementHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
@@ -271,6 +325,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle correctionScratchDisposeHandle = JobHandle.CombineDependencies(
             correctedBodyFlagDisposeHandle,
             correctedBodyIndexDisposeHandle);
+        JobHandle adaptiveMetricDisposeHandle = JobHandle.CombineDependencies(
+            adaptiveCellMetricDisposeHandle,
+            adaptiveBodyRoutingDisposeHandle);
+        JobHandle adaptiveFloodDisposeHandle = JobHandle.CombineDependencies(
+            adaptiveFloodQueueDisposeHandle,
+            adaptiveFloodCellsDisposeHandle);
+        JobHandle adaptiveScratchDisposeHandle = JobHandle.CombineDependencies(
+            adaptiveMetricDisposeHandle,
+            adaptiveFloodDisposeHandle);
         JobHandle fatCacheScratchDisposeHandle = JobHandle.CombineDependencies(
             mappingScratchDisposeHandle,
             correctionScratchDisposeHandle);
@@ -284,6 +347,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
             mainAndShadowDisposeHandle,
             fatCacheScratchDisposeHandle);
+        mainDisposeHandle = JobHandle.CombineDependencies(
+            mainDisposeHandle,
+            adaptiveScratchDisposeHandle);
         Dependency = JobHandle.CombineDependencies(
             mainDisposeHandle,
             diagnosticDisposeHandle);
