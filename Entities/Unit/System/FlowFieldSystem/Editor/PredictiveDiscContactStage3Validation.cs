@@ -38,6 +38,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
         ValidateFatAabbDoesNotSweepFromWorldOrigin();
+        ValidateRuntimeControlState();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
         ScenarioResult fatCache = ValidateFatAabbCache();
@@ -925,6 +926,43 @@ public static class PredictiveDiscContactStage3Validation
                 result.Statistics.CandidatePairCount == 0 &&
                 result.Statistics.SoftAvoidanceCandidatePairCount == 0,
             "First-substep Fat AABBs swept from world origin before prediction.");
+    }
+
+    private static void ValidateRuntimeControlState()
+    {
+        var settings = new UnitContactSolverSettings();
+        var flowSettings = new FlowFieldSettings();
+        var controls = new Stage3RuntimeControlState
+        {
+            Substeps = 0,
+            Iterations = 64,
+            PredictiveSkin = -1f,
+            EnablePredictivePairGeneration = true,
+            EnablePredictiveContacts = true,
+            EnableDiagnostics = true,
+            VisualizeSelectedContacts = true,
+            EnableFatAabbCache = true,
+            FatAabbCacheMargin = -1f,
+            SoftAvoidanceVelocitySolver =
+                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle,
+            SoftAvoidanceResponseRate = -1f,
+            SoftAvoidanceShell = -1f,
+            RvoTimeHorizon = 0f
+        };
+
+        controls.ApplyTo(ref settings, ref flowSettings);
+        Require(settings.SubstepCount == 1 && settings.IterationCount == 32 &&
+                settings.PredictiveSkin == 0f && settings.FatAabbCacheMargin == 0f &&
+                settings.EnablePredictivePairGeneration &&
+                settings.EnablePredictiveContacts && settings.EnableDiagnostics &&
+                settings.VisualizeSelectedContacts && settings.EnableFatAabbCache,
+            "Runtime contact controls were not applied or clamped.");
+        Require(flowSettings.SoftAvoidanceVelocitySolver ==
+                    SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle &&
+                flowSettings.SoftAvoidanceResponseRate == 0f &&
+                flowSettings.SoftAvoidanceShell == 0f &&
+                math.abs(flowSettings.RvoTimeHorizon - 0.01f) <= 0.000001f,
+            "Runtime soft-avoidance controls were not applied or clamped.");
     }
 
     private static void Require(bool condition, string message)

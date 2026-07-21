@@ -52,7 +52,14 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         RefRW<UnitContactSolverSettings> settingsReference =
             SystemAPI.GetSingletonRW<UnitContactSolverSettings>();
         UnitContactSolverSettings settings = settingsReference.ValueRO;
-        FlowFieldSettings flowSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
+        RefRW<FlowFieldSettings> flowSettingsReference =
+            SystemAPI.GetSingletonRW<FlowFieldSettings>();
+        FlowFieldSettings flowSettings = flowSettingsReference.ValueRO;
+        if (_overlay.TryConsumeRuntimeControls(out Stage3RuntimeControlState controls) &&
+            !_automaticCapture.Active)
+        {
+            controls.ApplyTo(ref settings, ref flowSettings);
+        }
         double simulationTime = SystemAPI.Time.ElapsedTime;
 
         Keyboard keyboard = Keyboard.current;
@@ -125,13 +132,18 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (_captureSession.Active)
             settings.EnableDiagnostics = true;
         settingsReference.ValueRW = settings;
+        flowSettingsReference.ValueRW = flowSettings;
+        _overlay.SetRuntimeControls(
+            Stage3RuntimeControlState.From(settings, flowSettings),
+            _automaticCapture.Active);
 
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
             TrySelectDiagnosticUnitWithMiddleMouse();
 
         bool shouldShowOverlay =
             settings.EnableDiagnostics || settings.EnableFatAabbCache;
-        _overlay.Visible = shouldShowOverlay;
+        _overlay.Visible = true;
+        _overlay.ShowDiagnostics = shouldShowOverlay;
         if (!shouldShowOverlay)
         {
             _overlay.HeaderText = string.Empty;
@@ -169,6 +181,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             shadowStatistics,
             iterationDiagnostics);
         settingsReference.ValueRW = settings;
+        _overlay.SetRuntimeControls(
+            Stage3RuntimeControlState.From(settings, flowSettings),
+            _automaticCapture.Active);
 
         _overlay.HeaderText = BuildHeaderText(
             settings,
@@ -761,9 +776,69 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     }
 }
 
+public struct Stage3RuntimeControlState
+{
+    public int Substeps;
+    public int Iterations;
+    public float PredictiveSkin;
+    public bool EnablePredictivePairGeneration;
+    public bool EnablePredictiveContacts;
+    public bool EnableDiagnostics;
+    public bool VisualizeSelectedContacts;
+    public bool EnableFatAabbCache;
+    public float FatAabbCacheMargin;
+    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
+    public float SoftAvoidanceResponseRate;
+    public float SoftAvoidanceShell;
+    public float RvoTimeHorizon;
+
+    public void ApplyTo(
+        ref UnitContactSolverSettings settings,
+        ref FlowFieldSettings flowSettings)
+    {
+        settings.SubstepCount = math.clamp(Substeps, 1, 16);
+        settings.IterationCount = math.clamp(Iterations, 1, 32);
+        settings.PredictiveSkin = math.max(0f, PredictiveSkin);
+        settings.EnablePredictivePairGeneration = EnablePredictivePairGeneration;
+        settings.EnablePredictiveContacts = EnablePredictiveContacts;
+        settings.EnableDiagnostics = EnableDiagnostics;
+        settings.VisualizeSelectedContacts = VisualizeSelectedContacts;
+        settings.EnableFatAabbCache = EnableFatAabbCache;
+        settings.FatAabbCacheMargin = math.max(0f, FatAabbCacheMargin);
+
+        flowSettings.SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver;
+        flowSettings.SoftAvoidanceResponseRate = math.max(0f, SoftAvoidanceResponseRate);
+        flowSettings.SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell);
+        flowSettings.RvoTimeHorizon = math.max(0.01f, RvoTimeHorizon);
+    }
+
+    public static Stage3RuntimeControlState From(
+        UnitContactSolverSettings settings,
+        FlowFieldSettings flowSettings)
+    {
+        return new Stage3RuntimeControlState
+        {
+            Substeps = settings.SubstepCount,
+            Iterations = settings.IterationCount,
+            PredictiveSkin = settings.PredictiveSkin,
+            EnablePredictivePairGeneration = settings.EnablePredictivePairGeneration,
+            EnablePredictiveContacts = settings.EnablePredictiveContacts,
+            EnableDiagnostics = settings.EnableDiagnostics,
+            VisualizeSelectedContacts = settings.VisualizeSelectedContacts,
+            EnableFatAabbCache = settings.EnableFatAabbCache,
+            FatAabbCacheMargin = settings.FatAabbCacheMargin,
+            SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver,
+            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
+            RvoTimeHorizon = flowSettings.RvoTimeHorizon
+        };
+    }
+}
+
 public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
 {
     public bool Visible;
+    public bool ShowDiagnostics;
     public string HeaderText = string.Empty;
     public string Stage3Text = string.Empty;
     public string ShadowText = string.Empty;
@@ -771,6 +846,30 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
 
     private GUIStyle _headerStyle;
     private GUIStyle _panelStyle;
+    private Stage3RuntimeControlState _runtimeControls;
+    private bool _runtimeControlsInitialized;
+    private bool _runtimeControlChangePending;
+    private bool _runtimeControlsLocked;
+
+    public void SetRuntimeControls(Stage3RuntimeControlState controls, bool locked)
+    {
+        _runtimeControlsLocked = locked;
+        if (_runtimeControlChangePending)
+            return;
+
+        _runtimeControls = controls;
+        _runtimeControlsInitialized = true;
+    }
+
+    public bool TryConsumeRuntimeControls(out Stage3RuntimeControlState controls)
+    {
+        controls = _runtimeControls;
+        if (!_runtimeControlChangePending)
+            return false;
+
+        _runtimeControlChangePending = false;
+        return true;
+    }
 
     private void OnGUI()
     {
@@ -792,6 +891,15 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             normal = { textColor = new Color(0.9f, 0.94f, 0.98f) }
         };
 
+        if (ShowDiagnostics)
+            DrawDiagnosticPanels();
+
+        if (_runtimeControlsInitialized)
+            DrawRuntimeControlPanel();
+    }
+
+    private void DrawDiagnosticPanels()
+    {
         const float cardWidth = 510f;
         const float gap = 12f;
         const float logicalWidth = cardWidth * 2f + gap;
@@ -844,6 +952,128 @@ public sealed class Stage3ContactDiagnosticOverlay : MonoBehaviour
             _panelStyle);
 
         GUI.matrix = previousMatrix;
+    }
+
+    private void DrawRuntimeControlPanel()
+    {
+        const float width = 450f;
+        const float height = 366f;
+        var rect = new Rect(12f, math.max(12f, Screen.height - height - 12f), width, height);
+        DrawCardBackground(
+            rect,
+            new Color(0.035f, 0.045f, 0.06f, 0.97f),
+            new Color(0.32f, 0.78f, 0.62f, 1f));
+
+        GUILayout.BeginArea(new Rect(rect.x + 14f, rect.y + 10f, rect.width - 28f, rect.height - 20f));
+        GUILayout.Label("运行时求解参数（修改后下一帧生效）", _headerStyle);
+        if (_runtimeControlsLocked)
+            GUILayout.Label("F12 自动实验进行中：手动参数已锁定", _panelStyle);
+
+        bool previousEnabled = GUI.enabled;
+        GUI.enabled = !_runtimeControlsLocked;
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("软避让速度策略", GUILayout.Width(155f));
+        string solverLabel = _runtimeControls.SoftAvoidanceVelocitySolver ==
+                             SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer
+            ? "旧：Surface Velocity Buffer"
+            : "新：Reciprocal Velocity Obstacle";
+        if (GUILayout.Button(solverLabel, GUILayout.Height(24f)))
+        {
+            _runtimeControls.SoftAvoidanceVelocitySolver =
+                _runtimeControls.SoftAvoidanceVelocitySolver ==
+                SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer
+                    ? SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle
+                    : SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer;
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
+
+        DrawFloatControl("软避让响应率", ref _runtimeControls.SoftAvoidanceResponseRate, 0.5f, 0f, "F1");
+        DrawFloatControl("Soft Shell", ref _runtimeControls.SoftAvoidanceShell, 0.05f, 0f, "F2");
+
+        bool horizonEnabled = GUI.enabled;
+        GUI.enabled = horizonEnabled &&
+                      _runtimeControls.SoftAvoidanceVelocitySolver ==
+                      SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle;
+        DrawFloatControl("RVO Horizon (s)", ref _runtimeControls.RvoTimeHorizon, 0.1f, 0.01f, "F2");
+        GUI.enabled = horizonEnabled;
+
+        DrawIntControl("XPBD Substeps", ref _runtimeControls.Substeps, 1, 16);
+        DrawIntControl("XPBD Iterations", ref _runtimeControls.Iterations, 1, 32);
+        DrawFloatControl("Predictive Skin", ref _runtimeControls.PredictiveSkin, 0.01f, 0f, "F2");
+        DrawFloatControl("Fat AABB Margin", ref _runtimeControls.FatAabbCacheMargin, 0.05f, 0f, "F2");
+
+        DrawToggleControl(
+            "预测 Pair 生成",
+            ref _runtimeControls.EnablePredictivePairGeneration);
+        DrawToggleControl(
+            "防换侧约束",
+            ref _runtimeControls.EnablePredictiveContacts);
+        DrawToggleControl("Fat AABB 缓存", ref _runtimeControls.EnableFatAabbCache);
+        DrawToggleControl("诊断数据", ref _runtimeControls.EnableDiagnostics);
+        DrawToggleControl("场景线框", ref _runtimeControls.VisualizeSelectedContacts);
+
+        GUI.enabled = previousEnabled;
+        GUILayout.EndArea();
+    }
+
+    private void DrawIntControl(string label, ref int value, int minimum, int maximum)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, GUILayout.Width(155f));
+        if (GUILayout.Button("-", GUILayout.Width(36f)))
+        {
+            value = math.max(minimum, value - 1);
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.Label(value.ToString(), GUILayout.Width(70f));
+        if (GUILayout.Button("+", GUILayout.Width(36f)))
+        {
+            value = math.min(maximum, value + 1);
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawFloatControl(
+        string label,
+        ref float value,
+        float step,
+        float minimum,
+        string format)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, GUILayout.Width(155f));
+        if (GUILayout.Button("-", GUILayout.Width(36f)))
+        {
+            value = math.max(minimum, value - step);
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.Label(value.ToString(format), GUILayout.Width(70f));
+        if (GUILayout.Button("+", GUILayout.Width(36f)))
+        {
+            value += step;
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawToggleControl(string label, ref bool value)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, GUILayout.Width(155f));
+        if (GUILayout.Button(value ? "开启" : "关闭", GUILayout.Width(142f)))
+        {
+            value = !value;
+            MarkRuntimeControlsChanged();
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    private void MarkRuntimeControlsChanged()
+    {
+        _runtimeControlChangePending = true;
     }
 
     private static void DrawCardBackground(Rect rect, Color background, Color accent)
