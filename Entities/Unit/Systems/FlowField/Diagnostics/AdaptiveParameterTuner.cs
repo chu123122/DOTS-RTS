@@ -39,7 +39,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     [Min(1)] public int StatisticsFrames = 60;
 
     [Header("移动")]
-    public float2 MoveTargetSpread = 10f;
+    public float MoveTargetSpread = 10f;
 
     [Header("Trials")]
     public List<ParameterTrial> TrialList = new()
