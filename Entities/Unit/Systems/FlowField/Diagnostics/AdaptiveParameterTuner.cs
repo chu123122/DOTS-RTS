@@ -2,10 +2,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using RTS.Unit.Components;
+using RTS.Unit.FlowField;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
@@ -30,9 +33,13 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     public float SpawnSpread = 2f;
 
     [Header("Timing")]
+    [Min(0)] public float PostSpawnDelaySeconds = 5f;
     [Min(1)] public int WarmupFrames = 180;
     [Min(1)] public int TrialFrames = 120;
     [Min(1)] public int StatisticsFrames = 60;
+
+    [Header("移动")]
+    public float2 MoveTargetSpread = 10f;
 
     [Header("Trials")]
     public List<ParameterTrial> TrialList = new()
@@ -45,10 +52,11 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         new() { Label = "skin_0.2",     PredictiveSkin = 0.2f },
     };
 
-    private enum Phase { WaitingForScene, WaitingForButton, Spawning, Warmup, Trial, Done }
+    private enum Phase { WaitingForScene, WaitingForButton, Spawning, PostSpawnWait, IssueMove, Warmup, Trial, Done }
 
     private Phase _phase;
     private int _phaseStartFrame;
+    private float _phaseStartTime;
     private int _trialIndex;
     private int _frameInTrial;
     private int _spawnCooldown;
@@ -56,6 +64,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     private bool _hasBaseline;
     private UnityEngine.UI.Button _spawnButton;
     private int _targetUnitCount;
+    private EntityManager _entityManager;
     private readonly List<TrialResult> _results = new();
     private readonly Accumulator _accumulator = new();
 
@@ -113,6 +122,16 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             case Phase.Spawning:
                 SpawnViaButton();
                 break;
+            case Phase.PostSpawnWait:
+                if (Time.time - _phaseStartTime >= PostSpawnDelaySeconds)
+                    IssueRandomMoveCommands();
+                break;
+            case Phase.IssueMove:
+                _phaseStartTime = Time.time;
+                _phase = Phase.Warmup;
+                _phaseStartFrame = Time.frameCount;
+                Debug.Log($"[Tuner] 移动命令已下发，预热 {WarmupFrames} 帧");
+                break;
             case Phase.Warmup:
                 if (Time.frameCount - _phaseStartFrame >= WarmupFrames)
                     StartNextTrial();
@@ -163,9 +182,9 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
         if (currentCount >= _targetUnitCount)
         {
-            _phase = Phase.Warmup;
-            _phaseStartFrame = Time.frameCount;
-            Debug.Log($"[Tuner] 已有 {currentCount} 个单位，预热 {WarmupFrames} 帧");
+            _phase = Phase.PostSpawnWait;
+            _phaseStartTime = Time.time;
+            Debug.Log($"[Tuner] 已有 {currentCount} 个单位，等待 {PostSpawnDelaySeconds}s 后下发移动命令");
             return;
         }
 
@@ -184,6 +203,59 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         if (SimulationDebuggerRuntime.TryGetLatest(out var s))
             return s.Overview.UnitCount;
         return 0;
+    }
+
+    // ── 随机移动命令 ────────────────────────────────────
+
+    private void IssueRandomMoveCommands()
+    {
+        World world = World.DefaultGameObjectInjectionWorld;
+        if (world == null || !world.IsCreated)
+            return;
+
+        _entityManager = world.EntityManager;
+        var random = new Unity.Mathematics.Random((uint)(Time.frameCount + 1));
+
+        // 获取流场中心作为参考点
+        float3 gridOrigin = float3.zero;
+        using (var gridQuery = _entityManager.CreateEntityQuery(typeof(FlowFieldGrid)))
+        {
+            if (!gridQuery.IsEmptyIgnoreFilter)
+                gridOrigin = gridQuery.GetSingleton<FlowFieldGrid>().GridOrigin;
+        }
+
+        // 给所有单位设随机目标
+        using var query = _entityManager.CreateEntityQuery(
+            typeof(UnitMoveDestination));
+        var entities = query.ToEntityArray(Allocator.Temp);
+        foreach (var entity in entities)
+        {
+            float2 offset = random.NextFloat2Direction() * random.NextFloat(0.5f, MoveTargetSpread);
+            float3 target = gridOrigin + new float3(offset.x, 0f, offset.y);
+
+            _entityManager.SetComponentData(entity, new UnitMoveDestination
+            {
+                Position = target,
+                ArrivalRadius = 1f,
+                IsActive = 1,
+                OrderVersion = 1
+            });
+        }
+
+        // 激活流场求解
+        using var stateQuery = _entityManager.CreateEntityQuery(typeof(FlowFieldRuntimeState));
+        if (!stateQuery.IsEmptyIgnoreFilter)
+        {
+            var runtimeState = stateQuery.GetSingleton<FlowFieldRuntimeState>();
+            if (runtimeState.ActiveVersion == 0)
+            {
+                runtimeState.ActiveVersion = 1;
+                stateQuery.SetSingleton(runtimeState);
+            }
+        }
+
+        Debug.Log($"[Tuner] 已为 {entities.Length} 个单位下发随机移动目标");
+        _phase = Phase.IssueMove;
     }
 
     // ── Trial 管理 ───────────────────────────────────────

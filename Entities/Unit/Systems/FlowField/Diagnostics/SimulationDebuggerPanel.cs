@@ -100,9 +100,19 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (Instance == this)
+            Instance = null;
         DestroyRuntimeTexture(ref _panelTexture);
         DestroyRuntimeTexture(ref _cardTexture);
         DestroyRuntimeTexture(ref _activeTexture);
+    }
+
+    private void OnApplicationQuit()
+    {
+        Visible = false;
+        if (AutoRefreshCaptureMask)
+            SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.None;
+        Destroy(gameObject);
     }
 
     private void Update()
@@ -154,10 +164,18 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawIndependentWindow(SettingsWindowId, SimulationDebuggerView.RuntimeSettings, SettingsWindow);
 
         Event current = Event.current;
-        if (current != null && current.type == EventType.ScrollWheel &&
-            IsGuiPointOverDebugger(current.mousePosition))
+        if (current == null)
+            return;
+
+        // 滚轮和拖拽事件在面板区域内时消费掉，防止穿透到场景摄像机。
+        if (IsGuiPointOverDebugger(current.mousePosition))
         {
-            current.Use();
+            if (current.type == EventType.ScrollWheel ||
+                current.type == EventType.MouseDrag ||
+                (current.type == EventType.MouseDown && current.button is 0 or 1))
+            {
+                current.Use();
+            }
         }
     }
 
