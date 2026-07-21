@@ -151,6 +151,29 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             return;
 
         EnsureStyles();
+
+        // 面板区域内的鼠标交互：占住 hotControl 防止穿透到场景摄像机，
+        // 并消费滚轮/拖拽/点击避免 Unity 编辑器同时响应。
+        Event current = Event.current;
+        bool overDebugger = current != null && IsGuiPointOverDebugger(current.mousePosition);
+        if (overDebugger)
+        {
+            switch (current.type)
+            {
+                case EventType.MouseDown:
+                    GUIUtility.hotControl = LauncherWindowId;
+                    break;
+                case EventType.MouseDrag:
+                case EventType.ScrollWheel:
+                    current.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == LauncherWindowId)
+                        GUIUtility.hotControl = 0;
+                    break;
+            }
+        }
+
         LauncherRect = GUI.Window(
             LauncherWindowId,
             LauncherRect,
@@ -162,21 +185,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawIndependentWindow(AabbWindowId, SimulationDebuggerView.PersistentBroadPhase, AabbWindow);
         DrawIndependentWindow(ContactWindowId, SimulationDebuggerView.TimestepContactSet, ContactWindow);
         DrawIndependentWindow(SettingsWindowId, SimulationDebuggerView.RuntimeSettings, SettingsWindow);
-
-        Event current = Event.current;
-        if (current == null)
-            return;
-
-        // 滚轮和拖拽事件在面板区域内时消费掉，防止穿透到场景摄像机。
-        if (IsGuiPointOverDebugger(current.mousePosition))
-        {
-            if (current.type == EventType.ScrollWheel ||
-                current.type == EventType.MouseDrag ||
-                (current.type == EventType.MouseDown && current.button is 0 or 1))
-            {
-                current.Use();
-            }
-        }
     }
 
     private void DrawLauncherWindow(int id)
@@ -1380,7 +1388,12 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         _windowStyle = new GUIStyle(GUI.skin.window)
         {
             padding = new RectOffset(12, 12, 10, 12),
-            normal = { background = _panelTexture }
+            normal = { background = _panelTexture },
+            focused = { background = _panelTexture },
+            active = { background = _panelTexture },
+            onNormal = { background = _panelTexture },
+            onFocused = { background = _panelTexture },
+            onActive = { background = _panelTexture }
         };
 
         _headerStyle = new GUIStyle(GUI.skin.label)
