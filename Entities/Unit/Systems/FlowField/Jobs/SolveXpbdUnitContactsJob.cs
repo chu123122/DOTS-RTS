@@ -116,12 +116,15 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
         InitializeSolverState();
         BuildAdaptiveFatAabbHotspots();
+        if (AdaptiveFatAabbRequested)
+            ResetAdaptiveFatAabbCacheWhenInactive();
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
             bool useFatCandidatesForSoftAvoidance = EnableFatAabbCache &&
+                                                    !AdaptiveFatAabbRequested &&
                                                     SoftAvoidanceShell > 0f &&
                                                     SoftAvoidanceResponseRate > 0f &&
                                                     EnsureFatAabbRawCandidates(
@@ -139,13 +142,25 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             PredictUnconstrainedPositions(substepDeltaTime);
 
             long pairGenerationStart = ProfilerUnsafeUtility.Timestamp;
-            bool usingFatAabbCache = EnableFatAabbCache &&
-                                     BuildContactPairsFromFatAabbCache(
-                                         ref statistics,
-                                         ref shadowStatistics,
-                                         ref fatCachePairsMappedThisFrame);
-            if (!EnableFatAabbCache)
+            bool usingFatAabbCache = false;
+            if (HasActiveAdaptiveFatRegions)
+            {
+                usingFatAabbCache = BuildAdaptiveHybridContactPairs(
+                    ref statistics,
+                    ref shadowStatistics,
+                    ref fatCachePairsMappedThisFrame);
+            }
+            else if (EnableFatAabbCache && !AdaptiveFatAabbRequested)
+            {
+                usingFatAabbCache = BuildContactPairsFromFatAabbCache(
+                    ref statistics,
+                    ref shadowStatistics,
+                    ref fatCachePairsMappedThisFrame);
+            }
+            else
+            {
                 BuildSweptContactPairs(ref statistics);
+            }
             statistics.PairGenerationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - pairGenerationStart);
 

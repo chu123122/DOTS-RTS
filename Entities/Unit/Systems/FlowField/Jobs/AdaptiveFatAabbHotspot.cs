@@ -220,7 +220,7 @@ public partial struct SolveXpbdUnitContactsJob
     private void BuildAdaptiveBodyRouting()
     {
         int span = math.max(1, AdaptiveSettings.DetectionCellSpan);
-        int halo = math.max(0, AdaptiveSettings.HaloCellCount);
+        int halo = GetAdaptiveHaloCellCount();
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
@@ -261,6 +261,8 @@ public partial struct SolveXpbdUnitContactsJob
                 }
             }
 
+            if (routing.IsCore != 0 && routing.IsBoundary == 0)
+                routing.UseNormalBroadPhase = 0;
             AdaptiveBodyRouting[bodyIndex] = routing;
         }
     }
@@ -305,7 +307,7 @@ public partial struct SolveXpbdUnitContactsJob
             });
         }
 
-        int halo = math.max(0, AdaptiveSettings.HaloCellCount);
+        int halo = GetAdaptiveHaloCellCount();
         for (int regionIndex = 0; regionIndex < AdaptiveRegions.Length; regionIndex++)
         {
             AdaptiveFatAabbRegion region = AdaptiveRegions[regionIndex];
@@ -373,6 +375,17 @@ public partial struct SolveXpbdUnitContactsJob
             history.OccupancyBloom = metric.OccupancyBloom;
             AdaptiveCellHistory[cellIndex] = history;
         }
+    }
+
+    private int GetAdaptiveHaloCellCount()
+    {
+        float worldCellSize = math.max(
+            0.0001f,
+            CellRadius * 2f * math.max(1, AdaptiveSettings.DetectionCellSpan));
+        int motionHalo = (int)math.ceil(
+            math.max(0f, AdaptiveSettings.MaximumCacheableSpeed) * math.max(0f, DeltaTime) /
+            worldCellSize) + 1;
+        return math.max(math.max(0, AdaptiveSettings.HaloCellCount), motionHalo);
     }
 
     private int2 GetAdaptiveCell(int2 flowCell, int span)
