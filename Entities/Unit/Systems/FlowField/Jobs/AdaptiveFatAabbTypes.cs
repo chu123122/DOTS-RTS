@@ -8,6 +8,9 @@ public struct AdaptiveFatAabbCellHistory
     public ulong OccupancyBloom;
     public float SmoothedScore;
     public float SmoothedCorrection;
+    public float SmoothedContactLoad;
+    public float SmoothedContactActivation;
+    public float SmoothedContactSupplementRisk;
     public float SmoothedEscapePenalty;
     public ushort EnableStreak;
     public ushort DisableStreak;
@@ -24,6 +27,9 @@ public struct AdaptiveFatAabbCellMetric
     public float PersistenceScore;
     public float PressureScore;
     public float EscapeRiskScore;
+    public int ContactCount;
+    public int ActiveContactCount;
+    public int PredictiveContactCount;
     public ulong OccupancyBloom;
     public int RegionIndex;
     public byte Active;
@@ -69,6 +75,9 @@ public struct AdaptiveFatAabbDebugCell
     public float PressureScore;
     public float EscapeRiskScore;
     public float AverageCorrection;
+    public float ContactLoad;
+    public float ContactActivation;
+    public float ContactSupplementRisk;
     public float CachePenalty;
     public int UnitCount;
     public byte Active;

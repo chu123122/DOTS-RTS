@@ -12,6 +12,15 @@ public partial struct SolveXpbdUnitContactsJob
     private bool HasActiveAdaptiveFatRegions =>
         AdaptiveFatAabbRequested && AdaptiveRegions.Length > 0;
 
+    private bool SimulationDebuggerSpatialRequested =>
+        (SimulationDebuggerCaptureMask & (
+            SimulationDebuggerCaptureMask.OverviewHeatmap |
+            SimulationDebuggerCaptureMask.AabbHeatmap |
+            SimulationDebuggerCaptureMask.ContactSetHeatmap)) != 0;
+
+    private bool ShouldBuildDiagnosticSpatialGrid =>
+        AdaptiveFatAabbRequested || SimulationDebuggerSpatialRequested;
+
     private void BuildAdaptiveFatAabbHotspots()
     {
         AdaptiveRegions.Clear();
@@ -39,7 +48,7 @@ public partial struct SolveXpbdUnitContactsJob
             };
         }
 
-        if (!AdaptiveFatAabbRequested ||
+        if (!ShouldBuildDiagnosticSpatialGrid ||
             AdaptiveCellDimensions.x <= 0 || AdaptiveCellDimensions.y <= 0)
             return;
 
@@ -102,29 +111,38 @@ public partial struct SolveXpbdUnitContactsJob
                 rawScore,
                 AdaptiveSettings.ScoreSmoothing);
 
-            if (history.Active == 0)
+            if (AdaptiveFatAabbRequested)
             {
-                history.EnableStreak = metric.Score >= AdaptiveSettings.EnableScore
-                    ? SaturatingIncrement(history.EnableStreak)
-                    : (ushort)0;
-                history.DisableStreak = 0;
-                if (history.EnableStreak >= AdaptiveSettings.EnableFrames)
+                if (history.Active == 0)
                 {
-                    history.Active = 1;
+                    history.EnableStreak = metric.Score >= AdaptiveSettings.EnableScore
+                        ? SaturatingIncrement(history.EnableStreak)
+                        : (ushort)0;
+                    history.DisableStreak = 0;
+                    if (history.EnableStreak >= AdaptiveSettings.EnableFrames)
+                    {
+                        history.Active = 1;
+                        history.EnableStreak = 0;
+                    }
+                }
+                else
+                {
+                    history.DisableStreak = metric.Score <= AdaptiveSettings.DisableScore
+                        ? SaturatingIncrement(history.DisableStreak)
+                        : (ushort)0;
                     history.EnableStreak = 0;
+                    if (history.DisableStreak >= AdaptiveSettings.DisableFrames)
+                    {
+                        history.Active = 0;
+                        history.DisableStreak = 0;
+                    }
                 }
             }
             else
             {
-                history.DisableStreak = metric.Score <= AdaptiveSettings.DisableScore
-                    ? SaturatingIncrement(history.DisableStreak)
-                    : (ushort)0;
+                history.Active = 0;
                 history.EnableStreak = 0;
-                if (history.DisableStreak >= AdaptiveSettings.DisableFrames)
-                {
-                    history.Active = 0;
-                    history.DisableStreak = 0;
-                }
+                history.DisableStreak = 0;
             }
 
             metric.Active = history.Active;
@@ -133,8 +151,11 @@ public partial struct SolveXpbdUnitContactsJob
             AdaptiveCellHistory[cellIndex] = history;
         }
 
-        BuildConnectedAdaptiveRegions();
-        BuildAdaptiveBodyRouting();
+        if (AdaptiveFatAabbRequested)
+        {
+            BuildConnectedAdaptiveRegions();
+            BuildAdaptiveBodyRouting();
+        }
         BuildAdaptiveDebugSnapshot();
     }
 
@@ -405,6 +426,9 @@ public partial struct SolveXpbdUnitContactsJob
                 PressureScore = metric.PressureScore,
                 EscapeRiskScore = metric.EscapeRiskScore,
                 AverageCorrection = history.SmoothedCorrection,
+                ContactLoad = history.SmoothedContactLoad,
+                ContactActivation = history.SmoothedContactActivation,
+                ContactSupplementRisk = history.SmoothedContactSupplementRisk,
                 CachePenalty = history.SmoothedEscapePenalty,
                 UnitCount = metric.UnitCount,
                 Active = metric.Active
@@ -437,7 +461,7 @@ public partial struct SolveXpbdUnitContactsJob
         ref ShadowNeighborCacheStatistics shadowStatistics,
         ref PredictiveDiscContactStatistics contactStatistics)
     {
-        if (!AdaptiveFatAabbRequested)
+        if (!ShouldBuildDiagnosticSpatialGrid)
         {
             AdaptiveCacheFeedback.Value = default;
             return;
@@ -447,6 +471,9 @@ public partial struct SolveXpbdUnitContactsJob
         {
             AdaptiveFatAabbCellMetric metric = AdaptiveCellMetrics[cellIndex];
             metric.CorrectionSum = 0f;
+            metric.ContactCount = 0;
+            metric.ActiveContactCount = 0;
+            metric.PredictiveContactCount = 0;
             AdaptiveCellMetrics[cellIndex] = metric;
         }
 
@@ -463,34 +490,62 @@ public partial struct SolveXpbdUnitContactsJob
             AdaptiveCellMetrics[cellIndex] = metric;
         }
 
-        int cacheAttempts = shadowStatistics.CacheReuseCount +
-                            shadowStatistics.CacheRebuildCount;
-        float reuseRatio = cacheAttempts > 0
-            ? shadowStatistics.CacheReuseCount / (float)cacheAttempts
-            : 0f;
-        float candidateExpansionRatio = shadowStatistics.CachedCandidatePairCount /
-                                        (float)math.max(1, contactStatistics.ContactPairCount);
-        float expansionPenalty = math.saturate(
-            (candidateExpansionRatio - AdaptiveSettings.CandidateExpansionLimit) /
-            AdaptiveSettings.CandidateExpansionLimit);
-        float fallbackPenalty = math.saturate(
-            shadowStatistics.FullBroadPhaseFallbackCount +
-            shadowStatistics.PostSolveInvalidationCount);
-        float rebuildPenalty = cacheAttempts > 0
-            ? 1f - reuseRatio
-            : 0f;
-        float escapePenalty = math.saturate(math.max(
-            fallbackPenalty,
-            math.max(expansionPenalty, rebuildPenalty * 0.5f)));
-        AdaptiveCacheFeedback.Value = new AdaptiveFatAabbCacheFeedback
+        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            EscapePenalty = escapePenalty,
-            CandidateExpansionRatio = candidateExpansionRatio,
-            ReuseRatio = reuseRatio,
-            ReuseCount = shadowStatistics.CacheReuseCount,
-            RebuildCount = shadowStatistics.CacheRebuildCount,
-            FallbackCount = shadowStatistics.FullBroadPhaseFallbackCount
-        };
+            UnitCollisionPair pair = Pairs[pairIndex];
+            if (pair.BodyA < 0 || pair.BodyB < 0 ||
+                pair.BodyA >= States.Length || pair.BodyB >= States.Length)
+                continue;
+
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            int2 midpointCell = (bodyA.CellPosition + bodyB.CellPosition) / 2;
+            int cellIndex = GetAdaptiveCellIndex(GetAdaptiveCell(midpointCell, span));
+            AdaptiveFatAabbCellMetric metric = AdaptiveCellMetrics[cellIndex];
+            metric.ContactCount++;
+            if (pair.WasActivated != 0)
+                metric.ActiveContactCount++;
+            if (pair.ContactMode == UnitContactMode.Predictive)
+                metric.PredictiveContactCount++;
+            AdaptiveCellMetrics[cellIndex] = metric;
+        }
+
+        float escapePenalty = 0f;
+        if (AdaptiveFatAabbRequested)
+        {
+            int cacheAttempts = shadowStatistics.CacheReuseCount +
+                                shadowStatistics.CacheRebuildCount;
+            float reuseRatio = cacheAttempts > 0
+                ? shadowStatistics.CacheReuseCount / (float)cacheAttempts
+                : 0f;
+            float candidateExpansionRatio = shadowStatistics.CachedCandidatePairCount /
+                                            (float)math.max(1, contactStatistics.ContactPairCount);
+            float expansionPenalty = math.saturate(
+                (candidateExpansionRatio - AdaptiveSettings.CandidateExpansionLimit) /
+                math.max(0.0001f, AdaptiveSettings.CandidateExpansionLimit));
+            float fallbackPenalty = math.saturate(
+                shadowStatistics.FullBroadPhaseFallbackCount +
+                shadowStatistics.PostSolveInvalidationCount);
+            float rebuildPenalty = cacheAttempts > 0
+                ? 1f - reuseRatio
+                : 0f;
+            escapePenalty = math.saturate(math.max(
+                fallbackPenalty,
+                math.max(expansionPenalty, rebuildPenalty * 0.5f)));
+            AdaptiveCacheFeedback.Value = new AdaptiveFatAabbCacheFeedback
+            {
+                EscapePenalty = escapePenalty,
+                CandidateExpansionRatio = candidateExpansionRatio,
+                ReuseRatio = reuseRatio,
+                ReuseCount = shadowStatistics.CacheReuseCount,
+                RebuildCount = shadowStatistics.CacheRebuildCount,
+                FallbackCount = shadowStatistics.FullBroadPhaseFallbackCount
+            };
+        }
+        else
+        {
+            AdaptiveCacheFeedback.Value = default;
+        }
         for (int cellIndex = 0; cellIndex < AdaptiveCellMetrics.Length; cellIndex++)
         {
             AdaptiveFatAabbCellMetric metric = AdaptiveCellMetrics[cellIndex];
@@ -498,9 +553,32 @@ public partial struct SolveXpbdUnitContactsJob
             float averageCorrection = metric.UnitCount > 0
                 ? metric.CorrectionSum / metric.UnitCount
                 : 0f;
+            float contactLoad = metric.UnitCount > 0
+                ? math.saturate(metric.ContactCount /
+                    (float)math.max(1, metric.UnitCount * 4))
+                : 0f;
+            float contactActivation = metric.ContactCount > 0
+                ? metric.ActiveContactCount / (float)metric.ContactCount
+                : 0f;
+            float contactSupplementRisk = metric.ContactCount > 0 &&
+                                          shadowStatistics.FullBroadPhaseFallbackCount > 0
+                ? contactLoad
+                : 0f;
             history.SmoothedCorrection = math.lerp(
                 history.SmoothedCorrection,
                 averageCorrection,
+                AdaptiveSettings.ScoreSmoothing);
+            history.SmoothedContactLoad = math.lerp(
+                history.SmoothedContactLoad,
+                contactLoad,
+                AdaptiveSettings.ScoreSmoothing);
+            history.SmoothedContactActivation = math.lerp(
+                history.SmoothedContactActivation,
+                contactActivation,
+                AdaptiveSettings.ScoreSmoothing);
+            history.SmoothedContactSupplementRisk = math.lerp(
+                history.SmoothedContactSupplementRisk,
+                contactSupplementRisk,
                 AdaptiveSettings.ScoreSmoothing);
             history.SmoothedEscapePenalty = math.lerp(
                 history.SmoothedEscapePenalty,
