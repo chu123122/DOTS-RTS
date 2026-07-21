@@ -152,28 +152,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         EnsureStyles();
 
-        // 面板区域内的鼠标交互：占住 hotControl 防止穿透到场景摄像机，
-        // 并消费滚轮/拖拽/点击避免 Unity 编辑器同时响应。
-        Event current = Event.current;
-        bool overDebugger = current != null && IsGuiPointOverDebugger(current.mousePosition);
-        if (overDebugger)
-        {
-            switch (current.type)
-            {
-                case EventType.MouseDown:
-                    GUIUtility.hotControl = LauncherWindowId;
-                    break;
-                case EventType.MouseDrag:
-                case EventType.ScrollWheel:
-                    current.Use();
-                    break;
-                case EventType.MouseUp:
-                    if (GUIUtility.hotControl == LauncherWindowId)
-                        GUIUtility.hotControl = 0;
-                    break;
-            }
-        }
-
         LauncherRect = GUI.Window(
             LauncherWindowId,
             LauncherRect,
@@ -185,6 +163,31 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawIndependentWindow(AabbWindowId, SimulationDebuggerView.PersistentBroadPhase, AabbWindow);
         DrawIndependentWindow(ContactWindowId, SimulationDebuggerView.TimestepContactSet, ContactWindow);
         DrawIndependentWindow(SettingsWindowId, SimulationDebuggerView.RuntimeSettings, SettingsWindow);
+
+        // 在窗口绘制之后占用 hotControl，防止被 GUI.Window 内部重置。
+        // 注意：IMGUI 的 Event 系统无法阻止 Unity Input 系统（GetAxis/GetMouseButton）
+        // 向 Game View 摄像机透传。RTS 摄像机脚本也需要检查：
+        //   SimulationDebuggerPanel.IsPointerOverDebugger(Input.mousePosition)
+        Event evt = Event.current;
+        if (evt != null && IsGuiPointOverDebugger(evt.mousePosition))
+        {
+            switch (evt.type)
+            {
+                case EventType.MouseDown:
+                    GUIUtility.hotControl = LauncherWindowId;
+                    evt.Use();
+                    break;
+                case EventType.MouseDrag:
+                case EventType.ScrollWheel:
+                    GUIUtility.hotControl = LauncherWindowId;
+                    evt.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == LauncherWindowId)
+                        GUIUtility.hotControl = 0;
+                    break;
+            }
+        }
     }
 
     private void DrawLauncherWindow(int id)
@@ -782,20 +785,31 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(10f);
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button("应用运行时设置", GUILayout.Height(30f)))
+        // 左侧：按钮列
+        Color savedBg = GUI.backgroundColor;
+        GUILayout.BeginVertical(GUILayout.Width(130f));
+        GUI.backgroundColor = new Color(0.2f, 0.5f, 0.85f);
+        if (GUILayout.Button("▶ 应用设置", GUILayout.Height(36f)))
             SimulationDebuggerRuntime.SubmitSettings(_settingsDraft);
-        if (GUILayout.Button("读取当前有效值", GUILayout.Height(30f)))
+        GUI.backgroundColor = savedBg;
+        GUILayout.Space(4f);
+        if (GUILayout.Button("↺ 读取有效值", GUILayout.Height(28f)))
             _settingsDraft = snapshot.EffectiveSettings;
-        if (GUILayout.Button("恢复场景配置", GUILayout.Height(30f)))
+        GUILayout.Space(2f);
+        if (GUILayout.Button("⟲ 恢复默认", GUILayout.Height(28f)))
         {
             SimulationDebuggerRuntime.RequestSettingsReset();
             if (SimulationDebuggerRuntime.TryGetBaselineSettings(out SimulationDebuggerEffectiveSettings baseline))
                 _settingsDraft = baseline;
         }
-        GUILayout.EndHorizontal();
+        GUILayout.EndVertical();
+        // 右侧：说明
+        GUILayout.BeginVertical();
         GUILayout.Label(
-            "自适应热点参数只有在场景中存在对应单例配置时才会写回。",
+            "修改参数后点击左侧「应用设置」提交。\n有效值 ≠ 草稿值时面板会显示差异。",
             _mutedStyle);
+        GUILayout.EndVertical();
+        GUILayout.EndHorizontal();
     }
 
     private static string SoftSolverLabel(int solverMode)
