@@ -101,6 +101,12 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             GUILayout.MinHeight(360f));
         WindowRect.x = Mathf.Clamp(WindowRect.x, 0f, Mathf.Max(0f, Screen.width - 80f));
         WindowRect.y = Mathf.Clamp(WindowRect.y, 0f, Mathf.Max(0f, Screen.height - 40f));
+
+        if (Event.current.type == EventType.ScrollWheel &&
+            WindowRect.Contains(Event.current.mousePosition))
+        {
+            Event.current.Use();
+        }
     }
 
     private void DrawWindow(int id)
