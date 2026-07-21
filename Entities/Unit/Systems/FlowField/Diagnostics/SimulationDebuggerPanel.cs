@@ -962,7 +962,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             GUILayout.BeginVertical(_sectionStyle);
             GUILayout.Label("选中单位", _metricLabelStyle);
             GUILayout.Label(
-                "点击单位后，这里会显示该单位的运动、AABB 和跨子步 Contact；世界中只绘制它相关的范围与 Pair。",
+                "鼠标中键短按单位后，这里会显示它的运动、AABB 和跨子步接触；中键拖动仍可留给相机控制。",
                 _mutedStyle);
             GUILayout.EndVertical();
             return;
@@ -1402,6 +1402,8 @@ internal static class SimulationDebuggerPanelBootstrap
 
         if (gameObject.GetComponent<SimulationDebuggerWorldOverlay>() == null)
             gameObject.AddComponent<SimulationDebuggerWorldOverlay>();
+        if (gameObject.GetComponent<SimulationDebuggerUnitPicker>() == null)
+            gameObject.AddComponent<SimulationDebuggerUnitPicker>();
     }
 #endif
 }
