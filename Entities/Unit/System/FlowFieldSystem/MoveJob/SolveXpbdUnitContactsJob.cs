@@ -21,6 +21,8 @@ public struct SolveXpbdUnitContactsJob : IJob
     public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
     public float SettledSoftAvoidanceMultiplier;
+    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
+    public float RvoTimeHorizon;
     public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
@@ -99,14 +101,17 @@ public struct SolveXpbdUnitContactsJob : IJob
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
+            PrepareBaseVelocitiesForSubstep(substepDeltaTime);
             bool useFatCandidatesForSoftAvoidance = EnableFatAabbCache &&
                                                     SoftAvoidanceShell > 0f &&
+                                                    SoftAvoidanceResponseRate > 0f &&
                                                     EnsureFatAabbRawCandidates(
                                                         ref shadowStatistics,
                                                         ref fatCachePairsMappedThisFrame,
                                                         false);
             CalculateSoftAvoidanceForSubstep(
                 useFatCandidatesForSoftAvoidance,
+                substepDeltaTime,
                 ref statistics);
             statistics.SoftAvoidanceEvaluationCount++;
             statistics.SoftAvoidanceNanoseconds +=
@@ -270,6 +275,7 @@ public struct SolveXpbdUnitContactsJob : IJob
 
     private void CalculateSoftAvoidanceForSubstep(
         bool useFatAabbCandidates,
+        float substepDeltaTime,
         ref PredictiveDiscContactStatistics statistics)
     {
         SweptCellEntries.Clear();
@@ -301,12 +307,20 @@ public struct SolveXpbdUnitContactsJob : IJob
                 ref state.WallAvoidanceVelocity);
             States[bodyIndex] = state;
 
-            if (softShell <= 0f || useFatAabbCandidates)
+            if (softShell <= 0f || SoftAvoidanceResponseRate <= 0f ||
+                useFatAabbCandidates)
                 continue;
 
             float softExtent = math.max(0f, state.Radius) + softShell * 0.5f;
-            float2 softMin = position.xz - softExtent;
-            float2 softMax = position.xz + softExtent;
+            float2 softPathEnd = position.xz;
+            if (SoftAvoidanceVelocitySolver ==
+                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle)
+            {
+                softPathEnd += state.BasePredictedVelocity.xz *
+                               math.max(0f, RvoTimeHorizon);
+            }
+            float2 softMin = math.min(position.xz, softPathEnd) - softExtent;
+            float2 softMax = math.max(position.xz, softPathEnd) + softExtent;
             int2 minCell = (int2)math.floor((softMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((softMax - GridOrigin.xz) / cellSize);
             if (maxCell.x < 0 || maxCell.y < 0 ||
@@ -328,23 +342,28 @@ public struct SolveXpbdUnitContactsJob : IJob
             }
         }
 
-        if (softShell > 0f && useFatAabbCandidates)
+        if (softShell > 0f && SoftAvoidanceResponseRate > 0f &&
+            useFatAabbCandidates)
         {
             statistics.SoftAvoidanceFatAabbUseCount++;
             statistics.SoftAvoidanceCandidatePairCount += MappedFatCachePairs.Length;
             statistics.SoftAvoidanceActivatedPairCount +=
                 AccumulateUnitAvoidanceVelocities(
                     MappedFatCachePairs.AsArray(),
-                    softShell);
+                    softShell,
+                    substepDeltaTime);
         }
-        else if (softShell > 0f)
+        else if (softShell > 0f && SoftAvoidanceResponseRate > 0f)
         {
             SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
             EmitCellPairs();
             SortAndDeduplicatePairs();
             statistics.SoftAvoidanceCandidatePairCount += Pairs.Length;
             statistics.SoftAvoidanceActivatedPairCount +=
-                AccumulateUnitAvoidanceVelocities(Pairs.AsArray(), softShell);
+                AccumulateUnitAvoidanceVelocities(
+                    Pairs.AsArray(),
+                    softShell,
+                    substepDeltaTime);
         }
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
@@ -353,7 +372,9 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (!state.IsInsideGrid)
                 continue;
 
-            if (state.SoftAvoidanceNeighborCount > 0)
+            if (state.SoftAvoidanceNeighborCount > 0 &&
+                SoftAvoidanceVelocitySolver ==
+                SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer)
                 state.SoftAvoidanceVelocity /= state.SoftAvoidanceNeighborCount;
 
             state.SoftAvoidanceVelocity += state.WallAvoidanceVelocity;
@@ -371,7 +392,8 @@ public struct SolveXpbdUnitContactsJob : IJob
 
     private int AccumulateUnitAvoidanceVelocities(
         NativeArray<UnitCollisionPair> candidates,
-        float softShell)
+        float softShell,
+        float substepDeltaTime)
     {
         int activatedPairCount = 0;
         for (int pairIndex = 0; pairIndex < candidates.Length; pairIndex++)
@@ -379,23 +401,26 @@ public struct SolveXpbdUnitContactsJob : IJob
             UnitCollisionPair pair = candidates[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            float3 velocityA = SoftAvoidanceMath.CalculateUnitVelocity(
+            bool activated = SoftAvoidanceMath.TryCalculatePairVelocities(
+                SoftAvoidanceVelocitySolver,
                 bodyA.PredictedPosition,
                 bodyB.PredictedPosition,
+                bodyA.BasePredictedVelocity,
+                bodyB.BasePredictedVelocity,
                 bodyA.Radius,
                 bodyB.Radius,
+                bodyA.InverseMass,
+                bodyB.InverseMass,
                 bodyA.MoveSpeed,
-                softShell);
-            if (math.lengthsq(velocityA) <= 0f)
-                continue;
-
-            float3 velocityB = SoftAvoidanceMath.CalculateUnitVelocity(
-                bodyB.PredictedPosition,
-                bodyA.PredictedPosition,
-                bodyB.Radius,
-                bodyA.Radius,
                 bodyB.MoveSpeed,
-                softShell);
+                softShell,
+                RvoTimeHorizon,
+                substepDeltaTime,
+                DeterministicFallbackNormal(pair.BodyA, pair.BodyB),
+                out float3 velocityA,
+                out float3 velocityB);
+            if (!activated)
+                continue;
             bodyA.SoftAvoidanceVelocity += velocityA;
             bodyB.SoftAvoidanceVelocity += velocityB;
             bodyA.SoftAvoidanceNeighborCount++;
@@ -461,23 +486,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.ContactPositionCorrection = float3.zero;
             state.WallPositionCorrection = float3.zero;
 
-            float3 totalForce = state.IndependentForce;
-            if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
-            {
-                float3 cellCenter = GridOrigin + new float3(
-                    state.CellPosition.x * CellRadius * 2 + CellRadius,
-                    state.CurrentPosition.y,
-                    state.CellPosition.y * CellRadius * 2 + CellRadius);
-                float3 escapeDirection = state.StartPosition - cellCenter;
-                escapeDirection.y = 0;
-                escapeDirection = math.normalizesafe(escapeDirection, new float3(1, 0, 0));
-                totalForce += escapeDirection * state.MoveSpeed * 5f;
-            }
-
-            if (math.lengthsq(totalForce) > state.MaxForce * state.MaxForce)
-                totalForce = math.normalizesafe(totalForce) * state.MaxForce;
-
-            float3 velocity = state.IntegratedVelocity + totalForce * substepDeltaTime;
+            float3 velocity = state.BasePredictedVelocity;
             float responseRate = math.max(0f, SoftAvoidanceResponseRate);
             if (state.IsSettled)
                 responseRate *= math.max(0f, SettledSoftAvoidanceMultiplier);
@@ -500,6 +509,44 @@ public struct SolveXpbdUnitContactsJob : IJob
             state.IntegratedVelocity = velocity;
             States[i] = state;
         }
+    }
+
+    private void PrepareBaseVelocitiesForSubstep(float substepDeltaTime)
+    {
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+
+            state.BasePredictedVelocity = CalculateBaseVelocityForSubstep(
+                state,
+                substepDeltaTime);
+            States[bodyIndex] = state;
+        }
+    }
+
+    private float3 CalculateBaseVelocityForSubstep(
+        FlowMovementFrameState state,
+        float substepDeltaTime)
+    {
+        float3 totalForce = state.IndependentForce;
+        if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
+        {
+            float3 cellCenter = GridOrigin + new float3(
+                state.CellPosition.x * CellRadius * 2 + CellRadius,
+                state.CurrentPosition.y,
+                state.CellPosition.y * CellRadius * 2 + CellRadius);
+            float3 escapeDirection = state.PredictedPosition - cellCenter;
+            escapeDirection.y = 0;
+            escapeDirection = math.normalizesafe(escapeDirection, new float3(1, 0, 0));
+            totalForce += escapeDirection * state.MoveSpeed * 5f;
+        }
+
+        if (math.lengthsq(totalForce) > state.MaxForce * state.MaxForce)
+            totalForce = math.normalizesafe(totalForce) * state.MaxForce;
+
+        return state.IntegratedVelocity + totalForce * substepDeltaTime;
     }
 
     private void BuildSweptContactPairs(ref PredictiveDiscContactStatistics statistics)
@@ -637,6 +684,8 @@ public struct SolveXpbdUnitContactsJob : IJob
                 AgeFrames = 0,
                 PredictiveSkin = math.max(0f, PredictiveSkin),
                 SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell),
+                SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = math.max(0f, RvoTimeHorizon),
                 Margin = math.max(0f, FatAabbCacheMargin)
             };
             FatAabbCacheState.Value = rebuiltState;
@@ -683,6 +732,9 @@ public struct SolveXpbdUnitContactsJob : IJob
         if (math.abs(cacheState.PredictiveSkin - math.max(0f, PredictiveSkin)) > 0.000001f ||
             math.abs(cacheState.SoftAvoidanceShell -
                      math.max(0f, SoftAvoidanceShell)) > 0.000001f ||
+            cacheState.SoftAvoidanceVelocitySolver != SoftAvoidanceVelocitySolver ||
+            math.abs(cacheState.RvoTimeHorizon -
+                     math.max(0f, RvoTimeHorizon)) > 0.000001f ||
             math.abs(cacheState.Margin - math.max(0f, FatAabbCacheMargin)) > 0.000001f)
         {
             boundsInvalid = true;
@@ -759,21 +811,38 @@ public struct SolveXpbdUnitContactsJob : IJob
                bodyIndex >= 0 && bodyIndex < States.Length;
     }
 
-    private static void CalculateCoreSweptBounds(
+    private void CalculateCoreSweptBounds(
         FlowMovementFrameState state,
         float neighborPadding,
         out float2 coreMin,
         out float2 coreMax)
     {
         float extent = math.max(0f, state.Radius) + math.max(0f, neighborPadding);
-        float2 pathMin = math.min(
-            state.StartPosition.xz,
-            math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
-        float2 pathMax = math.max(
-            state.StartPosition.xz,
-            math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+        CalculateNeighborPathBounds(state, out float2 pathMin, out float2 pathMax);
         coreMin = pathMin - extent;
         coreMax = pathMax + extent;
+    }
+
+    private void CalculateNeighborPathBounds(
+        FlowMovementFrameState state,
+        out float2 pathMin,
+        out float2 pathMax)
+    {
+        pathMin = math.min(
+            state.StartPosition.xz,
+            math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+        pathMax = math.max(
+            state.StartPosition.xz,
+            math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+        if (SoftAvoidanceVelocitySolver !=
+                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
+            SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)
+            return;
+
+        float2 horizonEnd = state.PredictedPosition.xz +
+                            state.BasePredictedVelocity.xz * math.max(0f, RvoTimeHorizon);
+        pathMin = math.min(pathMin, horizonEnd);
+        pathMax = math.max(pathMax, horizonEnd);
     }
 
     private bool AreCorrectedDiscsInsideFatCache(
@@ -873,12 +942,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             }
 
             float extent = math.max(0f, state.Radius) + extentMargin;
-            float2 pathMin = math.min(
-                state.StartPosition.xz,
-                math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
-            float2 pathMax = math.max(
-                state.StartPosition.xz,
-                math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+            CalculateNeighborPathBounds(state, out float2 pathMin, out float2 pathMax);
             proxy.FatMin = pathMin - extent;
             proxy.FatMax = pathMax + extent;
             proxy.IsValid = 1;

@@ -49,6 +49,7 @@ public sealed class Stage3ContactDiagnosticCaptureSession
     public void AddSample(
         double simulationTime,
         UnitContactSolverSettings settings,
+        FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         ShadowNeighborCacheStatistics shadow,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations)
@@ -79,6 +80,10 @@ public sealed class Stage3ContactDiagnosticCaptureSession
             Iterations = settings.IterationCount,
             PredictiveGenerationEnabled = settings.EnablePredictivePairGeneration,
             SideExchangeConstraintEnabled = settings.EnablePredictiveContacts,
+            SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver.ToString(),
+            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
+            RvoTimeHorizon = flowSettings.RvoTimeHorizon,
             CandidatePairs = statistics.CandidatePairCount,
             ContactPairs = statistics.ContactPairCount,
             ActualGeneratedPairs = statistics.ActualGeneratedPairCount,
@@ -214,6 +219,10 @@ public sealed class Stage3ContactDiagnosticCaptureSample
     public int Iterations;
     public bool PredictiveGenerationEnabled;
     public bool SideExchangeConstraintEnabled;
+    public string SoftAvoidanceVelocitySolver;
+    public float SoftAvoidanceResponseRate;
+    public float SoftAvoidanceShell;
+    public float RvoTimeHorizon;
     public int CandidatePairs;
     public int ContactPairs;
     public int ActualGeneratedPairs;

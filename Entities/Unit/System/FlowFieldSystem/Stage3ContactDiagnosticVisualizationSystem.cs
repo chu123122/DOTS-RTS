@@ -23,6 +23,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     protected override void OnCreate()
     {
         RequireForUpdate<UnitContactSolverSettings>();
+        RequireForUpdate<FlowFieldSettings>();
         RequireForUpdate<PredictiveDiscContactStatistics>();
         RequireForUpdate<ShadowNeighborCacheStatistics>();
         RequireForUpdate<Stage3ContactDiagnosticSelection>();
@@ -51,6 +52,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         RefRW<UnitContactSolverSettings> settingsReference =
             SystemAPI.GetSingletonRW<UnitContactSolverSettings>();
         UnitContactSolverSettings settings = settingsReference.ValueRO;
+        FlowFieldSettings flowSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         double simulationTime = SystemAPI.Time.ElapsedTime;
 
         Keyboard keyboard = Keyboard.current;
@@ -162,6 +164,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         UpdateCapture(
             ref settings,
             simulationTime,
+            flowSettings,
             statistics,
             shadowStatistics,
             iterationDiagnostics);
@@ -175,6 +178,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             simulationTime);
         _overlay.Stage3Text = BuildStage3PanelText(
             settings,
+            flowSettings,
             statistics,
             iterationDiagnostics,
             pairDiagnostics,
@@ -407,6 +411,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     private void UpdateCapture(
         ref UnitContactSolverSettings settings,
         double simulationTime,
+        FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         ShadowNeighborCacheStatistics shadowStatistics,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDiagnostics)
@@ -419,6 +424,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             _captureSession.AddSample(
                 simulationTime,
                 settings,
+                flowSettings,
                 statistics,
                 shadowStatistics,
                 iterationDiagnostics);
@@ -501,6 +507,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
     private static string BuildStage3PanelText(
         UnitContactSolverSettings settings,
+        FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         DynamicBuffer<Stage3ContactIterationDiagnostic> iterations,
         DynamicBuffer<Stage3ContactPairDiagnostic> selectedPairs,
@@ -585,6 +592,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append("</b>　迭代 <b>").Append(settings.IterationCount)
             .Append("</b>　软避让重算 <b>").Append(statistics.SoftAvoidanceEvaluationCount)
             .AppendLine("</b>")
+            .Append("<color=#91A0B7>速度策略　</color><b>")
+            .Append(flowSettings.SoftAvoidanceVelocitySolver)
+            .Append("</b>　Shell ").Append(flowSettings.SoftAvoidanceShell.ToString("F2"))
+            .Append("　Horizon ").Append(flowSettings.RvoTimeHorizon.ToString("F2"))
+            .AppendLine("s")
             .Append("<color=#91A0B7>软避让候选　</color>检查 <b>")
             .Append(statistics.SoftAvoidanceCandidatePairCount)
             .Append("</b>　激活 <b>").Append(statistics.SoftAvoidanceActivatedPairCount)

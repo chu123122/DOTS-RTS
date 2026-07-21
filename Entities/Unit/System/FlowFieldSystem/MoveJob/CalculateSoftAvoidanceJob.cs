@@ -7,6 +7,62 @@ using Unity.Mathematics;
 /// </summary>
 public static class SoftAvoidanceMath
 {
+    public static bool TryCalculatePairVelocities(
+        SoftAvoidanceVelocitySolverMode solverMode,
+        float3 positionA,
+        float3 positionB,
+        float3 velocityA,
+        float3 velocityB,
+        float radiusA,
+        float radiusB,
+        float inverseMassA,
+        float inverseMassB,
+        float moveSpeedA,
+        float moveSpeedB,
+        float softShell,
+        float timeHorizon,
+        float minimumCorrectionTime,
+        float3 fallbackNormal,
+        out float3 correctionA,
+        out float3 correctionB)
+    {
+        switch (solverMode)
+        {
+            case SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle:
+                return TryCalculateRvoVelocities(
+                    positionA,
+                    positionB,
+                    velocityA,
+                    velocityB,
+                    radiusA,
+                    radiusB,
+                    inverseMassA,
+                    inverseMassB,
+                    softShell,
+                    timeHorizon,
+                    minimumCorrectionTime,
+                    fallbackNormal,
+                    out correctionA,
+                    out correctionB);
+            default:
+                correctionA = CalculateUnitVelocity(
+                    positionA,
+                    positionB,
+                    radiusA,
+                    radiusB,
+                    moveSpeedA,
+                    softShell);
+                correctionB = CalculateUnitVelocity(
+                    positionB,
+                    positionA,
+                    radiusB,
+                    radiusA,
+                    moveSpeedB,
+                    softShell);
+                return math.lengthsq(correctionA) > 0f || math.lengthsq(correctionB) > 0f;
+        }
+    }
+
     public static float3 CalculateUnitVelocity(
         float3 position,
         float3 neighborPosition,
@@ -50,6 +106,67 @@ public static class SoftAvoidanceMath
         float distance = math.sqrt(distanceSq);
         float repelStrength = (wallCheckRadius - distance) / distance * 10f;
         return difference / distance * repelStrength * moveSpeed;
+    }
+
+    private static bool TryCalculateRvoVelocities(
+        float3 positionA,
+        float3 positionB,
+        float3 velocityA,
+        float3 velocityB,
+        float radiusA,
+        float radiusB,
+        float inverseMassA,
+        float inverseMassB,
+        float softShell,
+        float timeHorizon,
+        float minimumCorrectionTime,
+        float3 fallbackNormal,
+        out float3 correctionA,
+        out float3 correctionB)
+    {
+        correctionA = float3.zero;
+        correctionB = float3.zero;
+
+        float inverseMassSum = math.max(0f, inverseMassA) + math.max(0f, inverseMassB);
+        if (inverseMassSum <= 0f)
+            return false;
+
+        float3 relativePosition = positionA - positionB;
+        relativePosition.y = 0f;
+        float3 relativeVelocity = velocityA - velocityB;
+        relativeVelocity.y = 0f;
+        float relativeSpeedSq = math.lengthsq(relativeVelocity);
+        if (relativeSpeedSq <= 0.0000001f ||
+            math.dot(relativePosition, relativeVelocity) >= 0f)
+            return false;
+
+        float horizon = math.max(0.0001f, timeHorizon);
+        float closestTime = math.clamp(
+            -math.dot(relativePosition, relativeVelocity) / relativeSpeedSq,
+            0f,
+            horizon);
+        if (closestTime <= 0f)
+            return false;
+
+        float3 closestDelta = relativePosition + relativeVelocity * closestTime;
+        float closestDistance = math.length(closestDelta);
+        float safetyDistance = math.max(0f, radiusA) +
+                               math.max(0f, radiusB) +
+                               math.max(0f, softShell);
+        if (closestDistance >= safetyDistance)
+            return false;
+
+        float3 normal = math.normalizesafe(
+            closestDelta,
+            math.normalizesafe(relativePosition, fallbackNormal));
+        float correctionTime = math.max(closestTime, math.max(0.0001f, minimumCorrectionTime));
+        float3 relativeCorrection = normal *
+                                    ((safetyDistance - closestDistance) / correctionTime);
+        float weightA = math.max(0f, inverseMassA) / inverseMassSum;
+        float weightB = math.max(0f, inverseMassB) / inverseMassSum;
+        correctionA = relativeCorrection * weightA;
+        correctionB = -relativeCorrection * weightB;
+        return true;
     }
 
     /// <summary>

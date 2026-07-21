@@ -2,6 +2,12 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 
+public enum SoftAvoidanceVelocitySolverMode : byte
+{
+    SurfaceVelocityBuffer,
+    ReciprocalVelocityObstacle
+}
+
 public struct FlowFieldCell
 {
     public byte Cost; 
@@ -26,6 +32,8 @@ public struct FlowFieldSettings : IComponentData
     public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
     public float SettledSoftAvoidanceMultiplier;
+    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
+    public float RvoTimeHorizon;
 }
 
 public struct FlowFieldGlobalTarget : IComponentData

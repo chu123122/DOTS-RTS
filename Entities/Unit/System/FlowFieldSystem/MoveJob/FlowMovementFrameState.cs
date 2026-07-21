@@ -32,6 +32,7 @@ public struct FlowMovementFrameState
     public float3 SoftAvoidanceVelocity;
     public float3 WallAvoidanceVelocity;
     public int SoftAvoidanceNeighborCount;
+    public float3 BasePredictedVelocity;
     public float3 IntegratedVelocity;
     public float3 StartPosition;
     public float3 UnconstrainedPredictedPosition;

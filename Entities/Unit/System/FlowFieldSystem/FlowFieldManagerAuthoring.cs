@@ -25,6 +25,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("单位表面之间开始软避让的额外距离；实际激活距离为双方半径之和加该值。")]
     [Min(0f)] public float softAvoidanceShell = 0.2f;
     [Min(0f)] public float settledSoftAvoidanceMultiplier = 1.5f;
+    [Tooltip("Surface 保留距离缓冲；RVO 使用相对速度和时间窗口求速度修正。")]
+    public SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
+        SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer;
+    [Tooltip("RVO 预测未来碰撞的时间窗口（秒），不等同于 Fat AABB 缓存 TTL。")]
+    [Min(0.01f)] public float rvoTimeHorizon = 0.5f;
 
     [Header("Unit Contact XPBD")]
     [Min(1)] public int contactSubsteps = 2;
@@ -71,7 +76,9 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 SoftAvoidanceShell = math.max(0f, authoring.softAvoidanceShell),
                 SettledSoftAvoidanceMultiplier = math.max(
                     0f,
-                    authoring.settledSoftAvoidanceMultiplier)
+                    authoring.settledSoftAvoidanceMultiplier),
+                SoftAvoidanceVelocitySolver = authoring.softAvoidanceVelocitySolver,
+                RvoTimeHorizon = math.max(0.01f, authoring.rvoTimeHorizon)
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new MoveOrder());

@@ -165,6 +165,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SoftAvoidanceResponseRate = flowFieldSettings.SoftAvoidanceResponseRate,
             SoftAvoidanceShell = flowFieldSettings.SoftAvoidanceShell,
             SettledSoftAvoidanceMultiplier = flowFieldSettings.SettledSoftAvoidanceMultiplier,
+            SoftAvoidanceVelocitySolver = flowFieldSettings.SoftAvoidanceVelocitySolver,
+            RvoTimeHorizon = flowFieldSettings.RvoTimeHorizon,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,

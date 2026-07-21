@@ -36,6 +36,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult tangent = ValidateTangentialNearMiss();
         ScenarioResult chain = ValidatePrebuiltChainContact();
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
+        ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
         ScenarioResult fatCache = ValidateFatAabbCache();
@@ -56,6 +57,8 @@ public static class PredictiveDiscContactStage3Validation
             $"chain: active={chain.Statistics.ActiveConstraintCount}\n" +
             $"soft avoidance: evaluations={softAvoidance.Statistics.SoftAvoidanceEvaluationCount}, " +
             $"time={softAvoidance.Statistics.SoftAvoidanceNanoseconds}ns\n" +
+            $"RVO avoidance: activated={rvoAvoidance.Statistics.SoftAvoidanceActivatedPairCount}, " +
+            $"fat uses={rvoAvoidance.Statistics.SoftAvoidanceFatAabbUseCount}\n" +
             $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
             $"{wallEightIterations.Positions[1].x:F6}\n" +
             $"fat cache: reuse={fatCache.ShadowStatistics.CacheReuseCount}, " +
@@ -343,6 +346,74 @@ public static class PredictiveDiscContactStage3Validation
                 cachedResult.Statistics.SoftAvoidanceCandidatePairCount > 0 &&
                 cachedResult.Statistics.SoftAvoidanceActivatedPairCount > 0,
             "Soft avoidance did not consume Fat AABB raw candidates for every substep.");
+        return result;
+    }
+
+    private static ScenarioResult ValidateRvoVelocitySolver()
+    {
+        bool approachingActivated = SoftAvoidanceMath.TryCalculatePairVelocities(
+            SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle,
+            new float3(-1f, 0, 0),
+            new float3(1f, 0, 0),
+            new float3(1f, 0, 0),
+            new float3(-1f, 0, 0),
+            0.25f,
+            0.25f,
+            1f,
+            1f,
+            1f,
+            1f,
+            0.3f,
+            1f,
+            0.1f,
+            new float3(-1f, 0, 0),
+            out float3 correctionA,
+            out float3 correctionB);
+        bool separatingActivated = SoftAvoidanceMath.TryCalculatePairVelocities(
+            SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle,
+            new float3(-1f, 0, 0),
+            new float3(1f, 0, 0),
+            new float3(-1f, 0, 0),
+            new float3(1f, 0, 0),
+            0.25f,
+            0.25f,
+            1f,
+            1f,
+            1f,
+            1f,
+            0.3f,
+            1f,
+            0.1f,
+            new float3(-1f, 0, 0),
+            out _,
+            out _);
+        Require(approachingActivated && correctionA.x < 0f && correctionB.x > 0f,
+            "RVO solver did not reduce a reciprocal head-on closing velocity.");
+        Require(!separatingActivated,
+            "RVO solver modified units that were already separating.");
+
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(-1f, 0, 0), new float3(1f, 0, 0), 0.25f),
+            CreateBody(new float3(1f, 0, 0), new float3(-1f, 0, 0), 0.25f)
+        };
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 1,
+            skin: 0f,
+            enablePredictiveContacts: false,
+            enableFatAabbCache: true,
+            softAvoidanceResponseRate: 4f,
+            softAvoidanceShell: 0.3f,
+            enablePredictivePairGeneration: false,
+            softAvoidanceVelocitySolver:
+                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle,
+            rvoTimeHorizon: 1f);
+        Require(result.Statistics.SoftAvoidanceActivatedPairCount > 0 &&
+                result.Statistics.SoftAvoidanceFatAabbUseCount == 1,
+            "Runtime RVO mode did not activate through the configured Fat AABB candidate path.");
+        Require(result.Positions[0].x < result.Positions[1].x,
+            "Runtime RVO mode did not prevent the head-on endpoint exchange.");
         return result;
     }
 
@@ -651,7 +722,10 @@ public static class PredictiveDiscContactStage3Validation
         float softAvoidanceResponseRate = 0f,
         float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
-        bool enablePredictivePairGeneration = true)
+        bool enablePredictivePairGeneration = true,
+        SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
+            SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
+        float rvoTimeHorizon = 0.5f)
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
@@ -673,7 +747,9 @@ public static class PredictiveDiscContactStage3Validation
                 softAvoidanceResponseRate,
                 softAvoidanceShell,
                 settledSoftAvoidanceMultiplier,
-                enablePredictivePairGeneration);
+                enablePredictivePairGeneration,
+                softAvoidanceVelocitySolver,
+                rvoTimeHorizon);
         }
         finally
         {
@@ -698,7 +774,10 @@ public static class PredictiveDiscContactStage3Validation
         float softAvoidanceResponseRate = 0f,
         float softAvoidanceShell = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
-        bool enablePredictivePairGeneration = true)
+        bool enablePredictivePairGeneration = true,
+        SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
+            SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
+        float rvoTimeHorizon = 0.5f)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
@@ -757,6 +836,8 @@ public static class PredictiveDiscContactStage3Validation
                 SoftAvoidanceResponseRate = softAvoidanceResponseRate,
                 SoftAvoidanceShell = softAvoidanceShell,
                 SettledSoftAvoidanceMultiplier = settledSoftAvoidanceMultiplier,
+                SoftAvoidanceVelocitySolver = softAvoidanceVelocitySolver,
+                RvoTimeHorizon = rvoTimeHorizon,
                 EnablePredictivePairGeneration = enablePredictivePairGeneration,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,

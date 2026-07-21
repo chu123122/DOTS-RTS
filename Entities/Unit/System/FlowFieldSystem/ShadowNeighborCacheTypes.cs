@@ -66,6 +66,8 @@ public struct FatAabbCacheState
     public int AgeFrames;
     public float PredictiveSkin;
     public float SoftAvoidanceShell;
+    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
+    public float RvoTimeHorizon;
     public float Margin;
 }
 
