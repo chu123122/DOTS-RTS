@@ -91,6 +91,19 @@ public sealed class Stage3ContactDiagnosticCaptureSession
             SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
             SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
             RvoTimeHorizon = flowSettings.RvoTimeHorizon,
+            TimestepContactMargin = settings.TimestepContactMargin,
+            TimestepContactSetBuilds = statistics.TimestepContactSetBuildCount,
+            TimestepContactSetClassificationPasses = statistics.TimestepContactSetClassificationPassCount,
+            TimestepContactSetSubstepUses = statistics.TimestepContactSetSubstepUseCount,
+            TimestepContactSetUniquePairs = statistics.TimestepContactSetUniquePairCount,
+            TimestepContactSetUniqueActivatedPairs = statistics.TimestepContactSetUniqueActivatedPairCount,
+            TimestepContactSetDormantPairs = statistics.TimestepContactSetDormantPairCount,
+            TimestepContactSetEscapeBodies = statistics.TimestepContactSetEscapeBodyCount,
+            TimestepContactSetFirstEscapeSubstep = statistics.TimestepContactSetFirstEscapeSubstep,
+            TimestepContactSetFullRebuilds = statistics.TimestepContactSetFullRebuildCount,
+            TimestepContactSetFallbackAddedPairs = statistics.TimestepContactSetFallbackAddedPairCount,
+            TimestepContactSetBuildMicroseconds = statistics.TimestepContactSetBuildNanoseconds / 1000f,
+            TimestepContactSetFallbackMicroseconds = statistics.TimestepContactSetFallbackNanoseconds / 1000f,
             CandidatePairs = statistics.CandidatePairCount,
             ContactPairs = statistics.ContactPairCount,
             ActualGeneratedPairs = statistics.ActualGeneratedPairCount,
@@ -174,7 +187,7 @@ public sealed class Stage3ContactDiagnosticCaptureSession
             $"stage3-contact-{labelSegment}{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
         var document = new Stage3ContactDiagnosticCaptureDocument
         {
-            Format = "Stage3ContactDiagnostic/v2",
+            Format = "Stage3ContactDiagnostic/v3",
             RunLabel = _runLabel,
             CapturedAtUtc = DateTime.UtcNow.ToString("O"),
             RequestedDurationSeconds = _duration,
@@ -230,6 +243,19 @@ public sealed class Stage3ContactDiagnosticCaptureSample
     public float SoftAvoidanceResponseRate;
     public float SoftAvoidanceShell;
     public float RvoTimeHorizon;
+    public float TimestepContactMargin;
+    public int TimestepContactSetBuilds;
+    public int TimestepContactSetClassificationPasses;
+    public int TimestepContactSetSubstepUses;
+    public int TimestepContactSetUniquePairs;
+    public int TimestepContactSetUniqueActivatedPairs;
+    public int TimestepContactSetDormantPairs;
+    public int TimestepContactSetEscapeBodies;
+    public int TimestepContactSetFirstEscapeSubstep;
+    public int TimestepContactSetFullRebuilds;
+    public int TimestepContactSetFallbackAddedPairs;
+    public float TimestepContactSetBuildMicroseconds;
+    public float TimestepContactSetFallbackMicroseconds;
     public int CandidatePairs;
     public int ContactPairs;
     public int ActualGeneratedPairs;

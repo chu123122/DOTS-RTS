@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze Stage3ContactDiagnostic/v2 OFF/ON captures and judge the trend."""
+"""Analyze Stage3ContactDiagnostic/v2-v3 OFF/ON captures and judge the trend."""
 
 from __future__ import annotations
 
@@ -81,7 +81,10 @@ def summarize_file(path: Path) -> RunSummary:
     with path.open("r", encoding="utf-8-sig") as handle:
         document = json.load(handle)
 
-    if document.get("Format") != "Stage3ContactDiagnostic/v2":
+    if document.get("Format") not in {
+        "Stage3ContactDiagnostic/v2",
+        "Stage3ContactDiagnostic/v3",
+    }:
         raise ValueError(f"unsupported format {document.get('Format')!r}")
 
     samples = document.get("Samples") or []
@@ -435,7 +438,7 @@ def self_test() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="分析 Stage3ContactDiagnostic/v2 Fat AABB OFF/ON 趋势。"
+        description="分析 Stage3ContactDiagnostic/v2-v3 Fat AABB OFF/ON 趋势。"
     )
     parser.add_argument("directory", nargs="?", type=Path, default=DEFAULT_DIRECTORY)
     parser.add_argument("--min-reuse-rate", type=float, default=0.80)

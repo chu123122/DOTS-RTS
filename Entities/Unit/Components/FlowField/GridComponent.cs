@@ -11,6 +11,13 @@ public enum SoftAvoidanceVelocitySolverMode : byte
     ReciprocalVelocityObstacle
 }
 
+public enum ContactHeatmapMode : byte
+{
+    ContactLoad,
+    ContactSetDensity,
+    EscapeFallback
+}
+
 public struct FlowFieldCell
 {
     public byte Cost; 
@@ -69,6 +76,10 @@ public struct UnitContactSolverSettings : IComponentData
     public float DiagnosticCaptureInterval;
     public bool EnableFatAabbCache;
     public float FatAabbCacheMargin;
+    public float TimestepContactMargin;
+    public bool VisualizeContactHeatmap;
+    public ContactHeatmapMode ContactHeatmapMode;
+    public float DiagnosticSlowMotionScale;
 }
 
 /// <summary>
@@ -77,6 +88,18 @@ public struct UnitContactSolverSettings : IComponentData
 /// </summary>
 public struct PredictiveDiscContactStatistics : IComponentData
 {
+    public int TimestepContactSetBuildCount;
+    public int TimestepContactSetClassificationPassCount;
+    public int TimestepContactSetSubstepUseCount;
+    public int TimestepContactSetUniquePairCount;
+    public int TimestepContactSetUniqueActivatedPairCount;
+    public int TimestepContactSetDormantPairCount;
+    public int TimestepContactSetEscapeBodyCount;
+    public int TimestepContactSetFirstEscapeSubstep;
+    public int TimestepContactSetFullRebuildCount;
+    public int TimestepContactSetFallbackAddedPairCount;
+    public long TimestepContactSetBuildNanoseconds;
+    public long TimestepContactSetFallbackNanoseconds;
     public int CandidatePairCount;
     public int ContactPairCount;
     public int ActualGeneratedPairCount;

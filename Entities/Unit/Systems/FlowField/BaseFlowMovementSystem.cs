@@ -115,6 +115,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var collisionPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
+        var timestepContactPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
         var shadowCellEntries = new NativeList<SweptDiscCellEntry>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
@@ -152,6 +155,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob);
         var selectedBodyDiagnostic =
             new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
+        var heatSamples = new NativeArray<Stage3ContactHeatSample>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -169,6 +176,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
+            TimestepContactMargin = contactSolverSettings.TimestepContactMargin,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -176,6 +184,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Grid = gridComponent.Grid,
             SweptCellEntries = sweptCellEntries,
             Pairs = collisionPairs,
+            TimestepContactPairs = timestepContactPairs,
             ShadowCellEntries = shadowCellEntries,
             ShadowBodyPairs = shadowBodyPairs,
             ShadowCurrentProxies = shadowCurrentProxies,
@@ -192,7 +201,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowStatistics = shadowStatistics,
             IterationDiagnostics = iterationDiagnostics,
             PairDiagnostics = pairDiagnostics,
-            SelectedBodyDiagnostic = selectedBodyDiagnostic
+            SelectedBodyDiagnostic = selectedBodyDiagnostic,
+            HeatSamples = heatSamples
         };
         JobHandle solveContactHandle = solveContactJob.Schedule(independentForceHandle);
 
@@ -202,7 +212,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowSource = shadowStatistics,
             SelectedBodySource = selectedBodyDiagnostic,
             IterationSource = iterationDiagnostics,
-            PairSource = pairDiagnostics
+            PairSource = pairDiagnostics,
+            HeatSource = heatSamples
         };
         JobHandle publishStatisticsHandle =
             publishStatisticsJob.Schedule(solveContactHandle);
@@ -226,6 +237,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
         JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
+        JobHandle timestepContactPairDisposeHandle =
+            timestepContactPairs.Dispose(applyMovementHandle);
         JobHandle shadowCellDisposeHandle = shadowCellEntries.Dispose(applyMovementHandle);
         JobHandle shadowBodyPairDisposeHandle = shadowBodyPairs.Dispose(applyMovementHandle);
         JobHandle shadowProxyDisposeHandle = shadowCurrentProxies.Dispose(applyMovementHandle);
@@ -245,6 +258,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle iterationDiagnosticDisposeHandle =
             iterationDiagnostics.Dispose(publishStatisticsHandle);
         JobHandle pairDiagnosticDisposeHandle = pairDiagnostics.Dispose(publishStatisticsHandle);
+        JobHandle heatSampleDisposeHandle = heatSamples.Dispose(publishStatisticsHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
@@ -255,9 +269,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             selectedDiagnosticDisposeHandle,
             iterationDiagnosticDisposeHandle,
             pairDiagnosticDisposeHandle);
+        diagnosticDisposeHandle = JobHandle.CombineDependencies(
+            diagnosticDisposeHandle,
+            heatSampleDisposeHandle);
+        JobHandle contactPairDisposeHandle = JobHandle.CombineDependencies(
+            collisionPairDisposeHandle,
+            timestepContactPairDisposeHandle);
         JobHandle broadPhaseDisposeHandle = JobHandle.CombineDependencies(
             sweptEntryDisposeHandle,
-            collisionPairDisposeHandle,
+            contactPairDisposeHandle,
             shadowCellDisposeHandle);
         JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
             broadPhaseDisposeHandle,

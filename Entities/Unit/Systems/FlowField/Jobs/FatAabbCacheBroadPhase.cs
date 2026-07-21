@@ -238,11 +238,15 @@ public partial struct SolveXpbdUnitContactsJob
         out float2 pathMax)
     {
         pathMin = math.min(
-            state.StartPosition.xz,
-            math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+            state.TimestepStartPosition.xz,
+            math.min(
+                state.TimestepPredictedPosition.xz,
+                math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz)));
         pathMax = math.max(
-            state.StartPosition.xz,
-            math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+            state.TimestepStartPosition.xz,
+            math.max(
+                state.TimestepPredictedPosition.xz,
+                math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz)));
         if (SoftAvoidanceVelocitySolver !=
                 SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
             SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)

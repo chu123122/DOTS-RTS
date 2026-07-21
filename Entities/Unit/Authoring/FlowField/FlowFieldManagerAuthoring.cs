@@ -52,6 +52,11 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     public bool enableContactDiagnostics;
     [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
     public bool visualizeSelectedContacts = true;
+    [Tooltip("常规视图显示接触负载热力图；中键选中后仍显示单位细节。")]
+    public bool visualizeContactHeatmap = true;
+    public ContactHeatmapMode contactHeatmapMode = ContactHeatmapMode.ContactLoad;
+    [Tooltip("中键选中诊断单位时使用的默认时间倍率。")]
+    [Range(0.025f, 1f)] public float diagnosticSlowMotionScale = 0.2f;
     [Tooltip("按 F6 后自动采集并写出 JSON 的持续时间（秒）。")]
     [Min(0.5f)] public float diagnosticCaptureDuration = 10f;
     [Tooltip("JSON 采样间隔（秒），不会逐帧写磁盘。")]
@@ -64,6 +69,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("Fat AABB 在圆盘半径和 Predictive Skin 之外保留的复用余量。")]
     [FormerlySerializedAs("shadowCacheMargin")]
     [Min(0f)] public float fatAabbCacheMargin = 0.25f;
+    [Tooltip("整个 timestep ContactSet 预测轨迹之外的安全边界；逃出后执行完整回退。")]
+    [Min(0f)] public float timestepContactMargin = 0.25f;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
@@ -102,7 +109,14 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 DiagnosticCaptureDuration = math.max(0.5f, authoring.diagnosticCaptureDuration),
                 DiagnosticCaptureInterval = math.max(0.05f, authoring.diagnosticCaptureInterval),
                 EnableFatAabbCache = authoring.enableFatAabbCache,
-                FatAabbCacheMargin = math.max(0f, authoring.fatAabbCacheMargin)
+                FatAabbCacheMargin = math.max(0f, authoring.fatAabbCacheMargin),
+                TimestepContactMargin = math.max(0f, authoring.timestepContactMargin),
+                VisualizeContactHeatmap = authoring.visualizeContactHeatmap,
+                ContactHeatmapMode = authoring.contactHeatmapMode,
+                DiagnosticSlowMotionScale = math.clamp(
+                    authoring.diagnosticSlowMotionScale,
+                    0.025f,
+                    1f)
             });
             AddComponent(entity, new PredictiveDiscContactStatistics());
             AddComponent(entity, new ShadowNeighborCacheStatistics());
@@ -113,6 +127,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             AddComponent(entity, new Stage3SelectedBodyDiagnostic());
             AddBuffer<Stage3ContactIterationDiagnostic>(entity);
             AddBuffer<Stage3ContactPairDiagnostic>(entity);
+            AddBuffer<Stage3ContactHeatSample>(entity);
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             AddComponent(entity, new RecalculateFlowFieldTag());

@@ -14,16 +14,22 @@ public enum UnitContactMode : byte
 }
 
 /// <summary>
-/// 单个 substep 内复用的轻量单位接触约束。
-/// InitialNormal 不重复保存；Predictive 模式始终由双方 StartPosition 稳定推导。
+/// 单个 timestep 内复用的轻量单位接触约束。
+/// PredictiveNormal 在 timestep 分类时固定；lambda 仍在每个 substep 开始时清零。
 /// </summary>
 public struct UnitCollisionPair
 {
     public int BodyA;
     public int BodyB;
     public float Lambda;
+    public float3 PredictiveNormal;
     public UnitContactMode ContactMode;
     public byte WasActivated;
+    public byte WasActivatedThisTimestep;
+    public byte IsDormant;
+    public byte WasAddedByFallback;
+    public int FirstActivatedSubstep;
+    public int ActivatedSubstepCount;
 }
 
 /// <summary>
