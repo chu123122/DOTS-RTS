@@ -1,7 +1,6 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
 using Unity.Transforms;
@@ -34,36 +33,5 @@ public partial struct CalculateUnitCollisionFootprintJob : IJobEntity
         }
 
         CollisionFootprints[entityIndex] = footprint;
-    }
-}
-
-/// <summary>
-/// 根据所有单位碰撞体的 XZ 投影总面积以及最大单体跨度，计算正方形到达区域的格子半径。
-/// </summary>
-[BurstCompile]
-public struct CalculateArrivalAreaJob : IJob
-{
-    [ReadOnly] public NativeArray<float2> CollisionFootprints;
-    public float CellSize;
-    public NativeReference<int> ArrivalEnterDistance;
-
-    public void Execute()
-    {
-        float totalFootprintArea = 0f;
-        float maximumFootprintSpan = 0f;
-
-        for (int i = 0; i < CollisionFootprints.Length; i++)
-        {
-            float2 footprint = CollisionFootprints[i];
-            totalFootprintArea += footprint.x * footprint.y;
-            maximumFootprintSpan = math.max(maximumFootprintSpan, math.cmax(footprint));
-        }
-
-        float safeCellSize = math.max(CellSize, 0.0001f);
-        float requiredWorldSide = math.max(math.sqrt(totalFootprintArea), maximumFootprintSpan);
-        int requiredCellDiameter = math.max(1, (int)math.ceil(requiredWorldSide / safeCellSize));
-
-        // 八邻域 Integration 半径 r 在开放区域对应 (2r + 1) × (2r + 1) 个格子。
-        ArrivalEnterDistance.Value = (int)math.ceil((requiredCellDiameter - 1) * 0.5f);
     }
 }

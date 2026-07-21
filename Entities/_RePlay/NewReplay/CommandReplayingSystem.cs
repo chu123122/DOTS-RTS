@@ -193,13 +193,18 @@ namespace _RePlaySystem.Base
             }
             else if (cmd.Type == RTSCommandType.Move)
             {
+                // 旧回放格式没有保存选中 Entity 列表；本地单编队模式下将当前单位
+                // 全部视为本次命令对象，再走与实时输入相同的固定槽位分配入口。
+                foreach (RefRW<UnitSelected> selection in
+                         SystemAPI.Query<RefRW<UnitSelected>>().WithAll<BasicUnitTag>())
+                {
+                    selection.ValueRW.Value = true;
+                }
+
                 if (SystemAPI.TryGetSingletonEntity<FlowFieldGlobalTarget>(out var gridEntity))
                 {
-                    ecb.SetComponent(gridEntity, new FlowFieldGlobalTarget { TargetPosition = cmd.Position });
-                    var request = SystemAPI.GetComponent<RecalculateFlowFieldTag>(gridEntity);
-                    request.RequestVersion++;
-                    ecb.SetComponent(gridEntity, request);
-                    ecb.SetComponentEnabled<RecalculateFlowFieldTag>(gridEntity, true);
+                    ecb.SetComponent(gridEntity, new MoveOrder { TargetPosition = cmd.Position });
+                    ecb.SetComponentEnabled<MoveOrder>(gridEntity, true);
                 }
             }
 

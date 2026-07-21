@@ -45,6 +45,18 @@ namespace 通用
         [GhostField] public bool IsSettled;
     }
 
+    /// <summary>
+    /// 当前本地移动订单为单位分配的固定槽位。只在新订单到来时改写。
+    /// </summary>
+    public struct UnitMoveDestination : IComponentData
+    {
+        public float3 Position;
+        public float ArrivalRadius;
+        public int DirectApproachIntegrationDistance;
+        public uint OrderVersion;
+        public byte IsActive;
+    }
+
     public struct UnitMovementSettings : IComponentData
     {
         public float MaxForce; // 转向力的最大值 (建议 20-50)

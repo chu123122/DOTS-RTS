@@ -32,7 +32,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadWrite<FlowArrivalState>(),
             ComponentType.ReadOnly<UnitMoveSpeed>(),
             ComponentType.ReadOnly<UnitMovementSettings>(),
-            ComponentType.ReadOnly<UnitContactBody>());
+            ComponentType.ReadOnly<UnitContactBody>(),
+            ComponentType.ReadOnly<UnitMoveDestination>());
 
         _shadowPreviousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.Persistent);
         _shadowPreviousPairs = new NativeList<ShadowEntityPair>(Allocator.Persistent);
@@ -69,13 +70,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob,
             NativeArrayOptions.UninitializedMemory);
 
-        // 到达区域容量按每个单位当前 PhysicsCollider 的 XZ 投影计算。
-        // 缩放和旋转均来自本帧 LocalTransform，不再假设每个单位固定占一个格子。
+        // 碰撞体投影用于接触半径。目标槽位已经在移动订单到来时固定分配，
+        // 不再逐帧估算一块共享到达区域。
         var collisionFootprints = new NativeArray<float2>(
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.UninitializedMemory);
-        var arrivalEnterDistance = new NativeReference<int>(Allocator.TempJob);
 
         var physicsColliderLookup = SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
         physicsColliderLookup.Update(this);
@@ -88,14 +88,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle footprintHandle = footprintJob.ScheduleParallel(_movementQuery, Dependency);
 
-        var arrivalAreaJob = new CalculateArrivalAreaJob
-        {
-            CollisionFootprints = collisionFootprints,
-            CellSize = gridComponent.CellRadius * 2f,
-            ArrivalEnterDistance = arrivalEnterDistance
-        };
-        JobHandle arrivalAreaHandle = arrivalAreaJob.Schedule(footprintHandle);
-
         // 阶段 1：只计算流场、到达状态等不依赖其他单位的力。
         var independentForceJob = new CalculateIndependentFlowForceJob
         {
@@ -103,11 +95,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
-            ArrivalEnterDistance = arrivalEnterDistance,
             CollisionFootprints = collisionFootprints,
             States = states
         };
-        JobHandle independentForceHandle = independentForceJob.ScheduleParallel(_movementQuery, arrivalAreaHandle);
+        JobHandle independentForceHandle =
+            independentForceJob.ScheduleParallel(_movementQuery, footprintHandle);
 
         // 阶段 2：每个 substep 先按最新求解位置重算软避让，再生成 swept disc Pair，
         // 随后的全部 XPBD iteration 复用该 Pair 快照。
@@ -226,7 +218,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         // 所有临时容器都必须等最终应用阶段读完后才能释放。
         JobHandle stateDisposeHandle = states.Dispose(applyMovementHandle);
         JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
-        JobHandle arrivalDistanceDisposeHandle = arrivalEnterDistance.Dispose(applyMovementHandle);
         JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
         JobHandle shadowCellDisposeHandle = shadowCellEntries.Dispose(applyMovementHandle);
@@ -252,7 +243,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             stateDisposeHandle,
             footprintDisposeHandle);
         JobHandle lookupDisposeHandle = JobHandle.CombineDependencies(
-            arrivalDistanceDisposeHandle,
             statisticsDisposeHandle,
             shadowStatisticsDisposeHandle);
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(

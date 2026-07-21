@@ -17,7 +17,6 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     public int2 GridDimensions;
     public float CellRadius;
 
-    [ReadOnly] public NativeReference<int> ArrivalEnterDistance;
     [ReadOnly] public NativeArray<float2> CollisionFootprints;
 
     public NativeArray<FlowMovementFrameState> States;
@@ -30,6 +29,7 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         in UnitMoveSpeed speed,
         in UnitMovementSettings settings,
         in UnitContactBody contactBody,
+        in UnitMoveDestination destination,
         ref FlowArrivalState arrivalState)
     {
         var state = new FlowMovementFrameState
@@ -57,25 +57,43 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
         FlowFieldCell cell = Grid[flatIndex];
 
-        bool isReachable = cell.Cost != 0 && cell.IntegrationValue != ushort.MaxValue;
-        int integrationDistance = cell.IntegrationValue;
-        int arrivalEnterDistance = ArrivalEnterDistance.Value;
-        int arrivalExitDistance = arrivalEnterDistance + 1;
-
-        // 已进入到达区域的单位只有越过更外层的退出边界才重新跟随流场。
-        // 未进入的单位到达内层边界后停车，从而形成一格宽的滞回带。
-        bool isSettled = arrivalState.IsSettled
-            ? isReachable && integrationDistance <= arrivalExitDistance
-            : isReachable && integrationDistance <= arrivalEnterDistance;
+        bool hasActiveDestination = destination.IsActive != 0;
+        float2 destinationDelta = destination.Position.xz - transform.Position.xz;
+        float destinationDistance = math.length(destinationDelta);
+        float arrivalEnterRadius = math.max(0.01f, destination.ArrivalRadius);
+        float arrivalExitRadius = arrivalEnterRadius + math.max(0.05f, state.Radius * 0.5f);
+        bool isSettled = !hasActiveDestination ||
+                         (arrivalState.IsSettled
+                             ? destinationDistance <= arrivalExitRadius
+                             : destinationDistance <= arrivalEnterRadius);
         arrivalState.IsSettled = isSettled;
 
         float3 moveForce = float3.zero;
-        if (!isSettled && cell.Cost != 0)
+        if (hasActiveDestination && !isSettled && cell.Cost != 0)
         {
-            // 到达区域外保持完整期望速度，不再设置固定格数的提前减速带。
-            int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
-            float3 desiredDir = math.normalize(new float3(dirOffset.x, 0, dirOffset.y));
-            moveForce = desiredDir * speed.Value - velocity.Value;
+            bool useDirectApproach =
+                cell.IntegrationValue != ushort.MaxValue &&
+                cell.IntegrationValue <= destination.DirectApproachIntegrationDistance;
+            float3 desiredVelocity;
+            if (useDirectApproach)
+            {
+                float3 desiredDirection = math.normalizesafe(
+                    new float3(destinationDelta.x, 0f, destinationDelta.y));
+                float brakingDistance = math.max(
+                    CellRadius * 2f,
+                    math.max(state.Radius * 2f, arrivalExitRadius));
+                float speedScale = math.saturate(destinationDistance / brakingDistance);
+                desiredVelocity = desiredDirection * speed.Value * speedScale;
+            }
+            else
+            {
+                int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
+                float3 desiredDirection = math.normalizesafe(
+                    new float3(dirOffset.x, 0f, dirOffset.y));
+                desiredVelocity = desiredDirection * speed.Value;
+            }
+
+            moveForce = desiredVelocity - velocity.Value;
         }
 
         state.CellPosition = cellPos;
