@@ -111,10 +111,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
-        AdaptiveFatAabbSettings adaptiveSettings = AdaptiveFatAabbSettings.Default;
-        if (SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings))
-            adaptiveSettings = configuredAdaptiveSettings;
+        bool hasAdaptiveSettings =
+            SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings);
+        AdaptiveFatAabbSettings adaptiveSettings = hasAdaptiveSettings
+            ? configuredAdaptiveSettings
+            : AdaptiveFatAabbSettings.Default;
         adaptiveSettings = adaptiveSettings.Sanitized();
+        ApplySimulationDebuggerRuntimeOverrides(
+            ref flowFieldSettings,
+            ref contactSolverSettings,
+            ref adaptiveSettings,
+            hasAdaptiveSettings);
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
         PublishSimulationDebuggerSnapshot(gridComponent, contactSolverSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);

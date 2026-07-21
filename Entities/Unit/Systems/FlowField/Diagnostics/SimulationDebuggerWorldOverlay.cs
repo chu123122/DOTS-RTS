@@ -44,6 +44,8 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
             return;
 
         EnsureMaterial();
+        if (_material == null)
+            return;
         _material.SetPass(0);
         GL.PushMatrix();
         GL.MultMatrix(Matrix4x4.identity);
@@ -57,7 +59,7 @@ public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
             Color color = HeatmapColor(
                 SimulationDebuggerRuntime.ActiveHeatmap,
                 value,
-                HeatmapOpacity);
+                SimulationDebuggerRuntime.HeatmapOpacity);
             GL.Color(color);
             GL.Vertex3(cell.Min.x, HeatmapHeight, cell.Min.y);
             GL.Vertex3(cell.Max.x, HeatmapHeight, cell.Min.y);

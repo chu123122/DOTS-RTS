@@ -1,6 +1,7 @@
 using Unity.Entities;
 using Unity.Mathematics;
 using RTS.Unit.FlowField.Jobs;
+using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Systems
 {
@@ -10,6 +11,7 @@ public abstract partial class BaseFlowMovementSystem
     private SimulationDebuggerFrameSnapshot _simulationDebuggerSnapshotB;
     private bool _simulationDebuggerWriteA;
     private ulong _simulationDebuggerFrameId;
+    private ulong _simulationDebuggerUpdateCounter;
 
     private void PublishSimulationDebuggerSnapshot(
         FlowFieldGrid grid,
@@ -17,6 +19,19 @@ public abstract partial class BaseFlowMovementSystem
     {
         SimulationDebuggerCaptureMask captureMask = SimulationDebuggerRuntime.CaptureMask;
         if (captureMask == SimulationDebuggerCaptureMask.None)
+            return;
+
+        _simulationDebuggerUpdateCounter++;
+        bool spatial = (captureMask & (
+            SimulationDebuggerCaptureMask.OverviewHeatmap |
+            SimulationDebuggerCaptureMask.AabbHeatmap |
+            SimulationDebuggerCaptureMask.ContactSetHeatmap |
+            SimulationDebuggerCaptureMask.SelectedUnit |
+            SimulationDebuggerCaptureMask.SelectedPairs)) != 0;
+        int interval = spatial
+            ? math.max(1, SimulationDebuggerRuntime.SpatialSampleIntervalFrames)
+            : math.max(1, SimulationDebuggerRuntime.SummarySampleIntervalFrames);
+        if ((_simulationDebuggerUpdateCounter - 1) % (ulong)interval != 0)
             return;
 
         // Diagnostics are explicitly opt-in. Completing here keeps the snapshot internally
@@ -32,6 +47,13 @@ public abstract partial class BaseFlowMovementSystem
         snapshot.SubstepCount = math.max(1, solverSettings.SubstepCount);
         snapshot.IterationCount = math.max(1, solverSettings.IterationCount);
         snapshot.CapturedMask = captureMask;
+        AdaptiveFatAabbSettings adaptiveSettings = AdaptiveFatAabbSettings.Default;
+        if (SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings))
+            adaptiveSettings = configuredAdaptiveSettings.Sanitized();
+        snapshot.EffectiveSettings = BuildEffectiveSettings(
+            SystemAPI.GetSingleton<FlowFieldSettings>(),
+            solverSettings,
+            adaptiveSettings);
 
         PredictiveDiscContactStatistics contactStatistics = default;
         ShadowNeighborCacheStatistics shadowStatistics = default;
@@ -339,7 +361,6 @@ public abstract partial class BaseFlowMovementSystem
     {
         float minimumSlack = float.MaxValue;
         bool found = false;
-        float2 center = (cellMin + cellMax) * 0.5f;
         for (int i = 0; i < _adaptiveDebugProxies.Length; i++)
         {
             AdaptiveFatAabbDebugProxy proxy = _adaptiveDebugProxies[i];
