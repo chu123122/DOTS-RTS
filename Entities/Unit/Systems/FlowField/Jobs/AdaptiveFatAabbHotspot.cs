@@ -394,11 +394,18 @@ public partial struct SolveXpbdUnitContactsJob
 
             int2 cell = GetAdaptiveCellCoordinate(cellIndex);
             float2 min = origin + (float2)cell * worldCellSize;
+            AdaptiveFatAabbCellHistory history = AdaptiveCellHistory[cellIndex];
             AdaptiveDebugCells.Add(new AdaptiveFatAabbDebugCell
             {
                 Min = min,
                 Max = min + worldCellSize,
                 Score = metric.Score,
+                DensityScore = metric.DensityScore,
+                PersistenceScore = metric.PersistenceScore,
+                PressureScore = metric.PressureScore,
+                EscapeRiskScore = metric.EscapeRiskScore,
+                AverageCorrection = history.SmoothedCorrection,
+                CachePenalty = history.SmoothedEscapePenalty,
                 UnitCount = metric.UnitCount,
                 Active = metric.Active
             });
@@ -420,6 +427,7 @@ public partial struct SolveXpbdUnitContactsJob
                 HaloMax = haloMax,
                 Score = region.AverageScore,
                 StableId = region.StableId,
+                UnitCount = region.UnitCount,
                 Active = region.Active
             });
         }
