@@ -265,6 +265,9 @@ public partial struct SolveXpbdUnitContactsJob
         for (int i = 0; i < CorrectedBodyIndices.Length; i++)
         {
             int bodyIndex = CorrectedBodyIndices[i];
+            if (AdaptiveFatAabbRequested &&
+                AdaptiveBodyRouting[bodyIndex].IsFatParticipant == 0)
+                continue;
             FlowMovementFrameState state = States[bodyIndex];
             if (!TryFindProxy(
                     ShadowPreviousProxies,
@@ -284,6 +287,8 @@ public partial struct SolveXpbdUnitContactsJob
 
     private float CalculateFatAabbNeighborPadding()
     {
+        if (AdaptiveFatAabbRequested)
+            return math.max(0f, PredictiveSkin);
         return math.max(
             math.max(0f, PredictiveSkin),
             math.max(0f, SoftAvoidanceShell) * 0.5f);
