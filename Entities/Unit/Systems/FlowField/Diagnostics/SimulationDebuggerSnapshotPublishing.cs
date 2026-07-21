@@ -238,8 +238,15 @@ public abstract partial class BaseFlowMovementSystem
         for (int i = 0; i < _adaptiveDebugCells.Length; i++)
         {
             AdaptiveFatAabbDebugCell cell = _adaptiveDebugCells[i];
-            float contactActivation = math.saturate(
-                cell.PressureScore * (1f - cell.EscapeRiskScore * 0.5f));
+            float globalBenefit = math.saturate(
+                0.5f + snapshot.BroadPhase.EstimatedBenefitScore * 0.5f);
+            bool adaptiveEnabled = snapshot.EffectiveSettings.EnableAdaptiveFatAabb != 0;
+            float localBenefit = adaptiveEnabled
+                ? math.saturate(0.5f + 0.5f * (feedback.ReuseRatio - cell.CachePenalty))
+                : globalBenefit;
+            float candidateExpansion = math.saturate(
+                snapshot.BroadPhase.CandidateExpansion /
+                math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit));
             snapshot.Cells.Add(new SimulationDebuggerCellSample
             {
                 Coordinate = CellCoordinateFromBounds(cell.Min, grid),
@@ -249,21 +256,24 @@ public abstract partial class BaseFlowMovementSystem
                 ActiveRegion = cell.Active,
                 OverallPressure = math.saturate(math.max(
                     cell.DensityScore,
-                    math.max(cell.PressureScore, cell.AverageCorrection))),
+                    math.max(cell.PressureScore, math.max(cell.AverageCorrection, cell.ContactLoad)))),
                 Density = cell.DensityScore,
                 SolverCorrection = math.saturate(cell.PressureScore),
-                AabbBenefit = math.saturate(
-                    0.5f + 0.5f * (feedback.ReuseRatio - cell.CachePenalty)),
+                AabbBenefit = math.saturate(math.min(globalBenefit, localBenefit)),
                 AabbSlack = NormalizeCellSlack(cell.Min, cell.Max),
-                CandidateExpansion = math.saturate(
-                    feedback.CandidateExpansionRatio / math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit)),
+                CandidateExpansion = math.saturate(math.max(
+                    candidateExpansion * math.max(0.25f, cell.ContactLoad),
+                    feedback.CandidateExpansionRatio /
+                    math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit))),
                 EscapeRisk = math.saturate(math.max(
                     cell.EscapeRiskScore,
                     cell.CachePenalty)),
-                ContactActivation = contactActivation,
-                ContactWaste = 1f - contactActivation,
-                ContactSupplementRisk = math.saturate(
-                    cell.EscapeRiskScore + feedback.EscapePenalty)
+                ContactActivation = math.saturate(cell.ContactActivation),
+                ContactWaste = math.saturate(
+                    cell.ContactLoad * (1f - cell.ContactActivation)),
+                ContactSupplementRisk = math.saturate(math.max(
+                    cell.ContactSupplementRisk,
+                    cell.ContactLoad * (cell.EscapeRiskScore + feedback.EscapePenalty)))
             });
         }
     }

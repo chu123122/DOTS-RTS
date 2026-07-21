@@ -120,7 +120,7 @@ public partial struct SolveXpbdUnitContactsJob
             Entity = state.Entity,
             BodyIndex = bodyIndex,
             CurrentPosition = state.CurrentPosition,
-            TimestepStartPosition = state.StartPosition,
+            TimestepStartPosition = state.CurrentPosition,
             UnconstrainedPosition = state.UnconstrainedPredictedPosition,
             FinalPosition = state.PredictedPosition,
             CurrentVelocity = state.CurrentVelocity,
@@ -128,7 +128,7 @@ public partial struct SolveXpbdUnitContactsJob
             ContactCorrection = math.length(state.ContactPositionCorrection.xz),
             WallCorrection = math.length(state.WallPositionCorrection.xz),
             SoftNeighborCount = state.SoftAvoidanceNeighborCount,
-            CandidatePairCount = cachedContacts,
+            CapturedPairCount = cachedContacts,
             CachedContactCount = cachedContacts,
             ActiveContactCount = activeContacts
         };

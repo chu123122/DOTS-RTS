@@ -10,7 +10,6 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
 {
-    [Range(0f, 1f)] public float HeatmapOpacity = 0.28f;
     [Min(0f)] public float HeatmapHeight = 0.08f;
     [Min(0f)] public float BoundsHeight = 0.13f;
     [Min(0f)] public float PairHeight = 0.18f;

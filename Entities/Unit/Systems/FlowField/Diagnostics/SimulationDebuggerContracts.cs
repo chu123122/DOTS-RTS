@@ -210,7 +210,7 @@ public struct SimulationDebuggerUnitSample
     public float ContactCorrection;
     public float WallCorrection;
     public int SoftNeighborCount;
-    public int CandidatePairCount;
+    public int CapturedPairCount;
     public int CachedContactCount;
     public int ActiveContactCount;
     public float2 SweptMin;

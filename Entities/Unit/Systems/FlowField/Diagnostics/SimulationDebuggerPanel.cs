@@ -20,6 +20,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
     private bool _showDetails;
     private bool _settingsInitialized;
     private SimulationDebuggerEffectiveSettings _settingsDraft;
+    private GUIStyle _windowStyle;
     private GUIStyle _headerStyle;
     private GUIStyle _sectionStyle;
     private GUIStyle _metricLabelStyle;
@@ -43,6 +44,13 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.None;
     }
 
+    private void OnDestroy()
+    {
+        DestroyRuntimeTexture(ref _panelTexture);
+        DestroyRuntimeTexture(ref _cardTexture);
+        DestroyRuntimeTexture(ref _activeTexture);
+    }
+
     private void Update()
     {
         if (Input.GetKeyDown(ToggleKey))
@@ -63,6 +71,7 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
             WindowRect,
             DrawWindow,
             GUIContent.none,
+            _windowStyle,
             GUILayout.MinWidth(440f),
             GUILayout.MinHeight(360f));
         WindowRect.x = Mathf.Clamp(WindowRect.x, 0f, Mathf.Max(0f, Screen.width - 80f));
@@ -185,6 +194,8 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.UnitDensity,
                 SimulationDebuggerHeatmap.SolverCorrection
             });
+        DrawHeatmapLegend();
+        DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
         if (!_showDetails)
@@ -219,6 +230,8 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.CandidateExpansion,
                 SimulationDebuggerHeatmap.EscapeRisk
             });
+        DrawHeatmapLegend();
+        DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
         if (!_showDetails)
@@ -253,6 +266,8 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerHeatmap.ContactWaste,
                 SimulationDebuggerHeatmap.ContactSupplementRisk
             });
+        DrawHeatmapLegend();
+        DrawSelectedUnitSection(snapshot);
 
         DrawDetailsToggle();
         if (!_showDetails)
@@ -506,6 +521,177 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         return (byte)(enabled ? 1 : 0);
     }
 
+    private void DrawHeatmapLegend()
+    {
+        SimulationDebuggerHeatmap mode = SimulationDebuggerRuntime.ActiveHeatmap;
+        if (mode == SimulationDebuggerHeatmap.None)
+            return;
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Space(122f);
+        GUILayout.Label(HeatmapLowLabel(mode), _mutedStyle, GUILayout.Width(82f));
+        Rect rect = GUILayoutUtility.GetRect(80f, 8f, GUILayout.ExpandWidth(true));
+        if (Event.current.type == EventType.Repaint)
+        {
+            Color left = HeatmapEndpoint(mode, false);
+            Color right = HeatmapEndpoint(mode, true);
+            int segments = 20;
+            float width = rect.width / segments;
+            for (int i = 0; i < segments; i++)
+            {
+                float t = i / (float)(segments - 1);
+                EditorSafeDrawRect(
+                    new Rect(rect.x + i * width, rect.y, width + 1f, rect.height),
+                    Color.Lerp(left, right, t));
+            }
+        }
+        GUILayout.Label(HeatmapHighLabel(mode), _mutedStyle, GUILayout.Width(82f));
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawSelectedUnitSection(SimulationDebuggerFrameSnapshot snapshot)
+    {
+        GUILayout.Space(8f);
+        if (!snapshot.HasSelectedUnit)
+        {
+            GUILayout.BeginVertical(_sectionStyle);
+            GUILayout.Label("选中单位", _metricLabelStyle);
+            GUILayout.Label(
+                "点击单位后，这里会显示该单位的运动、AABB 和跨子步 Contact；世界中只绘制它相关的范围与 Pair。",
+                _mutedStyle);
+            GUILayout.EndVertical();
+            return;
+        }
+
+        SimulationDebuggerUnitSample unit = snapshot.SelectedUnit;
+        GUILayout.BeginVertical(_sectionStyle);
+        GUILayout.BeginHorizontal();
+        GUILayout.Label($"选中单位  Entity {unit.Entity.Index}:{unit.Entity.Version}", _sectionStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label($"Body {unit.BodyIndex}", _mutedStyle);
+        GUILayout.EndHorizontal();
+
+        switch (SimulationDebuggerRuntime.ActiveView)
+        {
+            case SimulationDebuggerView.Overview:
+                DrawDetailRow("软避让邻居", unit.SoftNeighborCount.ToString("N0"));
+                DrawDetailRow("接触 / 墙体修正", $"{unit.ContactCorrection:0.000} / {unit.WallCorrection:0.000}");
+                DrawDetailRow("速度", $"{unit.CurrentVelocity.x:0.00}, {unit.CurrentVelocity.z:0.00}");
+                break;
+            case SimulationDebuggerView.PersistentBroadPhase:
+                if (unit.HasFatBounds == 0)
+                {
+                    DrawDetailRow("AABB", "当前未捕获到 Fat Bounds");
+                    break;
+                }
+                DrawDetailRow("Swept 尺寸", BoundsSize(unit.SweptMin, unit.SweptMax));
+                DrawDetailRow("Fat 尺寸", BoundsSize(unit.FatMin, unit.FatMax));
+                DrawDetailRow("最小剩余余量", MinimumSlack(unit).ToString("0.000"));
+                break;
+            case SimulationDebuggerView.TimestepContactSet:
+                DrawDetailRow("捕获 Contact", unit.CapturedPairCount.ToString("N0"));
+                DrawDetailRow("缓存 Contact", unit.CachedContactCount.ToString("N0"));
+                DrawDetailRow("当前激活", unit.ActiveContactCount.ToString("N0"));
+                if (_showDetails)
+                    DrawSelectedPairRows(snapshot);
+                break;
+        }
+        GUILayout.EndVertical();
+    }
+
+    private void DrawSelectedPairRows(SimulationDebuggerFrameSnapshot snapshot)
+    {
+        if (snapshot.SelectedPairs.Count == 0)
+        {
+            GUILayout.Label("当前没有捕获到该单位的 Contact Pair。", _mutedStyle);
+            return;
+        }
+
+        GUILayout.Space(4f);
+        int count = Mathf.Min(12, snapshot.SelectedPairs.Count);
+        for (int i = 0; i < count; i++)
+        {
+            SimulationDebuggerPairSample pair = snapshot.SelectedPairs[i];
+            string state = pair.State == SimulationDebuggerPairState.Active ? "Active" : "Cached";
+            string kind = PairKindLabel(pair.Kind);
+            GUILayout.Label(
+                $"{i + 1,2}. {kind,-10} {state,-6}  sep {pair.CurrentSeparation,7:0.000}  " +
+                $"λ {pair.Lambda,7:0.000}  substep {pair.FirstActivatedSubstep}",
+                _mutedStyle);
+        }
+        if (snapshot.SelectedPairs.Count > count)
+            GUILayout.Label($"其余 {snapshot.SelectedPairs.Count - count} 条仅在世界 Overlay 中按上限绘制。", _mutedStyle);
+    }
+
+    private static string BoundsSize(Unity.Mathematics.float2 min, Unity.Mathematics.float2 max)
+    {
+        Unity.Mathematics.float2 size = max - min;
+        return $"{size.x:0.00} × {size.y:0.00}";
+    }
+
+    private static float MinimumSlack(SimulationDebuggerUnitSample unit)
+    {
+        if (unit.HasFatBounds == 0)
+            return 0f;
+        return Mathf.Min(
+            unit.SweptMin.x - unit.FatMin.x,
+            unit.SweptMin.y - unit.FatMin.y,
+            unit.FatMax.x - unit.SweptMax.x,
+            unit.FatMax.y - unit.SweptMax.y);
+    }
+
+    private static string PairKindLabel(SimulationDebuggerPairKind kind)
+    {
+        return kind switch
+        {
+            SimulationDebuggerPairKind.PredictiveContact => "Predictive",
+            SimulationDebuggerPairKind.NearContact => "Near",
+            SimulationDebuggerPairKind.SupplementedContact => "Supplement",
+            SimulationDebuggerPairKind.BroadCandidate => "Candidate",
+            _ => "Actual"
+        };
+    }
+
+    private static string HeatmapLowLabel(SimulationDebuggerHeatmap mode)
+    {
+        return mode switch
+        {
+            SimulationDebuggerHeatmap.AabbBenefit or
+            SimulationDebuggerHeatmap.AabbSlack or
+            SimulationDebuggerHeatmap.ContactActivation => "差 / 低",
+            _ => "低"
+        };
+    }
+
+    private static string HeatmapHighLabel(SimulationDebuggerHeatmap mode)
+    {
+        return mode switch
+        {
+            SimulationDebuggerHeatmap.AabbBenefit or
+            SimulationDebuggerHeatmap.AabbSlack or
+            SimulationDebuggerHeatmap.ContactActivation => "好 / 高",
+            _ => "高 / 风险"
+        };
+    }
+
+    private static Color HeatmapEndpoint(SimulationDebuggerHeatmap mode, bool high)
+    {
+        bool positive = mode == SimulationDebuggerHeatmap.AabbBenefit ||
+                        mode == SimulationDebuggerHeatmap.AabbSlack ||
+                        mode == SimulationDebuggerHeatmap.ContactActivation;
+        if (positive)
+            return high ? new Color(0.15f, 0.8f, 0.42f) : new Color(0.9f, 0.2f, 0.18f);
+        return high ? new Color(0.95f, 0.18f, 0.08f) : new Color(0.12f, 0.4f, 0.95f);
+    }
+
+    private static void EditorSafeDrawRect(Rect rect, Color color)
+    {
+        Color previous = GUI.color;
+        GUI.color = color;
+        GUI.DrawTexture(rect, Texture2D.whiteTexture);
+        GUI.color = previous;
+    }
+
     private void DrawHeatmapSelector(
         string title,
         SimulationDebuggerHeatmap[] modes)
@@ -599,7 +785,9 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         switch (SimulationDebuggerRuntime.ActiveView)
         {
             case SimulationDebuggerView.Overview:
-                mask |= SimulationDebuggerCaptureMask.OverviewHeatmap;
+                mask |= SimulationDebuggerCaptureMask.OverviewHeatmap |
+                        SimulationDebuggerCaptureMask.SelectedUnit |
+                        SimulationDebuggerCaptureMask.Proxies;
                 break;
             case SimulationDebuggerView.PersistentBroadPhase:
                 mask |= SimulationDebuggerCaptureMask.AabbHeatmap |
@@ -712,11 +900,11 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         _cardTexture = SolidTexture(new Color(0.105f, 0.12f, 0.15f, 0.96f));
         _activeTexture = SolidTexture(new Color(0.18f, 0.34f, 0.55f, 0.98f));
 
-        GUI.skin.window.normal.background = _panelTexture;
-        GUI.skin.window.padding = new RectOffset(12, 12, 10, 12);
-        GUI.skin.label.normal.textColor = new Color(0.9f, 0.93f, 0.97f);
-        GUI.skin.button.normal.textColor = new Color(0.9f, 0.93f, 0.97f);
-        GUI.skin.button.hover.textColor = Color.white;
+        _windowStyle = new GUIStyle(GUI.skin.window)
+        {
+            padding = new RectOffset(12, 12, 10, 12),
+            normal = { background = _panelTexture }
+        };
 
         _headerStyle = new GUIStyle(GUI.skin.label)
         {
@@ -767,6 +955,14 @@ public sealed class SimulationDebuggerPanel : MonoBehaviour
         };
     }
 
+    private static void DestroyRuntimeTexture(ref Texture2D texture)
+    {
+        if (texture == null)
+            return;
+        Destroy(texture);
+        texture = null;
+    }
+
     private static Texture2D SolidTexture(Color color)
     {
         var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
@@ -785,13 +981,23 @@ internal static class SimulationDebuggerPanelBootstrap
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreatePanelWhenMissing()
     {
-        if (UnityEngine.Object.FindFirstObjectByType<SimulationDebuggerPanel>() != null)
-            return;
-        var gameObject = new GameObject("Simulation Debugger");
-        gameObject.hideFlags = HideFlags.DontSave;
-        gameObject.AddComponent<SimulationDebuggerPanel>();
-        gameObject.AddComponent<SimulationDebuggerWorldOverlay>();
-        UnityEngine.Object.DontDestroyOnLoad(gameObject);
+        SimulationDebuggerPanel panel =
+            UnityEngine.Object.FindFirstObjectByType<SimulationDebuggerPanel>();
+        GameObject gameObject;
+        if (panel == null)
+        {
+            gameObject = new GameObject("Simulation Debugger");
+            gameObject.hideFlags = HideFlags.DontSave;
+            panel = gameObject.AddComponent<SimulationDebuggerPanel>();
+            UnityEngine.Object.DontDestroyOnLoad(gameObject);
+        }
+        else
+        {
+            gameObject = panel.gameObject;
+        }
+
+        if (gameObject.GetComponent<SimulationDebuggerWorldOverlay>() == null)
+            gameObject.AddComponent<SimulationDebuggerWorldOverlay>();
     }
 #endif
 }

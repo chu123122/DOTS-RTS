@@ -125,9 +125,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
         PublishSimulationDebuggerSnapshot(gridComponent, contactSolverSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);
-        Entity diagnosticSelectedEntity = Entity.Null;
-        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))
+        Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
+        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection) &&
+            diagnosticSelection.SelectedEntity != Entity.Null)
+        {
             diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
+            SimulationDebuggerRuntime.SelectedEntity = diagnosticSelectedEntity;
+        }
         if (!gridComponent.Grid.IsCreated) return;
         if (flowFieldRuntimeState.ActiveVersion == 0) return;
 
