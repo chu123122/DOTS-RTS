@@ -487,6 +487,12 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("接触缓存", metrics.ContactPairCount.ToString("N0"));
         DrawDetailRow("最大墙体修正", metrics.MaxWallCorrection.ToString("0.000"));
         DrawDetailRow("最大速度变化", metrics.MaxVelocityChange.ToString("0.000"));
+
+        GUILayout.Space(6f);
+        GUILayout.Label("60 帧趋势", _sectionStyle);
+        DrawTrendRow("求解耗时", SimulationDebuggerRuntime.GetSolverTrend(), "0.0", "ms");
+        DrawTrendRow("最大修正量", SimulationDebuggerRuntime.GetCorrectionTrend(), "0.000");
+        DrawTrendRow("接触对数量", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
     }
 
     private void DrawPersistentBroadPhase(SimulationDebuggerFrameSnapshot snapshot)
@@ -525,6 +531,11 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("最终 Contact", metrics.FinalContactPairCount.ToString("N0"));
         DrawDetailRow("失效次数", metrics.InvalidationCount.ToString("N0"));
         DrawDetailRow("估算收益评分", metrics.EstimatedBenefitScore.ToString("+0.00;-0.00;0.00"));
+
+        GUILayout.Space(6f);
+        GUILayout.Label("60 帧趋势", _sectionStyle);
+        DrawTrendRow("缓存命中率", SimulationDebuggerRuntime.GetCacheHitTrend(), "0.0", "%");
+        DrawTrendRow("接触对数量", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
     }
 
     private void DrawContactSet(SimulationDebuggerFrameSnapshot snapshot)
@@ -567,6 +578,11 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("缓存但未激活", metrics.InactiveContactCount.ToString("N0"));
         DrawDetailRow("避免重复生成", $"{metrics.AvoidedContactGenerationCount} 次");
         DrawDetailRow("预测接触激活率", Percent(metrics.PredictiveActivationRatio));
+
+        GUILayout.Space(6f);
+        GUILayout.Label("60 帧趋势", _sectionStyle);
+        DrawTrendRow("活跃接触数", SimulationDebuggerRuntime.GetActiveContactTrend(), "0");
+        DrawTrendRow("接触集大小", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
     }
 
     private void DrawSettingsSummary(SimulationDebuggerFrameSnapshot snapshot)
@@ -785,6 +801,38 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private static string SoftSolverLabel(int solverMode)
     {
         return solverMode == 1 ? "RVO 互惠避让" : "预测引导";
+    }
+
+    private static void DrawTrendRow(
+        string label,
+        SimulationDebuggerTrend trend,
+        string format,
+        string unit = "",
+        bool lowerIsBetter = true)
+    {
+        Color savedColor = GUI.color;
+        GUILayout.BeginHorizontal();
+
+        // 趋势箭头颜色
+        GUI.color = trend.Direction switch
+        {
+            TrendDirection.Improving => lowerIsBetter ? Color.green : Color.red,
+            TrendDirection.Degrading => lowerIsBetter ? Color.red : Color.green,
+            _ => Color.gray
+        };
+        GUILayout.Label(trend.DirectionGlyph, GUILayout.Width(16f));
+
+        GUI.color = savedColor;
+        GUILayout.Label($"{label}", GUILayout.Width(120f));
+
+        GUILayout.Label(
+            trend.SampleCount > 0
+                ? $"{trend.Current.ToString(format)}{unit}  [{trend.Minimum.ToString(format)}…{trend.Average.ToString(format)}…{trend.Maximum.ToString(format)}]{unit}"
+                : $"---",
+            GUILayout.ExpandWidth(true));
+
+        GUILayout.EndHorizontal();
+        GUI.color = savedColor;
     }
 
     private int DrawIntSlider(
