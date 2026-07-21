@@ -1,6 +1,7 @@
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using CaptureMask = RTS.Unit.FlowField.Diagnostics.SimulationDebuggerCaptureMask;
 
 namespace RTS.Unit.FlowField.Jobs
 {
@@ -14,9 +15,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private bool SimulationDebuggerSpatialRequested =>
         (SimulationDebuggerCaptureMask & (
-            SimulationDebuggerCaptureMask.OverviewHeatmap |
-            SimulationDebuggerCaptureMask.AabbHeatmap |
-            SimulationDebuggerCaptureMask.ContactSetHeatmap)) != 0;
+            CaptureMask.OverviewHeatmap |
+            CaptureMask.AabbHeatmap |
+            CaptureMask.ContactSetHeatmap)) != 0;
 
     private bool ShouldBuildDiagnosticSpatialGrid =>
         AdaptiveFatAabbRequested || SimulationDebuggerSpatialRequested;
