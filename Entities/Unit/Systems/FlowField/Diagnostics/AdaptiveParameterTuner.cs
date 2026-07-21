@@ -483,6 +483,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     public sealed class ParameterTrial
     {
         public string Label;
+        public byte EnablePredictivePairGeneration = 1;
         public byte EnableFatAabbCache = 1;
         public byte EnableAdaptiveFatAabb = 1;
         public byte EnableTimestepContactSetCache = 1;
@@ -497,6 +498,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
         public void ApplyTo(ref SimulationDebuggerEffectiveSettings s)
         {
+            s.EnablePredictivePairGeneration = EnablePredictivePairGeneration;
             s.EnableFatAabbCache = EnableFatAabbCache;
             s.EnableAdaptiveFatAabb = EnableAdaptiveFatAabb;
             s.EnableTimestepContactSetCache = EnableTimestepContactSetCache;
