@@ -15,6 +15,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private EntityQuery _movementQuery;
     private NativeList<ShadowFatBodyProxy> _shadowPreviousProxies;
     private NativeList<ShadowEntityPair> _shadowPreviousPairs;
+    private NativeReference<FatAabbCacheState> _fatAabbCacheState;
 
     protected override void OnCreate()
     {
@@ -35,6 +36,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         _shadowPreviousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.Persistent);
         _shadowPreviousPairs = new NativeList<ShadowEntityPair>(Allocator.Persistent);
+        _fatAabbCacheState = new NativeReference<FatAabbCacheState>(Allocator.Persistent);
     }
 
     protected override void OnDestroy()
@@ -44,6 +46,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _shadowPreviousProxies.Dispose();
         if (_shadowPreviousPairs.IsCreated)
             _shadowPreviousPairs.Dispose();
+        if (_fatAabbCacheState.IsCreated)
+            _fatAabbCacheState.Dispose();
     }
 
     protected override void OnUpdate()
@@ -125,6 +129,19 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var shadowCurrentPairs = new NativeList<ShadowEntityPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
+        var currentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(
+            math.max(unitCount, 1),
+            Allocator.TempJob);
+        var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
+        var correctedBodyFlags = new NativeArray<byte>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var correctedBodyIndices = new NativeList<int>(
+            math.max(unitCount, 1),
+            Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var shadowStatistics =
@@ -150,8 +167,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SettledSoftAvoidanceMultiplier = flowFieldSettings.SettledSoftAvoidanceMultiplier,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
-            EnableShadowNeighborCacheTest = contactSolverSettings.EnableShadowNeighborCacheTest,
-            ShadowCacheMargin = contactSolverSettings.ShadowCacheMargin,
+            EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
+            FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
             DiagnosticSelectedEntity = diagnosticSelection.SelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -163,8 +180,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowBodyPairs = shadowBodyPairs,
             ShadowCurrentProxies = shadowCurrentProxies,
             ShadowCurrentPairs = shadowCurrentPairs,
+            CurrentBodyIndexByEntity = currentBodyIndexByEntity,
+            MappedFatCachePairs = mappedFatCachePairs,
+            CorrectedBodyFlags = correctedBodyFlags,
+            CorrectedBodyIndices = correctedBodyIndices,
             ShadowPreviousProxies = _shadowPreviousProxies,
             ShadowPreviousPairs = _shadowPreviousPairs,
+            FatAabbCacheState = _fatAabbCacheState,
             States = states,
             Statistics = contactStatistics,
             ShadowStatistics = shadowStatistics,
@@ -209,6 +231,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle shadowBodyPairDisposeHandle = shadowBodyPairs.Dispose(applyMovementHandle);
         JobHandle shadowProxyDisposeHandle = shadowCurrentProxies.Dispose(applyMovementHandle);
         JobHandle shadowPairDisposeHandle = shadowCurrentPairs.Dispose(applyMovementHandle);
+        JobHandle currentBodyIndexDisposeHandle =
+            currentBodyIndexByEntity.Dispose(applyMovementHandle);
+        JobHandle mappedFatCachePairDisposeHandle =
+            mappedFatCachePairs.Dispose(applyMovementHandle);
+        JobHandle correctedBodyFlagDisposeHandle =
+            correctedBodyFlags.Dispose(applyMovementHandle);
+        JobHandle correctedBodyIndexDisposeHandle =
+            correctedBodyIndices.Dispose(applyMovementHandle);
         JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
         JobHandle shadowStatisticsDisposeHandle = shadowStatistics.Dispose(publishStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle =
@@ -237,13 +267,25 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle shadowCacheDisposeHandle = JobHandle.CombineDependencies(
             shadowProxyDisposeHandle,
             shadowPairDisposeHandle);
+        JobHandle mappingScratchDisposeHandle = JobHandle.CombineDependencies(
+            currentBodyIndexDisposeHandle,
+            mappedFatCachePairDisposeHandle);
+        JobHandle correctionScratchDisposeHandle = JobHandle.CombineDependencies(
+            correctedBodyFlagDisposeHandle,
+            correctedBodyIndexDisposeHandle);
+        JobHandle fatCacheScratchDisposeHandle = JobHandle.CombineDependencies(
+            mappingScratchDisposeHandle,
+            correctionScratchDisposeHandle);
         JobHandle mainDisposeWithoutShadowCache = JobHandle.CombineDependencies(
             frameStateDisposeHandle,
             lookupDisposeHandle,
             pairDisposeHandle);
-        JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
+        JobHandle mainAndShadowDisposeHandle = JobHandle.CombineDependencies(
             mainDisposeWithoutShadowCache,
             shadowCacheDisposeHandle);
+        JobHandle mainDisposeHandle = JobHandle.CombineDependencies(
+            mainAndShadowDisposeHandle,
+            fatCacheScratchDisposeHandle);
         Dependency = JobHandle.CombineDependencies(
             mainDisposeHandle,
             diagnosticDisposeHandle);

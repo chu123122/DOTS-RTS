@@ -38,7 +38,8 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
-        ScenarioResult shadow = ValidateShadowNeighborCacheProbe();
+        ScenarioResult fatCache = ValidateFatAabbCache();
+        ValidateAutomaticFatAabbCaptureSequence();
         (ScenarioResult oneIteration, ScenarioResult eightIterations) =
             ValidateIterationResidualReduction();
 
@@ -57,9 +58,14 @@ public static class PredictiveDiscContactStage3Validation
             $"time={softAvoidance.Statistics.SoftAvoidanceNanoseconds}ns\n" +
             $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
             $"{wallEightIterations.Positions[1].x:F6}\n" +
-            $"shadow prev hit/miss={shadow.ShadowStatistics.PreviousFramePairHitCount}/" +
-            $"{shadow.ShadowStatistics.PreviousFramePairMissCount}, " +
-            $"current wall escapes={shadow.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount}\n" +
+            $"fat cache: reuse={fatCache.ShadowStatistics.CacheReuseCount}, " +
+            $"fallback={fatCache.ShadowStatistics.FullBroadPhaseFallbackCount}, " +
+            $"post-solve invalidation={fatCache.ShadowStatistics.PostSolveInvalidationCount}, " +
+            $"mapping={fatCache.ShadowStatistics.CachePairMappingBuildCount}/" +
+            $"{fatCache.ShadowStatistics.CachePairMappingReuseCount}, " +
+            $"corrected checks={fatCache.ShadowStatistics.CorrectedBodyValidationCount}\n" +
+            $"auto capture: configs=1x8/2x4/4x2, " +
+            $"runs={Stage3ContactDiagnosticAutoCapture.DefaultRoundCount * Stage3ContactDiagnosticAutoCapture.RunsPerRound}, restored=1\n" +
             $"iterations 1->8: maxPenetration " +
             $"{oneIteration.Statistics.MaxPenetration:F6} -> " +
             $"{eightIterations.Statistics.MaxPenetration:F6}\n" +
@@ -161,6 +167,98 @@ public static class PredictiveDiscContactStage3Validation
         return result;
     }
 
+    private static void ValidateAutomaticFatAabbCaptureSequence()
+    {
+        var original = new UnitContactSolverSettings
+        {
+            SubstepCount = 5,
+            IterationCount = 3,
+            PredictiveSkin = 0.2f,
+            EnablePredictivePairGeneration = false,
+            EnablePredictiveContacts = false,
+            EnableDiagnostics = false,
+            DiagnosticCaptureDuration = 4f,
+            DiagnosticCaptureInterval = 0.5f,
+            EnableFatAabbCache = true,
+            FatAabbCacheMargin = 0.7f
+        };
+        UnitContactSolverSettings settings = original;
+        var automaticCapture = new Stage3ContactDiagnosticAutoCapture();
+        automaticCapture.Start(ref settings, 100d);
+
+        Require(automaticCapture.TotalRuns == 9,
+            "Automatic capture did not create three OFF -> ON -> OFF rounds.");
+        Require(settings.SubstepCount == 1 && settings.IterationCount == 8,
+            "Automatic capture did not apply the first 1x8 configuration.");
+        Require(!automaticCapture.Tick(
+                ref settings, 102.99d, false, out _, out _),
+            "Automatic capture started before the initial warmup completed.");
+
+        double startTime = 103d;
+        string firstLabel = string.Empty;
+        string middleLabel = string.Empty;
+        string finalLabel = string.Empty;
+        bool completed = false;
+        for (int runIndex = 0; runIndex < automaticCapture.TotalRuns; runIndex++)
+        {
+            Require(automaticCapture.Tick(
+                    ref settings, startTime, false, out string runLabel, out _),
+                $"Automatic capture did not start run {runIndex + 1}.");
+            Require(
+                settings.SubstepCount ==
+                Stage3ContactDiagnosticAutoCapture.GetSubstepsForRun(runIndex) &&
+                settings.IterationCount ==
+                Stage3ContactDiagnosticAutoCapture.GetIterationsForRun(runIndex),
+                $"Automatic capture applied the wrong configuration for run {runIndex + 1}.");
+            Require(
+                settings.EnableFatAabbCache ==
+                Stage3ContactDiagnosticAutoCapture.IsCacheEnabledForRun(runIndex),
+                $"Automatic capture applied the wrong cache mode for run {runIndex + 1}.");
+
+            if (runIndex == 0)
+                firstLabel = runLabel;
+            else if (runIndex == 4)
+                middleLabel = runLabel;
+            else if (runIndex == 8)
+                finalLabel = runLabel;
+
+            Require(!automaticCapture.Tick(
+                    ref settings, startTime + 0.1d, true, out _, out _),
+                "Automatic capture attempted to overlap recordings.");
+            automaticCapture.Tick(
+                ref settings,
+                startTime + 10.1d,
+                false,
+                out _,
+                out completed);
+            if (runIndex < 8)
+            {
+                Require(!completed && automaticCapture.Active,
+                    "Automatic capture completed before all configurations ran.");
+                startTime += 10.1d +
+                             Stage3ContactDiagnosticAutoCapture.TransitionWarmupSeconds;
+            }
+        }
+
+        Require(firstLabel == "fat-aabb-r01-s1-i8-off-before" &&
+                middleLabel == "fat-aabb-r02-s2-i4-on" &&
+                finalLabel == "fat-aabb-r03-s4-i2-off-after",
+            "Automatic capture produced unexpected configuration labels.");
+        Require(completed && !automaticCapture.Active,
+            "Automatic capture did not complete all nine recordings.");
+        Require(settings.SubstepCount == original.SubstepCount &&
+                settings.IterationCount == original.IterationCount &&
+                settings.PredictiveSkin == original.PredictiveSkin &&
+                settings.EnablePredictivePairGeneration == original.EnablePredictivePairGeneration &&
+                settings.EnablePredictiveContacts == original.EnablePredictiveContacts &&
+                settings.EnableDiagnostics == original.EnableDiagnostics &&
+                settings.DiagnosticCaptureDuration == original.DiagnosticCaptureDuration &&
+                settings.DiagnosticCaptureInterval == original.DiagnosticCaptureInterval &&
+                settings.EnableFatAabbCache == original.EnableFatAabbCache &&
+                settings.FatAabbCacheMargin == original.FatAabbCacheMargin,
+            "Automatic capture did not restore the original settings.");
+    }
+
     private static ScenarioResult ValidatePredictiveToggle()
     {
         FlowMovementFrameState[] bodies =
@@ -246,6 +344,15 @@ public static class PredictiveDiscContactStage3Validation
             "Increasing iterations increased average dense-contact penetration.");
         Require(eightIterations.IterationDiagnostics.Length == 8,
             "Stage 3 diagnostics did not record one residual sample per iteration.");
+        Stage3ContactIterationDiagnostic firstIteration =
+            eightIterations.IterationDiagnostics[0];
+        Stage3ContactIterationDiagnostic finalIteration =
+            eightIterations.IterationDiagnostics[eightIterations.IterationDiagnostics.Length - 1];
+        Require(firstIteration.MaxConstraintViolationBeforeSolve > 0f,
+            "The pre-solve residual did not expose the initial dense-contact violation.");
+        Require(finalIteration.MaxConstraintViolation <=
+                firstIteration.MaxConstraintViolationBeforeSolve,
+            "The final post-solve residual exceeded the initial pre-solve residual.");
         return (oneIteration, eightIterations);
     }
 
@@ -305,7 +412,7 @@ public static class PredictiveDiscContactStage3Validation
         return (oneIteration, eightIterations);
     }
 
-    private static ScenarioResult ValidateShadowNeighborCacheProbe()
+    private static ScenarioResult ValidateFatAabbCache()
     {
         FlowMovementFrameState[] denseBodies =
         {
@@ -316,6 +423,7 @@ public static class PredictiveDiscContactStage3Validation
         };
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
+        var cacheState = new NativeReference<FatAabbCacheState>(Allocator.TempJob);
 
         ScenarioResult secondFrame;
         try
@@ -327,10 +435,11 @@ public static class PredictiveDiscContactStage3Validation
                 enablePredictiveContacts: true,
                 includeWall: false,
                 substepCount: 2,
-                enableShadowTest: true,
-                shadowMargin: 0.25f,
+                enableFatAabbCache: true,
+                fatAabbMargin: 0.25f,
                 previousProxies: previousProxies,
-                previousPairs: previousPairs);
+                previousPairs: previousPairs,
+                cacheState: cacheState);
             secondFrame = RunScenarioWithCache(
                 denseBodies,
                 iterationCount: 4,
@@ -338,66 +447,135 @@ public static class PredictiveDiscContactStage3Validation
                 enablePredictiveContacts: true,
                 includeWall: false,
                 substepCount: 2,
-                enableShadowTest: true,
-                shadowMargin: 0.25f,
+                enableFatAabbCache: true,
+                fatAabbMargin: 0.25f,
                 previousProxies: previousProxies,
-                previousPairs: previousPairs);
+                previousPairs: previousPairs,
+                cacheState: cacheState);
         }
         finally
         {
+            cacheState.Dispose();
             previousPairs.Dispose();
             previousProxies.Dispose();
         }
 
-        Require(secondFrame.ShadowStatistics.PreviousFrameCacheAvailable != 0 &&
-                secondFrame.ShadowStatistics.PreviousFrameCheckCount == 1,
-            "Shadow Test did not reuse the previous frame Fat AABB neighbor list.");
-        Require(secondFrame.ShadowStatistics.PreviousFramePairMissCount == 0 &&
-                secondFrame.ShadowStatistics.CurrentFramePairMissCount == 0,
-            "Stable dense contacts were not covered by the shadow neighbor lists.");
-        Require(secondFrame.ShadowStatistics.CurrentFrameCheckCount == 1,
-            "Shadow Test did not compare the first-substep cache with the later substep.");
+        ScenarioResult denseReference = RunScenario(
+            denseBodies,
+            iterationCount: 4,
+            skin: 0.05f,
+            substepCount: 2,
+            enableFatAabbCache: false);
+        Require(secondFrame.ShadowStatistics.CacheValidAtFrameStart != 0 &&
+                secondFrame.ShadowStatistics.CacheReuseCount == 2 &&
+                secondFrame.ShadowStatistics.CacheRebuildCount == 0,
+            "Stable dense contacts did not reuse the persistent Fat AABB cache for both substeps.");
+        Require(secondFrame.ShadowStatistics.FullBroadPhaseFallbackCount == 0,
+            "Stable dense contacts unexpectedly fell back to the full Broad Phase.");
+        Require(secondFrame.ShadowStatistics.CachePairMappingBuildCount == 1 &&
+                secondFrame.ShadowStatistics.CachePairMappingReuseCount == 1,
+            "Stable two-substep cache did not map Entity pairs once and reuse them once.");
+        int previousFullBodyCheckCount = denseBodies.Length * 4 * 2 * 2;
+        Require(secondFrame.ShadowStatistics.CorrectedBodyValidationCount > 0 &&
+                secondFrame.ShadowStatistics.CorrectedBodyValidationCount <
+                previousFullBodyCheckCount,
+            "Corrected-body Fat AABB validation did not reduce the previous full-body scan count.");
+        RequirePositionsEqual(
+            denseReference.Positions,
+            secondFrame.Positions,
+            "Fat AABB reuse changed a stable dense-contact solver position.");
 
         FlowMovementFrameState[] wallBodies =
         {
             CreateBody(new float3(1.4f, 0, 0.5f), float3.zero, 0.5f),
             CreateBody(new float3(2.42f, 0, 0.5f), float3.zero, 0.5f)
         };
-        ScenarioResult shadowOff = RunScenario(
+        ScenarioResult cacheOff = RunScenario(
             wallBodies,
             iterationCount: 8,
             skin: 0.1f,
             includeWall: true,
-            enableShadowTest: false);
-        ScenarioResult shadowOn = RunScenario(
+            enableFatAabbCache: false);
+        ScenarioResult cacheOn = RunScenario(
             wallBodies,
             iterationCount: 8,
             skin: 0.1f,
             includeWall: true,
-            enableShadowTest: true,
-            shadowMargin: 0.001f);
-        for (int i = 0; i < shadowOff.Positions.Length; i++)
+            enableFatAabbCache: true,
+            fatAabbMargin: 0.001f);
+        RequirePositionsEqual(
+            cacheOff.Positions,
+            cacheOn.Positions,
+            "Fat AABB fallback changed a wall-contact solver position.");
+        Require(cacheOn.ShadowStatistics.PostSolveInvalidationCount > 0 &&
+                cacheOn.ShadowStatistics.FullBroadPhaseFallbackCount > 0,
+            "Small Fat AABB margin did not trigger the wall-driven safe fallback.");
+
+        var toggleProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
+        var togglePairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
+        var toggleState = new NativeReference<FatAabbCacheState>(Allocator.TempJob);
+        ScenarioResult enabledAgain;
+        try
         {
-            Require(math.distance(shadowOff.Positions[i], shadowOn.Positions[i]) <=
-                    PositionTolerance,
-                "Enabling Shadow Test changed an authoritative solver position.");
+            RunScenarioWithCache(
+                denseBodies, 4, 0.05f, true, false, 2, true, 0.25f,
+                toggleProxies, togglePairs, toggleState);
+            ScenarioResult disabled = RunScenarioWithCache(
+                denseBodies, 4, 0.05f, true, false, 2, false, 0.25f,
+                toggleProxies, togglePairs, toggleState);
+            Require(toggleState.Value.IsValid == 0 &&
+                    toggleProxies.Length == 0 && togglePairs.Length == 0,
+                "Disabling Fat AABB cache did not clear persistent cache state.");
+            RequirePositionsEqual(
+                denseReference.Positions,
+                disabled.Positions,
+                "Disabling Fat AABB cache changed the uncached solver result.");
+            enabledAgain = RunScenarioWithCache(
+                denseBodies, 4, 0.05f, true, false, 2, true, 0.25f,
+                toggleProxies, togglePairs, toggleState);
         }
-        Require(shadowOn.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount > 0,
-            "Small shadow margin did not expose the wall-driven Fat AABB escape.");
+        finally
+        {
+            toggleState.Dispose();
+            togglePairs.Dispose();
+            toggleProxies.Dispose();
+        }
+        Require(enabledAgain.ShadowStatistics.CacheValidAtFrameStart == 0 &&
+                enabledAgain.ShadowStatistics.CacheRebuildCount > 0,
+            "Re-enabling Fat AABB cache reused stale disabled-state data instead of rebuilding.");
+
         return new ScenarioResult
         {
-            Positions = shadowOn.Positions,
-            Statistics = shadowOn.Statistics,
+            Positions = cacheOn.Positions,
+            Statistics = cacheOn.Statistics,
             ShadowStatistics = new ShadowNeighborCacheStatistics
             {
-                PreviousFramePairHitCount =
-                    secondFrame.ShadowStatistics.PreviousFramePairHitCount,
-                PreviousFramePairMissCount =
-                    secondFrame.ShadowStatistics.PreviousFramePairMissCount,
-                CurrentFrameWallDrivenEscapeBodyCount =
-                    shadowOn.ShadowStatistics.CurrentFrameWallDrivenEscapeBodyCount
+                CacheReuseCount = secondFrame.ShadowStatistics.CacheReuseCount,
+                FullBroadPhaseFallbackCount =
+                    cacheOn.ShadowStatistics.FullBroadPhaseFallbackCount,
+                PostSolveInvalidationCount =
+                    cacheOn.ShadowStatistics.PostSolveInvalidationCount,
+                CachePairMappingBuildCount =
+                    secondFrame.ShadowStatistics.CachePairMappingBuildCount,
+                CachePairMappingReuseCount =
+                    secondFrame.ShadowStatistics.CachePairMappingReuseCount,
+                CorrectedBodyValidationCount =
+                    secondFrame.ShadowStatistics.CorrectedBodyValidationCount
             }
         };
+    }
+
+    private static void RequirePositionsEqual(
+        float3[] expected,
+        float3[] actual,
+        string message)
+    {
+        Require(expected.Length == actual.Length, message + " Body count differs.");
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Require(math.distance(expected[i], actual[i]) <= PositionTolerance,
+                message + $" Body {i} differs.");
+        }
     }
 
     private static FlowMovementFrameState CreateBody(
@@ -427,8 +605,8 @@ public static class PredictiveDiscContactStage3Validation
         bool enablePredictiveContacts = true,
         bool includeWall = false,
         int substepCount = 1,
-        bool enableShadowTest = false,
-        float shadowMargin = 0.25f,
+        bool enableFatAabbCache = false,
+        float fatAabbMargin = 0.25f,
         float softAvoidanceWeight = 0f,
         float softAvoidanceRadius = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
@@ -436,6 +614,7 @@ public static class PredictiveDiscContactStage3Validation
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
+        var cacheState = new NativeReference<FatAabbCacheState>(Allocator.TempJob);
         try
         {
             return RunScenarioWithCache(
@@ -445,10 +624,11 @@ public static class PredictiveDiscContactStage3Validation
                 enablePredictiveContacts,
                 includeWall,
                 substepCount,
-                enableShadowTest,
-                shadowMargin,
+                enableFatAabbCache,
+                fatAabbMargin,
                 previousProxies,
                 previousPairs,
+                cacheState,
                 softAvoidanceWeight,
                 softAvoidanceRadius,
                 settledSoftAvoidanceMultiplier,
@@ -456,6 +636,7 @@ public static class PredictiveDiscContactStage3Validation
         }
         finally
         {
+            cacheState.Dispose();
             previousPairs.Dispose();
             previousProxies.Dispose();
         }
@@ -468,10 +649,11 @@ public static class PredictiveDiscContactStage3Validation
         bool enablePredictiveContacts,
         bool includeWall,
         int substepCount,
-        bool enableShadowTest,
-        float shadowMargin,
+        bool enableFatAabbCache,
+        float fatAabbMargin,
         NativeList<ShadowFatBodyProxy> previousProxies,
         NativeList<ShadowEntityPair> previousPairs,
+        NativeReference<FatAabbCacheState> cacheState,
         float softAvoidanceWeight = 0f,
         float softAvoidanceRadius = 0f,
         float settledSoftAvoidanceMultiplier = 1.5f,
@@ -496,6 +678,15 @@ public static class PredictiveDiscContactStage3Validation
         var shadowBodyPairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
         var shadowCurrentProxies = new NativeList<ShadowFatBodyProxy>(16, Allocator.TempJob);
         var shadowCurrentPairs = new NativeList<ShadowEntityPair>(32, Allocator.TempJob);
+        var currentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(
+            math.max(preparedBodies.Length, 1),
+            Allocator.TempJob);
+        var mappedFatCachePairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
+        var correctedBodyFlags = new NativeArray<byte>(
+            preparedBodies.Length,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var correctedBodyIndices = new NativeList<int>(16, Allocator.TempJob);
         var statistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var shadowStatistics =
@@ -528,8 +719,8 @@ public static class PredictiveDiscContactStage3Validation
                 EnablePredictivePairGeneration = enablePredictivePairGeneration,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
-                EnableShadowNeighborCacheTest = enableShadowTest,
-                ShadowCacheMargin = shadowMargin,
+                EnableFatAabbCache = enableFatAabbCache,
+                FatAabbCacheMargin = fatAabbMargin,
                 DiagnosticSelectedEntity = Entity.Null,
                 GridOrigin = gridOrigin,
                 GridDimensions = gridDimensions,
@@ -541,8 +732,13 @@ public static class PredictiveDiscContactStage3Validation
                 ShadowBodyPairs = shadowBodyPairs,
                 ShadowCurrentProxies = shadowCurrentProxies,
                 ShadowCurrentPairs = shadowCurrentPairs,
+                CurrentBodyIndexByEntity = currentBodyIndexByEntity,
+                MappedFatCachePairs = mappedFatCachePairs,
+                CorrectedBodyFlags = correctedBodyFlags,
+                CorrectedBodyIndices = correctedBodyIndices,
                 ShadowPreviousProxies = previousProxies,
                 ShadowPreviousPairs = previousPairs,
+                FatAabbCacheState = cacheState,
                 States = states,
                 Statistics = statistics,
                 ShadowStatistics = shadowStatistics,
@@ -571,6 +767,10 @@ public static class PredictiveDiscContactStage3Validation
             iterationDiagnostics.Dispose();
             shadowStatistics.Dispose();
             statistics.Dispose();
+            correctedBodyIndices.Dispose();
+            correctedBodyFlags.Dispose();
+            mappedFatCachePairs.Dispose();
+            currentBodyIndexByEntity.Dispose();
             shadowCurrentPairs.Dispose();
             shadowCurrentProxies.Dispose();
             shadowBodyPairs.Dispose();

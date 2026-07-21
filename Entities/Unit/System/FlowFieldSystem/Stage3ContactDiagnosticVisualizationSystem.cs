@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -15,6 +16,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 {
     private const float DrawHeight = 0.18f;
     private Stage3ContactDiagnosticOverlay _overlay;
+    private readonly Stage3ContactDiagnosticCaptureSession _captureSession = new();
+    private readonly Stage3ContactDiagnosticAutoCapture _automaticCapture = new();
+    private bool _diagnosticsEnabledBeforeCapture;
 
     protected override void OnCreate()
     {
@@ -36,6 +40,8 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
 
     protected override void OnDestroy()
     {
+        if (_captureSession.Active)
+            WriteCaptureFile();
         if (_overlay != null)
             Object.Destroy(_overlay.gameObject);
     }
@@ -45,29 +51,84 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         RefRW<UnitContactSolverSettings> settingsReference =
             SystemAPI.GetSingletonRW<UnitContactSolverSettings>();
         UnitContactSolverSettings settings = settingsReference.ValueRO;
+        double simulationTime = SystemAPI.Time.ElapsedTime;
 
         Keyboard keyboard = Keyboard.current;
-        if (keyboard != null && keyboard.f7Key.wasPressedThisFrame)
+        bool automaticCaptureKeyPressed =
+            keyboard != null &&
+            keyboard.f12Key.wasPressedThisFrame &&
+            !keyboard.leftCtrlKey.isPressed &&
+            !keyboard.rightCtrlKey.isPressed &&
+            !keyboard.leftShiftKey.isPressed &&
+            !keyboard.rightShiftKey.isPressed &&
+            !keyboard.leftAltKey.isPressed &&
+            !keyboard.rightAltKey.isPressed;
+        if (automaticCaptureKeyPressed)
+        {
+            if (_automaticCapture.Active)
+            {
+                if (_captureSession.Active)
+                    FinishCapture(ref settings);
+                _automaticCapture.Cancel(ref settings);
+                Debug.Log("Stage 3 automatic Fat AABB experiment cancelled; original settings restored.");
+            }
+            else if (!_captureSession.Active)
+            {
+                _automaticCapture.Start(ref settings, simulationTime);
+                Debug.Log(
+                    $"Stage 3 automatic Fat AABB experiment started: " +
+                    $"runs={_automaticCapture.TotalRuns}, sequence=OFF->ON->OFF, " +
+                    "configurations=1x8,2x4,4x2");
+            }
+        }
+        if (!_automaticCapture.Active &&
+            keyboard != null && keyboard.f6Key.wasPressedThisFrame)
+        {
+            if (_captureSession.Active)
+                FinishCapture(ref settings);
+            else
+                StartCapture(ref settings, simulationTime);
+        }
+        if (!_automaticCapture.Active && keyboard != null && keyboard.f7Key.wasPressedThisFrame)
             settings.EnablePredictivePairGeneration = !settings.EnablePredictivePairGeneration;
-        if (keyboard != null && keyboard.f8Key.wasPressedThisFrame)
+        if (!_automaticCapture.Active && keyboard != null && keyboard.f8Key.wasPressedThisFrame)
             settings.EnableDiagnostics = !settings.EnableDiagnostics;
-        if (keyboard != null && keyboard.f9Key.wasPressedThisFrame)
+        if (!_automaticCapture.Active && keyboard != null && keyboard.f9Key.wasPressedThisFrame)
             settings.EnablePredictiveContacts = !settings.EnablePredictiveContacts;
-        if (keyboard != null && keyboard.f10Key.wasPressedThisFrame)
+        if (!_automaticCapture.Active && keyboard != null && keyboard.f10Key.wasPressedThisFrame)
             settings.VisualizeSelectedContacts = !settings.VisualizeSelectedContacts;
-        if (keyboard != null && keyboard.f11Key.wasPressedThisFrame)
-            settings.EnableShadowNeighborCacheTest = !settings.EnableShadowNeighborCacheTest;
+        if (!_automaticCapture.Active && keyboard != null && keyboard.f11Key.wasPressedThisFrame)
+            settings.EnableFatAabbCache = !settings.EnableFatAabbCache;
         if (keyboard != null && keyboard.pageUpKey.wasPressedThisFrame)
             _overlay.Scale = math.min(2f, _overlay.Scale + 0.1f);
         if (keyboard != null && keyboard.pageDownKey.wasPressedThisFrame)
             _overlay.Scale = math.max(0.8f, _overlay.Scale - 0.1f);
+
+        bool automaticExperimentCompleted;
+        if (_automaticCapture.Tick(
+                ref settings,
+                simulationTime,
+                _captureSession.Active,
+                out string automaticRunLabel,
+                out automaticExperimentCompleted))
+        {
+            StartCapture(ref settings, simulationTime, automaticRunLabel);
+        }
+        if (automaticExperimentCompleted)
+        {
+            Debug.Log(
+                "Stage 3 automatic Fat AABB experiment completed; " +
+                "original settings restored.");
+        }
+        if (_captureSession.Active)
+            settings.EnableDiagnostics = true;
         settingsReference.ValueRW = settings;
 
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
             TrySelectDiagnosticUnitWithMiddleMouse();
 
         bool shouldShowOverlay =
-            settings.EnableDiagnostics || settings.EnableShadowNeighborCacheTest;
+            settings.EnableDiagnostics || settings.EnableFatAabbCache;
         _overlay.Visible = shouldShowOverlay;
         if (!shouldShowOverlay)
         {
@@ -98,7 +159,20 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         Stage3ContactDiagnosticSelection selection =
             SystemAPI.GetSingleton<Stage3ContactDiagnosticSelection>();
 
-        _overlay.HeaderText = BuildHeaderText(settings, _overlay.Scale);
+        UpdateCapture(
+            ref settings,
+            simulationTime,
+            statistics,
+            shadowStatistics,
+            iterationDiagnostics);
+        settingsReference.ValueRW = settings;
+
+        _overlay.HeaderText = BuildHeaderText(
+            settings,
+            _overlay.Scale,
+            _captureSession,
+            _automaticCapture,
+            simulationTime);
         _overlay.Stage3Text = BuildStage3PanelText(
             settings,
             statistics,
@@ -312,21 +386,116 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             false);
     }
 
+    private void StartCapture(
+        ref UnitContactSolverSettings settings,
+        double simulationTime,
+        string runLabel = "")
+    {
+        _diagnosticsEnabledBeforeCapture = settings.EnableDiagnostics;
+        settings.EnableDiagnostics = true;
+        _captureSession.Start(
+            simulationTime,
+            settings.DiagnosticCaptureDuration,
+            settings.DiagnosticCaptureInterval,
+            runLabel);
+        Debug.Log(
+            $"Stage 3 diagnostic capture started: label={runLabel}, " +
+            $"duration={_captureSession.Duration:F1}s, " +
+            $"interval={_captureSession.Interval:F2}s");
+    }
+
+    private void UpdateCapture(
+        ref UnitContactSolverSettings settings,
+        double simulationTime,
+        PredictiveDiscContactStatistics statistics,
+        ShadowNeighborCacheStatistics shadowStatistics,
+        DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDiagnostics)
+    {
+        if (!_captureSession.Active)
+            return;
+
+        if (_captureSession.ShouldSample(simulationTime))
+        {
+            _captureSession.AddSample(
+                simulationTime,
+                settings,
+                statistics,
+                shadowStatistics,
+                iterationDiagnostics);
+        }
+
+        if (_captureSession.ReachedLimit(simulationTime))
+            FinishCapture(ref settings);
+    }
+
+    private void FinishCapture(ref UnitContactSolverSettings settings)
+    {
+        if (!_captureSession.Active)
+            return;
+
+        WriteCaptureFile();
+        settings.EnableDiagnostics = _diagnosticsEnabledBeforeCapture;
+    }
+
+    private void WriteCaptureFile()
+    {
+        try
+        {
+            string outputPath = _captureSession.StopAndWrite();
+            Debug.Log($"Stage 3 diagnostic capture saved: {outputPath}");
+        }
+        catch (System.Exception exception)
+        {
+            Debug.LogException(exception);
+        }
+    }
+
     private static string BuildHeaderText(
         UnitContactSolverSettings settings,
-        float overlayScale)
+        float overlayScale,
+        Stage3ContactDiagnosticCaptureSession captureSession,
+        Stage3ContactDiagnosticAutoCapture automaticCapture,
+        double simulationTime)
     {
         var text = new StringBuilder(256);
         text.Append("<size=19><b>单位接触诊断</b></size>   ")
+            .Append("<color=#92A3B8>F6 JSON采集</color> ")
+            .Append(ToggleText(captureSession.Active)).Append("   ")
             .Append("<color=#92A3B8>F7 预测生成</color> ").Append(ToggleText(settings.EnablePredictivePairGeneration))
             .Append("   ")
             .Append("<color=#92A3B8>F8 数据</color> ").Append(ToggleText(settings.EnableDiagnostics))
             .Append("   <color=#92A3B8>F9 防换侧约束</color> ").Append(ToggleText(settings.EnablePredictiveContacts))
             .Append("   <color=#92A3B8>F10 场景线框</color> ").Append(ToggleText(settings.VisualizeSelectedContacts))
-            .Append("   <color=#92A3B8>F11 Shadow</color> ").Append(ToggleText(settings.EnableShadowNeighborCacheTest))
+            .Append("   <color=#92A3B8>F11 Fat缓存</color> ").Append(ToggleText(settings.EnableFatAabbCache))
+            .Append("   <color=#92A3B8>F12 自动对照</color> ").Append(ToggleText(automaticCapture.Active))
             .AppendLine()
             .Append("<color=#74849A>PageUp / PageDown 调整面板：")
             .Append(overlayScale.ToString("F1")).Append("x　·　中键选择单位</color>");
+        if (captureSession.Active)
+        {
+            text.Append("　<color=#FFC857>采集中 ")
+                .Append(captureSession.GetElapsed(simulationTime).ToString("F1"))
+                .Append("/").Append(captureSession.Duration.ToString("F1"))
+                .Append("s　间隔 ").Append(captureSession.Interval.ToString("F2"))
+                .Append("s　样本 ").Append(captureSession.SampleCount)
+                .Append("</color>");
+        }
+        else if (automaticCapture.Active)
+        {
+            text.Append("　<color=#FFC857>自动实验 ")
+                .Append(automaticCapture.CurrentRunNumber).Append("/")
+                .Append(automaticCapture.TotalRuns).Append("　")
+                .Append(automaticCapture.CurrentRunLabel)
+                .Append("　预热 ")
+                .Append(automaticCapture.GetWarmupRemaining(simulationTime).ToString("F1"))
+                .Append("s</color>");
+        }
+        else if (!string.IsNullOrEmpty(captureSession.LastOutputPath))
+        {
+            text.Append("　<color=#69E39B>已保存 ")
+                .Append(Path.GetFileName(captureSession.LastOutputPath))
+                .Append("</color>");
+        }
         return text.ToString();
     }
 
@@ -361,7 +530,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             }
         }
 
-        var residualCurve = new StringBuilder(128);
+        var residualCurve = new StringBuilder(192);
         float firstResidual = 0f;
         float lastResidual = 0f;
         float lastAverageResidual = 0f;
@@ -377,14 +546,16 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
                 if (iteration.SubstepIndex != last.SubstepIndex)
                     continue;
                 if (residualSamples == 0)
-                    firstResidual = iteration.MaxConstraintViolation;
+                    firstResidual = iteration.MaxConstraintViolationBeforeSolve;
                 else
                     residualCurve.Append(" <color=#607086>›</color> ");
-                residualCurve.Append(iteration.MaxConstraintViolation.ToString("F4"));
+                residualCurve.Append(FormatResidual(iteration.MaxConstraintViolationBeforeSolve));
                 residualSamples++;
             }
             if (residualSamples < settings.IterationCount)
                 residualCurve.Append(" …");
+            residualCurve.Append(" <color=#607086>› 最终</color> ")
+                .Append(FormatResidual(lastResidual));
         }
 
         string state;
@@ -436,9 +607,9 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
             .Append("<color=#91A0B7>平均速度　</color>").Append(statistics.AverageSpeedBeforeContact.ToString("F3"))
             .Append(" <color=#607086>→</color> ").Append(statistics.AverageSpeedAfterContact.ToString("F3"))
             .Append("　最大变化 <b>").Append(statistics.MaxVelocityChange.ToString("F3")).AppendLine("</b>")
-            .Append("<color=#91A0B7>最终残差　</color>最大 <b>").Append(lastResidual.ToString("F5"))
-            .Append("</b>　平均 ").AppendLine(lastAverageResidual.ToString("F5"))
-            .Append("<color=#91A0B7>收敛曲线　</color>")
+            .Append("<color=#91A0B7>最终残差　</color>最大 <b>").Append(FormatResidual(lastResidual))
+            .Append("</b>　平均 ").AppendLine(FormatResidual(lastAverageResidual))
+            .Append("<color=#91A0B7>收敛曲线（轮前→最终）　</color>")
             .AppendLine(residualSamples > 0 ? residualCurve.ToString() : "<color=#607086>暂无样本</color>")
             .Append("<color=#91A0B7>耗时 μs　</color>软避让 ").Append(FormatMicroseconds(statistics.SoftAvoidanceNanoseconds))
             .Append("（单子步 ").Append(FormatMicroseconds(statistics.AverageSoftAvoidanceNanoseconds)).Append("）　Pair ")
@@ -471,89 +642,62 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         PredictiveDiscContactStatistics statistics,
         ShadowNeighborCacheStatistics shadow)
     {
-        if (!settings.EnableShadowNeighborCacheTest)
+        if (!settings.EnableFatAabbCache)
         {
-            return "<size=18><color=#C99BFF><b>Shadow · Fat AABB 缓存实验</b></color></size>\n" +
-                   "<color=#71839A>只和权威结果对照，不会改变求解</color>\n\n" +
+            return "<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>\n" +
+                   "<color=#71839A>缓存候选 Entity Pair；每个子步仍重新执行 Narrow Phase</color>\n\n" +
                    StatusText("当前未启用", "#91A0B4") + "\n\n" +
-                   "<color=#91A0B7>按 <b>F11</b> 开始采集跨帧和跨子步覆盖数据。</color>";
+                   "<color=#91A0B7>按 <b>F11</b> 启用；首次使用会从当前状态完整重建。</color>";
         }
 
-        int criticalMisses =
-            shadow.PreviousFrameActivePairMissCount +
-            shadow.PreviousFramePredictivePairMissCount +
-            shadow.CurrentFrameActivePairMissCount +
-            shadow.CurrentFramePredictivePairMissCount;
-        int pairMisses = shadow.PreviousFramePairMissCount + shadow.CurrentFramePairMissCount;
-        int totalChecks = shadow.PreviousFrameCheckCount + shadow.CurrentFrameCheckCount;
-        int finalEscapes =
-            shadow.PreviousFrameFinalEscapeBodyCount +
-            shadow.CurrentFrameFinalEscapeBodyCount;
-
         string state;
-        if (totalChecks == 0)
-            state = StatusText("等待复用样本", "#91A0B4");
-        else if (criticalMisses > 0)
-            state = StatusText("不安全：漏掉了实际激活或预测 Pair", "#FF6B78");
-        else if (pairMisses > 0)
-            state = StatusText("注意：缓存存在普通 Pair 漏失", "#FFC857");
-        else if (finalEscapes > 0)
-            state = StatusText("覆盖完整，但有单位逃出 Fat AABB", "#FFC857");
+        if (shadow.FullBroadPhaseFallbackCount > 0)
+            state = StatusText("Fat AABB 失效，已安全回退完整 Broad Phase", "#FFC857");
+        else if (shadow.CacheRebuildCount > 0)
+            state = StatusText("本帧已重建缓存", "#69E39B");
+        else if (shadow.CacheReuseCount > 0)
+            state = StatusText("正在复用缓存", "#69E39B");
         else
-            state = StatusText("当前样本覆盖完整", "#69E39B");
+            state = StatusText("等待缓存样本", "#91A0B4");
 
-        float averageCandidates =
-            (float)statistics.CandidatePairCount / math.max(1, settings.SubstepCount);
-        string inflation = averageCandidates > 0.0001f
-            ? (shadow.CurrentFrameCachePairCount / averageCandidates).ToString("F2") + "x"
+        float averageContacts =
+            (float)statistics.ContactPairCount / math.max(1, settings.SubstepCount);
+        string inflation = averageContacts > 0.0001f
+            ? (shadow.CachedCandidatePairCount / averageContacts).ToString("F2") + "x"
             : "--";
 
         var text = new StringBuilder(1024);
-        text.AppendLine("<size=18><color=#C99BFF><b>Shadow · Fat AABB 缓存实验</b></color></size>")
-            .AppendLine("<color=#71839A>验证缓存能否覆盖未来真实 Contact Pair</color>")
+        text.AppendLine("<size=18><color=#C99BFF><b>Fat AABB · Broad Phase 缓存</b></color></size>")
+            .AppendLine("<color=#71839A>缓存只替代候选发现；接触分类和 XPBD 求解保持实时</color>")
             .Append("<color=#A999BA>状态　</color>").AppendLine(state)
-            .Append("<color=#A999BA>额外边界　</color><b>").Append(settings.ShadowCacheMargin.ToString("F3"))
-            .Append("</b>　粗略膨胀率 <b>").Append(inflation).AppendLine("</b>")
-            .AppendLine("<color=#BBA6D0><b>上一帧缓存 → 当前首子步</b></color>")
-            .Append("<color=#A999BA>缓存规模　</color>就绪 ").Append(shadow.PreviousFrameCacheAvailable)
-            .Append("　单位 ").Append(shadow.PreviousFrameCacheBodyCount)
-            .Append("　Pair <b>").Append(shadow.PreviousFrameCachePairCount)
-            .Append("</b>　检查 ").AppendLine(shadow.PreviousFrameCheckCount.ToString())
-            .Append("<color=#A999BA>覆盖结果　</color>命中 <color=#69E39B><b>").Append(shadow.PreviousFramePairHitCount)
-            .Append("</b></color>　漏失 <color=#FFB65C><b>").Append(shadow.PreviousFramePairMissCount)
-            .Append("</b></color>　覆盖率 <b>")
-            .Append(FormatCoverage(shadow.PreviousFramePairHitCount, shadow.PreviousFramePairMissCount))
+            .Append("<color=#A999BA>额外边界　</color><b>").Append(settings.FatAabbCacheMargin.ToString("F3"))
+            .Append("</b>　候选/接触膨胀 <b>").Append(inflation).AppendLine("</b>")
+            .AppendLine("<color=#BBA6D0><b>持久缓存状态</b></color>")
+            .Append("<color=#A999BA>有效性　</color>帧首 ").Append(shadow.CacheValidAtFrameStart)
+            .Append("　帧末 <b>").Append(shadow.CacheValidAtFrameEnd)
+            .Append("</b>　年龄 <b>").Append(shadow.CacheAgeFrames).AppendLine(" 帧</b>")
+            .Append("<color=#A999BA>规模　</color>单位 ").Append(shadow.CurrentFrameCacheBodyCount)
+            .Append("　候选 Pair <b>").Append(shadow.CachedCandidatePairCount)
+            .Append("</b>　Narrow 检查 ").AppendLine(shadow.CachedNarrowPhasePairCheckCount.ToString())
+            .AppendLine("<color=#BBA6D0><b>本帧操作</b></color>")
+            .Append("<color=#A999BA>使用　</color>").Append(shadow.CacheUseCount)
+            .Append("　复用 <color=#69E39B><b>").Append(shadow.CacheReuseCount)
+            .Append("</b></color>　重建 <b>").Append(shadow.CacheRebuildCount)
+            .Append("</b>　完整回退 <color=#FFC857><b>").Append(shadow.FullBroadPhaseFallbackCount)
+            .AppendLine("</b></color>")
+            .Append("<color=#A999BA>Pair 映射　</color>构建 ").Append(shadow.CachePairMappingBuildCount)
+            .Append("　帧内复用 <b>").Append(shadow.CachePairMappingReuseCount)
+            .Append("</b>　修正单位检查 <b>").Append(shadow.CorrectedBodyValidationCount)
             .AppendLine("</b>")
-            .Append("<color=#A999BA>关键漏失　</color>实际激活 <color=#FF6B78><b>")
-            .Append(shadow.PreviousFrameActivePairMissCount)
-            .Append("</b></color>　预测 <color=#FF6B78><b>")
-            .Append(shadow.PreviousFramePredictivePairMissCount).AppendLine("</b></color>")
-            .AppendLine("<color=#BBA6D0><b>首子步缓存 → 后续子步</b></color>")
-            .Append("<color=#A999BA>缓存规模　</color>单位 ").Append(shadow.CurrentFrameCacheBodyCount)
-            .Append("　Pair <b>").Append(shadow.CurrentFrameCachePairCount)
-            .Append("</b>　后续检查 ").AppendLine(shadow.CurrentFrameCheckCount.ToString())
-            .Append("<color=#A999BA>覆盖结果　</color>命中 <color=#69E39B><b>").Append(shadow.CurrentFramePairHitCount)
-            .Append("</b></color>　漏失 <color=#FFB65C><b>").Append(shadow.CurrentFramePairMissCount)
-            .Append("</b></color>　覆盖率 <b>")
-            .Append(FormatCoverage(shadow.CurrentFramePairHitCount, shadow.CurrentFramePairMissCount))
-            .AppendLine("</b>")
-            .Append("<color=#A999BA>关键漏失　</color>实际激活 <color=#FF6B78><b>")
-            .Append(shadow.CurrentFrameActivePairMissCount)
-            .Append("</b></color>　预测 <color=#FF6B78><b>")
-            .Append(shadow.CurrentFramePredictivePairMissCount).AppendLine("</b></color>")
-            .AppendLine("<color=#BBA6D0><b>Fat AABB 逃逸来源</b></color>")
-            .Append("<color=#A999BA>上一帧　</color>预测前 ").Append(shadow.PreviousFramePreSolveEscapeBodyCount)
-            .Append("　最终 ").Append(shadow.PreviousFrameFinalEscapeBodyCount)
-            .Append("　接触 ").Append(shadow.PreviousFrameContactDrivenEscapeBodyCount)
-            .Append("　墙壁 ").AppendLine(shadow.PreviousFrameWallDrivenEscapeBodyCount.ToString())
-            .Append("<color=#A999BA>首子步　</color>预测前 ").Append(shadow.CurrentFramePreSolveEscapeBodyCount)
-            .Append("　最终 ").Append(shadow.CurrentFrameFinalEscapeBodyCount)
-            .Append("　接触 ").Append(shadow.CurrentFrameContactDrivenEscapeBodyCount)
-            .Append("　墙壁 ").AppendLine(shadow.CurrentFrameWallDrivenEscapeBodyCount.ToString())
-            .Append("<color=#A999BA>实验耗时 μs　</color>构建 ")
+            .Append("<color=#A999BA>失效　</color>总计 ").Append(shadow.CacheInvalidationCount)
+            .Append("　Entity集合 ").Append(shadow.EntitySetInvalidationCount)
+            .Append("　边界 ").Append(shadow.BoundsInvalidationCount)
+            .Append("　求解后逃逸 <b>").Append(shadow.PostSolveInvalidationCount).AppendLine("</b>")
+            .Append("<color=#A999BA>耗时 μs　</color>构建 ")
             .Append(FormatMicroseconds(shadow.CacheBuildNanoseconds))
-            .Append("　验证 <b>").Append(FormatMicroseconds(shadow.ValidationNanoseconds)).AppendLine("</b>")
-            .Append("<color=#607086>判定顺序：关键漏失必须为 0，其次观察逃逸和 Pair 膨胀。</color>");
+            .Append("　验证 ").Append(FormatMicroseconds(shadow.ValidationNanoseconds))
+            .Append("　映射 <b>").Append(FormatMicroseconds(shadow.CachePairMappingNanoseconds)).AppendLine("</b>")
+            .Append("<color=#607086>缓存失效会自动回退完整 Broad Phase；重点观察复用/重建比例与候选膨胀。</color>");
         return text.ToString();
     }
 
@@ -572,6 +716,16 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
     private static string FormatMicroseconds(long nanoseconds)
     {
         return (nanoseconds / 1000f).ToString("F1");
+    }
+
+    private static string FormatResidual(float value)
+    {
+        float absolute = math.abs(value);
+        if (absolute <= 0f)
+            return "0";
+        return absolute < 0.0001f
+            ? value.ToString("0.00E+0")
+            : value.ToString("F5");
     }
 
     private static string FormatCoverage(int hits, int misses)

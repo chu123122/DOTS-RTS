@@ -24,8 +24,8 @@ public struct SolveXpbdUnitContactsJob : IJob
     public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
-    public bool EnableShadowNeighborCacheTest;
-    public float ShadowCacheMargin;
+    public bool EnableFatAabbCache;
+    public float FatAabbCacheMargin;
     public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
@@ -39,8 +39,13 @@ public struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> ShadowBodyPairs;
     public NativeList<ShadowFatBodyProxy> ShadowCurrentProxies;
     public NativeList<ShadowEntityPair> ShadowCurrentPairs;
+    public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
+    public NativeList<UnitCollisionPair> MappedFatCachePairs;
+    public NativeArray<byte> CorrectedBodyFlags;
+    public NativeList<int> CorrectedBodyIndices;
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
     public NativeList<ShadowEntityPair> ShadowPreviousPairs;
+    public NativeReference<FatAabbCacheState> FatAabbCacheState;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
     public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
@@ -57,6 +62,7 @@ public struct SolveXpbdUnitContactsJob : IJob
         var statistics = new PredictiveDiscContactStatistics();
         var shadowStatistics = new ShadowNeighborCacheStatistics();
         float penetrationSum = 0f;
+        bool fatCachePairsMappedThisFrame = false;
         IterationDiagnostics.Clear();
         PairDiagnostics.Clear();
         SelectedBodyDiagnostic.Value = default;
@@ -68,17 +74,22 @@ public struct SolveXpbdUnitContactsJob : IJob
             return;
         }
 
-        if (!EnableShadowNeighborCacheTest)
+        if (!EnableFatAabbCache)
         {
             ShadowPreviousProxies.Clear();
             ShadowPreviousPairs.Clear();
             ShadowCurrentProxies.Clear();
             ShadowCurrentPairs.Clear();
+            FatAabbCacheState.Value = default;
         }
         else
         {
+            shadowStatistics.CacheEnabled = 1;
+            PrepareCurrentBodyLookup();
+            FatAabbCacheState cacheState = FatAabbCacheState.Value;
             shadowStatistics.PreviousFrameCacheAvailable =
-                (byte)(ShadowPreviousProxies.Length > 0 ? 1 : 0);
+                (byte)(cacheState.IsValid != 0 ? 1 : 0);
+            shadowStatistics.CacheValidAtFrameStart = cacheState.IsValid;
             shadowStatistics.PreviousFrameCacheBodyCount = ShadowPreviousProxies.Length;
             shadowStatistics.PreviousFrameCachePairCount = ShadowPreviousPairs.Length;
         }
@@ -96,26 +107,45 @@ public struct SolveXpbdUnitContactsJob : IJob
             PredictUnconstrainedPositions(substepDeltaTime);
 
             long pairGenerationStart = ProfilerUnsafeUtility.Timestamp;
-            BuildSweptContactPairs(ref statistics);
+            bool usingFatAabbCache = EnableFatAabbCache &&
+                                     BuildContactPairsFromFatAabbCache(
+                                         ref statistics,
+                                         ref shadowStatistics,
+                                         ref fatCachePairsMappedThisFrame);
+            if (!EnableFatAabbCache)
+                BuildSweptContactPairs(ref statistics);
             statistics.PairGenerationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - pairGenerationStart);
-
-            if (EnableShadowNeighborCacheTest && substepIndex == 0)
-            {
-                long shadowBuildStart = ProfilerUnsafeUtility.Timestamp;
-                BuildCurrentShadowCache(ref shadowStatistics);
-                shadowStatistics.CacheBuildNanoseconds +=
-                    TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - shadowBuildStart);
-            }
 
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
             {
+                float maxViolationBeforeSolve = 0f;
+                float averageViolationBeforeSolve = 0f;
+                if (EnableDiagnostics)
+                {
+                    MeasureContactResidual(
+                        out maxViolationBeforeSolve,
+                        out averageViolationBeforeSolve);
+                }
+
                 SolveWallConstraintIteration(
+                    usingFatAabbCache,
                     out float totalWallPositionCorrection,
                     out float maxWallPositionCorrection);
+
+                if (usingFatAabbCache &&
+                    !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
+                {
+                    InvalidateFatAabbCache(ref shadowStatistics, true);
+                    BuildSweptContactPairs(ref statistics);
+                    shadowStatistics.FullBroadPhaseFallbackCount++;
+                    usingFatAabbCache = false;
+                }
+
                 SolveContactIteration(
                     substepDeltaTime,
+                    usingFatAabbCache,
                     out float totalPositionCorrection,
                     out float maxPositionCorrection);
 
@@ -133,10 +163,35 @@ public struct SolveXpbdUnitContactsJob : IJob
                     RecordIterationDiagnostic(
                         substepIndex,
                         iterationIndex,
+                        maxViolationBeforeSolve,
+                        averageViolationBeforeSolve,
                         totalPositionCorrection,
                         maxPositionCorrection,
                         totalWallPositionCorrection,
                         maxWallPositionCorrection);
+                }
+
+                if (usingFatAabbCache &&
+                    !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
+                {
+                    InvalidateFatAabbCache(ref shadowStatistics, true);
+                    BuildSweptContactPairs(ref statistics);
+                    shadowStatistics.FullBroadPhaseFallbackCount++;
+                    usingFatAabbCache = false;
+
+                    // 最后一轮之后没有正常恢复机会；补一轮只处理新发现的单位接触。
+                    if (iterationIndex == iterationCount - 1)
+                    {
+                        SolveContactIteration(
+                            substepDeltaTime,
+                            false,
+                            out float recoveryCorrection,
+                            out float recoveryMaxCorrection);
+                        statistics.TotalContactPositionCorrection += recoveryCorrection;
+                        statistics.MaxContactPositionCorrection = math.max(
+                            statistics.MaxContactPositionCorrection,
+                            recoveryMaxCorrection);
+                    }
                 }
             }
             statistics.IterationNanoseconds +=
@@ -145,35 +200,22 @@ public struct SolveXpbdUnitContactsJob : IJob
             AccumulateConstraintStatistics(ref statistics, ref penetrationSum);
             ReconstructVelocities(substepDeltaTime, ref statistics);
 
-            if (EnableShadowNeighborCacheTest)
-            {
-                long shadowValidationStart = ProfilerUnsafeUtility.Timestamp;
-                if (substepIndex == 0 && shadowStatistics.PreviousFrameCacheAvailable != 0)
-                {
-                    ValidateShadowReference(
-                        ShadowPreviousProxies,
-                        ShadowPreviousPairs,
-                        true,
-                        true,
-                        ref shadowStatistics);
-                }
-
-                ValidateShadowReference(
-                    ShadowCurrentProxies,
-                    ShadowCurrentPairs,
-                    false,
-                    substepIndex > 0,
-                    ref shadowStatistics);
-                shadowStatistics.ValidationNanoseconds +=
-                    TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - shadowValidationStart);
-            }
-
             if (EnableDiagnostics)
                 CaptureSelectedBodyAndPairs(substepIndex);
         }
 
-        if (EnableShadowNeighborCacheTest)
-            PromoteCurrentShadowCache();
+        if (EnableFatAabbCache)
+        {
+            FatAabbCacheState cacheState = FatAabbCacheState.Value;
+            if (cacheState.IsValid != 0 && shadowStatistics.CacheRebuildCount == 0)
+                cacheState.AgeFrames++;
+            shadowStatistics.CacheValidAtFrameEnd = cacheState.IsValid;
+            shadowStatistics.CacheAgeFrames = cacheState.AgeFrames;
+            shadowStatistics.CurrentFrameCacheBodyCount = ShadowPreviousProxies.Length;
+            shadowStatistics.CurrentFrameCachePairCount = ShadowPreviousPairs.Length;
+            shadowStatistics.CachedCandidatePairCount = ShadowPreviousPairs.Length;
+            FatAabbCacheState.Value = cacheState;
+        }
 
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
             ? penetrationSum / statistics.PenetratingPairCount
@@ -460,6 +502,268 @@ public struct SolveXpbdUnitContactsJob : IJob
         FilterAndClassifyPairs(ref statistics, skin);
     }
 
+    private void PrepareCurrentBodyLookup()
+    {
+        ShadowCurrentProxies.Clear();
+        CurrentBodyIndexByEntity.Clear();
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            CurrentBodyIndexByEntity.TryAdd(state.Entity, bodyIndex);
+            ShadowCurrentProxies.Add(new ShadowFatBodyProxy
+            {
+                Entity = state.Entity,
+                BodyIndex = bodyIndex,
+                IsValid = (byte)(state.IsInsideGrid ? 1 : 0)
+            });
+        }
+        ShadowCurrentProxies.AsArray().Sort(new ShadowFatBodyProxyComparer());
+    }
+
+    private bool BuildContactPairsFromFatAabbCache(
+        ref PredictiveDiscContactStatistics statistics,
+        ref ShadowNeighborCacheStatistics cacheStatistics,
+        ref bool fatCachePairsMappedThisFrame)
+    {
+        long validationStart = ProfilerUnsafeUtility.Timestamp;
+        bool cacheValid = IsFatAabbCacheValid(
+            out bool entitySetInvalid,
+            out bool boundsInvalid);
+        cacheStatistics.CacheValidationCount++;
+        cacheStatistics.ValidationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - validationStart);
+
+        if (!cacheValid)
+        {
+            FatAabbCacheState previousState = FatAabbCacheState.Value;
+            if (previousState.IsValid != 0)
+            {
+                cacheStatistics.CacheInvalidationCount++;
+                if (entitySetInvalid)
+                    cacheStatistics.EntitySetInvalidationCount++;
+                if (boundsInvalid)
+                    cacheStatistics.BoundsInvalidationCount++;
+            }
+
+            long buildStart = ProfilerUnsafeUtility.Timestamp;
+            BuildCurrentShadowCache(ref cacheStatistics);
+            PromoteCurrentShadowCache();
+            cacheStatistics.CacheBuildNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - buildStart);
+            cacheStatistics.CacheRebuildCount++;
+
+            var rebuiltState = new FatAabbCacheState
+            {
+                IsValid = 1,
+                AgeFrames = 0,
+                PredictiveSkin = math.max(0f, PredictiveSkin),
+                Margin = math.max(0f, FatAabbCacheMargin)
+            };
+            FatAabbCacheState.Value = rebuiltState;
+            fatCachePairsMappedThisFrame = false;
+        }
+        else
+        {
+            cacheStatistics.CacheReuseCount++;
+        }
+
+        if (!fatCachePairsMappedThisFrame)
+        {
+            long mappingStart = ProfilerUnsafeUtility.Timestamp;
+            bool mapped = MapFatCacheCandidatesToCurrentBodies();
+            cacheStatistics.CachePairMappingNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - mappingStart);
+            cacheStatistics.CachePairMappingBuildCount++;
+            if (!mapped)
+            {
+                InvalidateFatAabbCache(ref cacheStatistics, false);
+                BuildSweptContactPairs(ref statistics);
+                cacheStatistics.FullBroadPhaseFallbackCount++;
+                return false;
+            }
+
+            fatCachePairsMappedThisFrame = true;
+        }
+        else
+        {
+            cacheStatistics.CachePairMappingReuseCount++;
+        }
+
+        Pairs.Clear();
+        if (EnableDiagnostics)
+            PairDiagnostics.Clear();
+        Pairs.AddRange(MappedFatCachePairs.AsArray());
+
+        cacheStatistics.CacheUseCount++;
+        cacheStatistics.CachedNarrowPhasePairCheckCount += Pairs.Length;
+        statistics.CandidatePairCount += Pairs.Length;
+        FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
+        return true;
+    }
+
+    private bool IsFatAabbCacheValid(
+        out bool entitySetInvalid,
+        out bool boundsInvalid)
+    {
+        entitySetInvalid = false;
+        boundsInvalid = false;
+        FatAabbCacheState cacheState = FatAabbCacheState.Value;
+        if (cacheState.IsValid == 0)
+            return false;
+
+        if (math.abs(cacheState.PredictiveSkin - math.max(0f, PredictiveSkin)) > 0.000001f ||
+            math.abs(cacheState.Margin - math.max(0f, FatAabbCacheMargin)) > 0.000001f)
+        {
+            boundsInvalid = true;
+            return false;
+        }
+
+        if (ShadowPreviousProxies.Length != States.Length)
+        {
+            entitySetInvalid = true;
+            return false;
+        }
+
+        float skin = math.max(0f, PredictiveSkin);
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!TryFindProxyEntry(
+                    ShadowPreviousProxies,
+                    state.Entity,
+                    out ShadowFatBodyProxy proxy))
+            {
+                entitySetInvalid = true;
+                return false;
+            }
+
+            byte expectedValid = (byte)(state.IsInsideGrid ? 1 : 0);
+            if (proxy.IsValid != expectedValid)
+            {
+                entitySetInvalid = true;
+                return false;
+            }
+            if (!state.IsInsideGrid)
+                continue;
+
+            CalculateCoreSweptBounds(state, skin, out float2 coreMin, out float2 coreMax);
+            if (AabbContains(proxy.FatMin, proxy.FatMax, coreMin, coreMax))
+                continue;
+
+            boundsInvalid = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool MapFatCacheCandidatesToCurrentBodies()
+    {
+        MappedFatCachePairs.Clear();
+
+        for (int i = 0; i < ShadowPreviousPairs.Length; i++)
+        {
+            ShadowEntityPair entityPair = ShadowPreviousPairs[i];
+            if (!TryFindCurrentBodyIndex(entityPair.EntityA, out int bodyA) ||
+                !TryFindCurrentBodyIndex(entityPair.EntityB, out int bodyB))
+                return false;
+
+            MappedFatCachePairs.Add(new UnitCollisionPair
+            {
+                BodyA = math.min(bodyA, bodyB),
+                BodyB = math.max(bodyA, bodyB)
+            });
+        }
+
+        return true;
+    }
+
+    private bool TryFindCurrentBodyIndex(Entity entity, out int bodyIndex)
+    {
+        return CurrentBodyIndexByEntity.TryGetValue(entity, out bodyIndex) &&
+               bodyIndex >= 0 && bodyIndex < States.Length;
+    }
+
+    private static void CalculateCoreSweptBounds(
+        FlowMovementFrameState state,
+        float skin,
+        out float2 coreMin,
+        out float2 coreMax)
+    {
+        float extent = math.max(0f, state.Radius) + skin;
+        float2 pathMin = math.min(
+            state.StartPosition.xz,
+            math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+        float2 pathMax = math.max(
+            state.StartPosition.xz,
+            math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+        coreMin = pathMin - extent;
+        coreMax = pathMax + extent;
+    }
+
+    private bool AreCorrectedDiscsInsideFatCache(
+        ref ShadowNeighborCacheStatistics statistics)
+    {
+        if (FatAabbCacheState.Value.IsValid == 0)
+            return false;
+
+        float skin = math.max(0f, PredictiveSkin);
+        statistics.CorrectedBodyValidationCount += CorrectedBodyIndices.Length;
+        for (int i = 0; i < CorrectedBodyIndices.Length; i++)
+        {
+            int bodyIndex = CorrectedBodyIndices[i];
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!TryFindProxy(
+                    ShadowPreviousProxies,
+                    state.Entity,
+                    out ShadowFatBodyProxy proxy))
+                return false;
+
+            float extent = math.max(0f, state.Radius) + skin;
+            float2 currentMin = state.PredictedPosition.xz - extent;
+            float2 currentMax = state.PredictedPosition.xz + extent;
+            if (!AabbContains(proxy.FatMin, proxy.FatMax, currentMin, currentMax))
+                return false;
+        }
+
+        return true;
+    }
+
+    private void ResetCorrectedBodyTracking()
+    {
+        for (int i = 0; i < CorrectedBodyIndices.Length; i++)
+            CorrectedBodyFlags[CorrectedBodyIndices[i]] = 0;
+        CorrectedBodyIndices.Clear();
+    }
+
+    private void MarkCorrectedBody(int bodyIndex)
+    {
+        if (CorrectedBodyFlags[bodyIndex] != 0)
+            return;
+
+        CorrectedBodyFlags[bodyIndex] = 1;
+        CorrectedBodyIndices.Add(bodyIndex);
+    }
+
+    private void InvalidateFatAabbCache(
+        ref ShadowNeighborCacheStatistics statistics,
+        bool postSolve)
+    {
+        FatAabbCacheState cacheState = FatAabbCacheState.Value;
+        if (cacheState.IsValid == 0)
+            return;
+
+        cacheState.IsValid = 0;
+        cacheState.AgeFrames = 0;
+        FatAabbCacheState.Value = cacheState;
+        statistics.CacheInvalidationCount++;
+        if (postSolve)
+        {
+            statistics.BoundsInvalidationCount++;
+            statistics.PostSolveInvalidationCount++;
+        }
+    }
+
     private void BuildCurrentShadowCache(ref ShadowNeighborCacheStatistics statistics)
     {
         ShadowCellEntries.Clear();
@@ -468,13 +772,17 @@ public struct SolveXpbdUnitContactsJob : IJob
         ShadowCurrentPairs.Clear();
 
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
-        float extentMargin = math.max(0f, PredictiveSkin) + math.max(0f, ShadowCacheMargin);
+        float extentMargin = math.max(0f, PredictiveSkin) + math.max(0f, FatAabbCacheMargin);
         int validBodyCount = 0;
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             FlowMovementFrameState state = States[bodyIndex];
-            var proxy = new ShadowFatBodyProxy { Entity = state.Entity };
+            var proxy = new ShadowFatBodyProxy
+            {
+                Entity = state.Entity,
+                BodyIndex = bodyIndex
+            };
             if (!state.IsInsideGrid)
             {
                 ShadowCurrentProxies.Add(proxy);
@@ -482,8 +790,14 @@ public struct SolveXpbdUnitContactsJob : IJob
             }
 
             float extent = math.max(0f, state.Radius) + extentMargin;
-            proxy.FatMin = math.min(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) - extent;
-            proxy.FatMax = math.max(state.StartPosition.xz, state.UnconstrainedPredictedPosition.xz) + extent;
+            float2 pathMin = math.min(
+                state.StartPosition.xz,
+                math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+            float2 pathMax = math.max(
+                state.StartPosition.xz,
+                math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz));
+            proxy.FatMin = pathMin - extent;
+            proxy.FatMax = pathMax + extent;
             proxy.IsValid = 1;
             ShadowCurrentProxies.Add(proxy);
             validBodyCount++;
@@ -706,6 +1020,14 @@ public struct SolveXpbdUnitContactsJob : IJob
         Entity entity,
         out ShadowFatBodyProxy proxy)
     {
+        return TryFindProxyEntry(proxies, entity, out proxy) && proxy.IsValid != 0;
+    }
+
+    private static bool TryFindProxyEntry(
+        NativeList<ShadowFatBodyProxy> proxies,
+        Entity entity,
+        out ShadowFatBodyProxy proxy)
+    {
         int low = 0;
         int high = proxies.Length - 1;
         while (low <= high)
@@ -716,7 +1038,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             if (comparison == 0)
             {
                 proxy = candidate;
-                return candidate.IsValid != 0;
+                return true;
             }
             if (comparison < 0)
                 low = middle + 1;
@@ -906,9 +1228,13 @@ public struct SolveXpbdUnitContactsJob : IJob
 
     private void SolveContactIteration(
         float substepDeltaTime,
+        bool trackCorrectedBodies,
         out float totalPositionCorrection,
         out float maxPositionCorrection)
     {
+        if (trackCorrectedBodies)
+            ResetCorrectedBodyTracking();
+
         totalPositionCorrection = 0f;
         maxPositionCorrection = 0f;
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
@@ -972,6 +1298,14 @@ public struct SolveXpbdUnitContactsJob : IJob
             bodyB.PredictedPosition.y = bodyB.CurrentPosition.y;
             States[pair.BodyA] = bodyA;
             States[pair.BodyB] = bodyB;
+
+            if (trackCorrectedBodies)
+            {
+                if (bodyA.InverseMass > 0f)
+                    MarkCorrectedBody(pair.BodyA);
+                if (bodyB.InverseMass > 0f)
+                    MarkCorrectedBody(pair.BodyB);
+            }
         }
     }
 
@@ -1005,9 +1339,13 @@ public struct SolveXpbdUnitContactsJob : IJob
     }
 
     private void SolveWallConstraintIteration(
+        bool trackCorrectedBodies,
         out float totalPositionCorrection,
         out float maxPositionCorrection)
     {
+        if (trackCorrectedBodies)
+            ResetCorrectedBodyTracking();
+
         totalPositionCorrection = 0f;
         maxPositionCorrection = 0f;
         if (!Grid.IsCreated)
@@ -1059,6 +1397,8 @@ public struct SolveXpbdUnitContactsJob : IJob
                     float correctionLength = math.length(correction);
                     totalPositionCorrection += correctionLength;
                     maxPositionCorrection = math.max(maxPositionCorrection, correctionLength);
+                    if (trackCorrectedBodies)
+                        MarkCorrectedBody(bodyIndex);
                 }
             }
 
@@ -1069,6 +1409,8 @@ public struct SolveXpbdUnitContactsJob : IJob
     private void RecordIterationDiagnostic(
         int substepIndex,
         int iterationIndex,
+        float maxViolationBeforeSolve,
+        float averageViolationBeforeSolve,
         float totalPositionCorrection,
         float maxPositionCorrection,
         float totalWallPositionCorrection,
@@ -1092,20 +1434,7 @@ public struct SolveXpbdUnitContactsJob : IJob
             float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
             currentDelta.y = 0;
 
-            float constraintValue;
-            if (pair.ContactMode == UnitContactMode.Predictive)
-            {
-                float3 initialDelta = bodyA.StartPosition - bodyB.StartPosition;
-                initialDelta.y = 0;
-                float3 normal = math.normalizesafe(
-                    initialDelta,
-                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
-                constraintValue = math.dot(currentDelta, normal) - radiusSum;
-            }
-            else
-            {
-                constraintValue = math.length(currentDelta) - radiusSum;
-            }
+            float constraintValue = CalculateConstraintValue(pair, bodyA, bodyB, currentDelta, radiusSum);
 
             float violation = math.max(0f, -constraintValue);
             if (violation > 0f)
@@ -1137,6 +1466,8 @@ public struct SolveXpbdUnitContactsJob : IJob
             IterationIndex = iterationIndex,
             ActiveConstraintCount = activeCount,
             PredictiveActivatedCount = predictiveActivatedCount,
+            MaxConstraintViolationBeforeSolve = maxViolationBeforeSolve,
+            AverageConstraintViolationBeforeSolve = averageViolationBeforeSolve,
             MaxConstraintViolation = maxViolation,
             AverageConstraintViolation = violatingCount > 0
                 ? violationSum / violatingCount
@@ -1150,6 +1481,55 @@ public struct SolveXpbdUnitContactsJob : IJob
             TotalWallPositionCorrection = totalWallPositionCorrection,
             MaxWallPositionCorrection = maxWallPositionCorrection
         });
+    }
+
+    private void MeasureContactResidual(
+        out float maxViolation,
+        out float averageViolation)
+    {
+        float violationSum = 0f;
+        maxViolation = 0f;
+        int violatingCount = 0;
+        for (int i = 0; i < Pairs.Length; i++)
+        {
+            UnitCollisionPair pair = Pairs[i];
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            float radiusSum = bodyA.Radius + bodyB.Radius;
+            float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            currentDelta.y = 0;
+            float violation = math.max(
+                0f,
+                -CalculateConstraintValue(pair, bodyA, bodyB, currentDelta, radiusSum));
+            if (violation <= 0f)
+                continue;
+
+            violationSum += violation;
+            maxViolation = math.max(maxViolation, violation);
+            violatingCount++;
+        }
+
+        averageViolation = violatingCount > 0
+            ? violationSum / violatingCount
+            : 0f;
+    }
+
+    private static float CalculateConstraintValue(
+        UnitCollisionPair pair,
+        FlowMovementFrameState bodyA,
+        FlowMovementFrameState bodyB,
+        float3 currentDelta,
+        float radiusSum)
+    {
+        if (pair.ContactMode != UnitContactMode.Predictive)
+            return math.length(currentDelta) - radiusSum;
+
+        float3 initialDelta = bodyA.StartPosition - bodyB.StartPosition;
+        initialDelta.y = 0;
+        float3 normal = math.normalizesafe(
+            initialDelta,
+            DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+        return math.dot(currentDelta, normal) - radiusSum;
     }
 
     private void CaptureSelectedBodyAndPairs(int substepIndex)
@@ -1177,13 +1557,12 @@ public struct SolveXpbdUnitContactsJob : IJob
             VelocityAfterContact = selected.IntegratedVelocity
         };
 
-        if (EnableShadowNeighborCacheTest)
+        if (EnableFatAabbCache)
         {
-            NativeList<ShadowFatBodyProxy> referenceProxies =
-                substepIndex == 0 && ShadowPreviousProxies.Length > 0
-                    ? ShadowPreviousProxies
-                    : ShadowCurrentProxies;
-            if (TryFindProxy(referenceProxies, selected.Entity, out ShadowFatBodyProxy proxy))
+            if (TryFindProxy(
+                    ShadowPreviousProxies,
+                    selected.Entity,
+                    out ShadowFatBodyProxy proxy))
             {
                 float coreExtent = math.max(0f, selected.Radius) + math.max(0f, PredictiveSkin);
                 float2 finalMin = selected.PredictedPosition.xz - coreExtent;

@@ -3,11 +3,12 @@ using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
-/// Shadow Test 保存的宽松 swept AABB。只用于评估邻居表能否复用，不参与权威求解。
+/// Fat AABB 邻居缓存中的单位代理。Entity 用作跨帧稳定身份，BodyIndex 每帧刷新。
 /// </summary>
 public struct ShadowFatBodyProxy
 {
     public Entity Entity;
+    public int BodyIndex;
     public float2 FatMin;
     public float2 FatMax;
     public byte IsValid;
@@ -57,11 +58,43 @@ public static class ShadowEntityOrdering
 }
 
 /// <summary>
+/// 持久 Fat AABB 缓存状态。Pair 只保存 Broad Phase 候选关系，不保存接触模式或 lambda。
+/// </summary>
+public struct FatAabbCacheState
+{
+    public byte IsValid;
+    public int AgeFrames;
+    public float PredictiveSkin;
+    public float Margin;
+}
+
+/// <summary>
 /// Fat Swept AABB / Verlet Neighbor List 的旁路覆盖统计。
 /// PreviousFrame 检查跨帧复用，CurrentFrame 检查首 substep 邻居表覆盖后续 substep。
 /// </summary>
 public struct ShadowNeighborCacheStatistics : IComponentData
 {
+    public byte CacheEnabled;
+    public byte CacheValidAtFrameStart;
+    public byte CacheValidAtFrameEnd;
+    public int CacheAgeFrames;
+    public int CacheValidationCount;
+    public int CacheUseCount;
+    public int CacheReuseCount;
+    public int CacheRebuildCount;
+    public int CacheInvalidationCount;
+    public int EntitySetInvalidationCount;
+    public int BoundsInvalidationCount;
+    public int PostSolveInvalidationCount;
+    public int FullBroadPhaseFallbackCount;
+    public int CachedCandidatePairCount;
+    public int CachedNarrowPhasePairCheckCount;
+    public int CachePairMappingBuildCount;
+    public int CachePairMappingReuseCount;
+    public int CorrectedBodyValidationCount;
+    public long CachePairMappingNanoseconds;
+
+    // 以下字段保留给已有 Shadow 覆盖测试和历史 JSON，正式缓存面板不再依赖它们。
     public byte PreviousFrameCacheAvailable;
     public int PreviousFrameCacheBodyCount;
     public int PreviousFrameCachePairCount;

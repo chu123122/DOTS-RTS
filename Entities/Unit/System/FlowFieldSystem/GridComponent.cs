@@ -54,8 +54,10 @@ public struct UnitContactSolverSettings : IComponentData
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
     public bool VisualizeSelectedContacts;
-    public bool EnableShadowNeighborCacheTest;
-    public float ShadowCacheMargin;
+    public float DiagnosticCaptureDuration;
+    public float DiagnosticCaptureInterval;
+    public bool EnableFatAabbCache;
+    public float FatAabbCacheMargin;
 }
 
 /// <summary>

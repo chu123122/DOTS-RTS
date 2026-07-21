@@ -2,6 +2,7 @@ using Entities.Unit.System.FlowFieldSystem;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class FlowFieldManagerAuthoring : MonoBehaviour
 {
@@ -37,11 +38,18 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     public bool enableContactDiagnostics;
     [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
     public bool visualizeSelectedContacts = true;
+    [Tooltip("按 F6 后自动采集并写出 JSON 的持续时间（秒）。")]
+    [Min(0.5f)] public float diagnosticCaptureDuration = 10f;
+    [Tooltip("JSON 采样间隔（秒），不会逐帧写磁盘。")]
+    [Min(0.05f)] public float diagnosticCaptureInterval = 0.1f;
 
-    [Header("Shadow Neighbor Cache Test")]
-    [Tooltip("只旁路评估 Fat Swept AABB 邻居表；不会替换当前权威 Broad/Narrow Phase。")]
-    public bool enableShadowNeighborCacheTest;
-    [Min(0f)] public float shadowCacheMargin = 0.25f;
+    [Header("Fat AABB Neighbor Cache")]
+    [Tooltip("启用后 Fat AABB 缓存会替代重复的 Broad Phase 候选发现；每个子步仍重新执行 Narrow Phase。")]
+    [FormerlySerializedAs("enableShadowNeighborCacheTest")]
+    public bool enableFatAabbCache;
+    [Tooltip("Fat AABB 在圆盘半径和 Predictive Skin 之外保留的复用余量。")]
+    [FormerlySerializedAs("shadowCacheMargin")]
+    [Min(0f)] public float fatAabbCacheMargin = 0.25f;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {
@@ -73,8 +81,10 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 EnablePredictiveContacts = authoring.enablePredictiveContacts,
                 EnableDiagnostics = authoring.enableContactDiagnostics,
                 VisualizeSelectedContacts = authoring.visualizeSelectedContacts,
-                EnableShadowNeighborCacheTest = authoring.enableShadowNeighborCacheTest,
-                ShadowCacheMargin = math.max(0f, authoring.shadowCacheMargin)
+                DiagnosticCaptureDuration = math.max(0.5f, authoring.diagnosticCaptureDuration),
+                DiagnosticCaptureInterval = math.max(0.05f, authoring.diagnosticCaptureInterval),
+                EnableFatAabbCache = authoring.enableFatAabbCache,
+                FatAabbCacheMargin = math.max(0f, authoring.fatAabbCacheMargin)
             });
             AddComponent(entity, new PredictiveDiscContactStatistics());
             AddComponent(entity, new ShadowNeighborCacheStatistics());

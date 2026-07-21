@@ -18,7 +18,7 @@ public struct Stage3ContactDiagnosticSelection : IComponentData
 }
 
 /// <summary>
-/// 每轮 XPBD 结束后的约束残差和本轮投影量。
+/// 每轮 XPBD 求解前后的约束残差和本轮投影量。
 /// </summary>
 public struct Stage3ContactIterationDiagnostic : IBufferElementData
 {
@@ -26,6 +26,8 @@ public struct Stage3ContactIterationDiagnostic : IBufferElementData
     public int IterationIndex;
     public int ActiveConstraintCount;
     public int PredictiveActivatedCount;
+    public float MaxConstraintViolationBeforeSolve;
+    public float AverageConstraintViolationBeforeSolve;
     public float MaxConstraintViolation;
     public float AverageConstraintViolation;
     public float MaxRadialPenetration;
