@@ -48,6 +48,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult chain = ValidatePrebuiltChainContact();
         ScenarioResult softAvoidance = ValidateSoftAvoidancePerSubstep();
         ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
+        ScenarioResult timestepContactSet = ValidateTimestepContactSetReuse();
         ValidateFatAabbDoesNotSweepFromWorldOrigin();
         ValidateRuntimeControlState();
         ValidateDiagnosticReadbackIsolation();
@@ -73,6 +74,9 @@ public static class PredictiveDiscContactStage3Validation
             $"time={softAvoidance.Statistics.SoftAvoidanceNanoseconds}ns\n" +
             $"RVO avoidance: activated={rvoAvoidance.Statistics.SoftAvoidanceActivatedPairCount}, " +
             $"fat uses={rvoAvoidance.Statistics.SoftAvoidanceFatAabbUseCount}\n" +
+            $"timestep contacts: builds={timestepContactSet.Statistics.TimestepContactSetBuildCount}, " +
+            $"classification={timestepContactSet.Statistics.TimestepContactSetClassificationPassCount}, " +
+            $"substep uses={timestepContactSet.Statistics.TimestepContactSetSubstepUseCount}\n" +
             $"wall->unit: B.x {wallOneIteration.Positions[1].x:F6} -> " +
             $"{wallEightIterations.Positions[1].x:F6}\n" +
             $"fat cache: reuse={fatCache.ShadowStatistics.CacheReuseCount}, " +
@@ -120,7 +124,13 @@ public static class PredictiveDiscContactStage3Validation
         float finalDistance = math.distance(result.Positions[0], result.Positions[1]);
         float center = (result.Positions[0].x + result.Positions[1].x) * 0.5f;
         Require(finalDistance >= 0.5f - PositionTolerance,
-            "Regular overlap was not separated to the radius sum.");
+            $"Regular overlap was not separated to the radius sum: distance={finalDistance:F6}, " +
+            $"pairs={result.Statistics.ContactPairCount}, " +
+            $"active={result.Statistics.ActiveConstraintCount}, " +
+            $"uniqueActive={result.Statistics.TimestepContactSetUniqueActivatedPairCount}, " +
+            $"correction={result.Statistics.TotalContactPositionCorrection:F6}, " +
+            $"builds={result.Statistics.TimestepContactSetBuildCount}, " +
+            $"fallbacks={result.Statistics.TimestepContactSetFullRebuildCount}.");
         Require(math.abs(center - 0.1f) <= PositionTolerance,
             "Equal-mass regular contact was not symmetric.");
         Require(result.Statistics.ActiveConstraintCount == 1 &&
@@ -160,6 +170,37 @@ public static class PredictiveDiscContactStage3Validation
                 result.Statistics.PredictiveActivatedCount == 1 &&
                 result.Statistics.PredictiveGeneratedPairCount == 1,
             "High-speed crossing was not generated and activated as Predictive.");
+        return result;
+    }
+
+    private static ScenarioResult ValidateTimestepContactSetReuse()
+    {
+        FlowMovementFrameState[] bodies =
+        {
+            CreateBody(new float3(-1, 0, 0), new float3(2, 0, 0), 0.25f),
+            CreateBody(new float3(1, 0, 0), new float3(-2, 0, 0), 0.25f)
+        };
+
+        ScenarioResult result = RunScenario(
+            bodies,
+            iterationCount: 4,
+            skin: 0.05f,
+            substepCount: 4);
+        Require(result.Statistics.TimestepContactSetBuildCount == 1,
+            "Timestep ContactSet was rebuilt without an escape.");
+        Require(result.Statistics.TimestepContactSetClassificationPassCount == 1,
+            "FilterAndClassifyPairs still ran once per substep instead of once per timestep.");
+        Require(result.Statistics.TimestepContactSetSubstepUseCount == 4,
+            "All substeps did not consume the same Timestep ContactSet.");
+        Require(result.Statistics.TimestepContactSetUniquePairCount == 1 &&
+                result.Statistics.TimestepContactSetUniqueActivatedPairCount == 1,
+            "Timestep ContactSet did not retain one crossing contact across substeps.");
+        Require(result.HeatSamples != null && result.HeatSamples.Length == 2 &&
+                result.HeatSamples[0].ContactPairDegree == 1 &&
+                result.HeatSamples[1].ContactPairDegree == 1 &&
+                result.HeatSamples[0].ActivePairDegree == 1 &&
+                result.HeatSamples[1].ActivePairDegree == 1,
+            "Contact heat samples did not reflect the reused timestep pair.");
         return result;
     }
 
@@ -593,14 +634,14 @@ public static class PredictiveDiscContactStage3Validation
             substepCount: 2,
             enableFatAabbCache: false);
         Require(secondFrame.ShadowStatistics.CacheValidAtFrameStart != 0 &&
-                secondFrame.ShadowStatistics.CacheReuseCount == 2 &&
+                secondFrame.ShadowStatistics.CacheReuseCount == 1 &&
                 secondFrame.ShadowStatistics.CacheRebuildCount == 0,
-            "Stable dense contacts did not reuse the persistent Fat AABB cache for both substeps.");
+            "Stable dense contacts did not reuse the persistent Fat AABB cache for the timestep ContactSet.");
         Require(secondFrame.ShadowStatistics.FullBroadPhaseFallbackCount == 0,
             "Stable dense contacts unexpectedly fell back to the full Broad Phase.");
         Require(secondFrame.ShadowStatistics.CachePairMappingBuildCount == 1 &&
-                secondFrame.ShadowStatistics.CachePairMappingReuseCount == 3,
-            "Stable two-substep cache did not reuse mapped pairs for soft/contact passes.");
+                secondFrame.ShadowStatistics.CachePairMappingReuseCount == 0,
+            "Contact-only timestep unexpectedly remapped Fat AABB pairs per substep.");
         int previousFullBodyCheckCount = denseBodies.Length * 4 * 2 * 2;
         Require(secondFrame.ShadowStatistics.CorrectedBodyValidationCount > 0 &&
                 secondFrame.ShadowStatistics.CorrectedBodyValidationCount <
@@ -628,13 +669,15 @@ public static class PredictiveDiscContactStage3Validation
             skin: 0.1f,
             includeWall: true,
             enableFatAabbCache: true,
-            fatAabbMargin: 0.001f);
+            fatAabbMargin: 0.001f,
+            timestepContactMargin: 0.001f);
         RequirePositionsEqual(
             cacheOff.Positions,
             cacheOn.Positions,
             "Fat AABB fallback changed a wall-contact solver position.");
         Require(cacheOn.ShadowStatistics.PostSolveInvalidationCount > 0 &&
-                cacheOn.ShadowStatistics.FullBroadPhaseFallbackCount > 0,
+                cacheOn.ShadowStatistics.FullBroadPhaseFallbackCount > 0 &&
+                cacheOn.Statistics.TimestepContactSetFullRebuildCount > 0,
             "Small Fat AABB margin did not trigger the wall-driven safe fallback.");
 
         var toggleProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
@@ -739,7 +782,8 @@ public static class PredictiveDiscContactStage3Validation
         bool enablePredictivePairGeneration = true,
         SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
             SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
-        float rvoTimeHorizon = 0.5f)
+        float rvoTimeHorizon = 0.5f,
+        float timestepContactMargin = 0.25f)
     {
         var previousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.TempJob);
         var previousPairs = new NativeList<ShadowEntityPair>(Allocator.TempJob);
@@ -763,7 +807,8 @@ public static class PredictiveDiscContactStage3Validation
                 settledSoftAvoidanceMultiplier,
                 enablePredictivePairGeneration,
                 softAvoidanceVelocitySolver,
-                rvoTimeHorizon);
+                rvoTimeHorizon,
+                timestepContactMargin);
         }
         finally
         {
@@ -791,7 +836,8 @@ public static class PredictiveDiscContactStage3Validation
         bool enablePredictivePairGeneration = true,
         SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
             SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer,
-        float rvoTimeHorizon = 0.5f)
+        float rvoTimeHorizon = 0.5f,
+        float timestepContactMargin = 0.25f)
     {
         int2 gridDimensions = includeWall ? new int2(5, 3) : new int2(40, 40);
         float3 gridOrigin = includeWall ? float3.zero : new float3(-10, 0, -10);
@@ -808,6 +854,7 @@ public static class PredictiveDiscContactStage3Validation
             Allocator.TempJob);
         var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.TempJob);
         var pairs = new NativeList<UnitCollisionPair>(16, Allocator.TempJob);
+        var timestepContactPairs = new NativeList<UnitCollisionPair>(16, Allocator.TempJob);
         var shadowEntries = new NativeList<SweptDiscCellEntry>(32, Allocator.TempJob);
         var shadowBodyPairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
         var shadowCurrentProxies = new NativeList<ShadowFatBodyProxy>(16, Allocator.TempJob);
@@ -831,6 +878,10 @@ public static class PredictiveDiscContactStage3Validation
             new NativeList<Stage3ContactPairDiagnostic>(16, Allocator.TempJob);
         var selectedBodyDiagnostic =
             new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
+        var heatSamples = new NativeArray<Stage3ContactHeatSample>(
+            preparedBodies.Length,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
 
         try
         {
@@ -857,6 +908,7 @@ public static class PredictiveDiscContactStage3Validation
                 EnableDiagnostics = true,
                 EnableFatAabbCache = enableFatAabbCache,
                 FatAabbCacheMargin = fatAabbMargin,
+                TimestepContactMargin = timestepContactMargin,
                 DiagnosticSelectedEntity = Entity.Null,
                 GridOrigin = gridOrigin,
                 GridDimensions = gridDimensions,
@@ -864,6 +916,7 @@ public static class PredictiveDiscContactStage3Validation
                 Grid = grid,
                 SweptCellEntries = entries,
                 Pairs = pairs,
+                TimestepContactPairs = timestepContactPairs,
                 ShadowCellEntries = shadowEntries,
                 ShadowBodyPairs = shadowBodyPairs,
                 ShadowCurrentProxies = shadowCurrentProxies,
@@ -880,7 +933,8 @@ public static class PredictiveDiscContactStage3Validation
                 ShadowStatistics = shadowStatistics,
                 IterationDiagnostics = iterationDiagnostics,
                 PairDiagnostics = pairDiagnostics,
-                SelectedBodyDiagnostic = selectedBodyDiagnostic
+                SelectedBodyDiagnostic = selectedBodyDiagnostic,
+                HeatSamples = heatSamples
             };
             solver.Run();
 
@@ -893,12 +947,14 @@ public static class PredictiveDiscContactStage3Validation
                 Positions = positions,
                 Statistics = statistics.Value,
                 ShadowStatistics = shadowStatistics.Value,
-                IterationDiagnostics = iterationDiagnostics.AsArray().ToArray()
+                IterationDiagnostics = iterationDiagnostics.AsArray().ToArray(),
+                HeatSamples = heatSamples.ToArray()
             };
         }
         finally
         {
             selectedBodyDiagnostic.Dispose();
+            heatSamples.Dispose();
             pairDiagnostics.Dispose();
             iterationDiagnostics.Dispose();
             shadowStatistics.Dispose();
@@ -912,6 +968,7 @@ public static class PredictiveDiscContactStage3Validation
             shadowBodyPairs.Dispose();
             shadowEntries.Dispose();
             pairs.Dispose();
+            timestepContactPairs.Dispose();
             entries.Dispose();
             grid.Dispose();
             states.Dispose();
@@ -955,6 +1012,10 @@ public static class PredictiveDiscContactStage3Validation
             VisualizeSelectedContacts = true,
             EnableFatAabbCache = true,
             FatAabbCacheMargin = -1f,
+            TimestepContactMargin = -1f,
+            VisualizeContactHeatmap = true,
+            ContactHeatmapMode = ContactHeatmapMode.EscapeFallback,
+            DiagnosticSlowMotionScale = 0f,
             SoftAvoidanceVelocitySolver =
                 SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle,
             SoftAvoidanceResponseRate = -1f,
@@ -965,9 +1026,13 @@ public static class PredictiveDiscContactStage3Validation
         controls.ApplyTo(ref settings, ref flowSettings);
         Require(settings.SubstepCount == 1 && settings.IterationCount == 32 &&
                 settings.PredictiveSkin == 0f && settings.FatAabbCacheMargin == 0f &&
+                settings.TimestepContactMargin == 0f &&
+                math.abs(settings.DiagnosticSlowMotionScale - 0.025f) <= 0.000001f &&
                 settings.EnablePredictivePairGeneration &&
                 settings.EnablePredictiveContacts && settings.EnableDiagnostics &&
-                settings.VisualizeSelectedContacts && settings.EnableFatAabbCache,
+                settings.VisualizeSelectedContacts && settings.EnableFatAabbCache &&
+                settings.VisualizeContactHeatmap &&
+                settings.ContactHeatmapMode == ContactHeatmapMode.EscapeFallback,
             "Runtime contact controls were not applied or clamped.");
         Require(flowSettings.SoftAvoidanceVelocitySolver ==
                     SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle &&
@@ -982,12 +1047,18 @@ public static class PredictiveDiscContactStage3Validation
         var settings = new UnitContactSolverSettings
         {
             EnableFatAabbCache = true,
-            EnableDiagnostics = false
+            EnableDiagnostics = false,
+            VisualizeContactHeatmap = false
         };
         Require(!Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
             "Fat AABB alone unexpectedly forced diagnostic readback synchronization.");
 
         settings.EnableFatAabbCache = false;
+        settings.VisualizeContactHeatmap = true;
+        Require(Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+            "The regular heatmap did not request its published contact samples.");
+
+        settings.VisualizeContactHeatmap = false;
         settings.EnableDiagnostics = true;
         Require(Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
             "Explicit diagnostics did not request diagnostic readback synchronization.");
@@ -1005,6 +1076,7 @@ public static class PredictiveDiscContactStage3Validation
         public PredictiveDiscContactStatistics Statistics;
         public ShadowNeighborCacheStatistics ShadowStatistics;
         public Stage3ContactIterationDiagnostic[] IterationDiagnostics;
+        public Stage3ContactHeatSample[] HeatSamples;
     }
 }
 }

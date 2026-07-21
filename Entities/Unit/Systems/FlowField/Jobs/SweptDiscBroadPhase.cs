@@ -26,12 +26,14 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             float sweptExtent = math.max(0f, state.Radius) +
-                                (EnablePredictivePairGeneration ? skin : 0f);
+                                (EnablePredictivePairGeneration
+                                    ? skin + math.max(0f, TimestepContactMargin)
+                                    : 0f);
             float2 pathEnd = EnablePredictivePairGeneration
-                ? state.PredictedPosition.xz
-                : state.StartPosition.xz;
-            float2 sweptMin = math.min(state.StartPosition.xz, pathEnd) - sweptExtent;
-            float2 sweptMax = math.max(state.StartPosition.xz, pathEnd) + sweptExtent;
+                ? state.TimestepPredictedPosition.xz
+                : state.TimestepStartPosition.xz;
+            float2 sweptMin = math.min(state.TimestepStartPosition.xz, pathEnd) - sweptExtent;
+            float2 sweptMax = math.max(state.TimestepStartPosition.xz, pathEnd) + sweptExtent;
             int2 minCell = (int2)math.floor((sweptMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((sweptMax - GridOrigin.xz) / cellSize);
 
@@ -129,10 +131,10 @@ public partial struct SolveXpbdUnitContactsJob
             FlowMovementFrameState bodyB = States[pair.BodyB];
             float radiusSum = bodyA.Radius + bodyB.Radius;
 
-            float3 r0 = bodyB.StartPosition - bodyA.StartPosition;
+            float3 r0 = bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
             float3 relativeDisplacement =
-                (bodyB.PredictedPosition - bodyB.StartPosition) -
-                (bodyA.PredictedPosition - bodyA.StartPosition);
+                (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
+                (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
             r0.y = 0;
             relativeDisplacement.y = 0;
 
@@ -142,7 +144,9 @@ public partial struct SolveXpbdUnitContactsJob
                 : 0f;
             float minDistanceSq = math.lengthsq(r0 + closestTime * relativeDisplacement);
             float candidateDistance = radiusSum + skin;
-            if (minDistanceSq > candidateDistance * candidateDistance)
+            float retainedDistance = candidateDistance +
+                                     math.max(0f, TimestepContactMargin) * 2f;
+            if (minDistanceSq > retainedDistance * retainedDistance)
             {
                 if (EnableDiagnostics)
                 {
@@ -158,7 +162,7 @@ public partial struct SolveXpbdUnitContactsJob
             }
 
             float startDistanceSq = math.lengthsq(r0);
-            float3 endDelta = bodyB.PredictedPosition - bodyA.PredictedPosition;
+            float3 endDelta = bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
             endDelta.y = 0;
             float endDistanceSq = math.lengthsq(endDelta);
             float radiusSumSq = radiusSum * radiusSum;
@@ -167,15 +171,18 @@ public partial struct SolveXpbdUnitContactsJob
             if (!isActualGeneratedPair && !EnablePredictivePairGeneration)
                 continue;
 
+            bool isDormant = minDistanceSq > candidateDistance * candidateDistance;
+
             if (isActualGeneratedPair)
                 statistics.ActualGeneratedPairCount++;
-            else
+            else if (!isDormant)
                 statistics.PredictiveGeneratedPairCount++;
 
             // 生成来源只用于统计。求解模式仍保持原有边界：只有起终点均分离、
             // 但 swept path 穿过接触半径的 Pair，才使用初始分离平面防止换侧。
             bool shouldPreventSideExchange =
                 !isActualGeneratedPair &&
+                !isDormant &&
                 endDistanceSq >= radiusSumSq &&
                 minDistanceSq <= radiusSumSq;
 
@@ -184,10 +191,23 @@ public partial struct SolveXpbdUnitContactsJob
 
             pair.Lambda = 0f;
             pair.WasActivated = 0;
+            pair.WasActivatedThisTimestep = 0;
+            pair.IsDormant = (byte)(isDormant ? 1 : 0);
+            pair.WasAddedByFallback = 0;
+            pair.FirstActivatedSubstep = -1;
+            pair.ActivatedSubstepCount = 0;
             pair.ContactMode = shouldPreventSideExchange && EnablePredictiveContacts
                 ? UnitContactMode.Predictive
                 : UnitContactMode.Regular;
+            float3 predictiveNormal = bodyA.TimestepStartPosition - bodyB.TimestepStartPosition;
+            predictiveNormal.y = 0f;
+            pair.PredictiveNormal = math.normalizesafe(
+                predictiveNormal,
+                DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
             Pairs[writeIndex++] = pair;
+
+            if (isDormant)
+                statistics.TimestepContactSetDormantPairCount++;
 
             if (pair.ContactMode == UnitContactMode.Predictive)
                 statistics.PredictivePairCount++;

@@ -11,6 +11,13 @@ public enum SoftAvoidanceVelocitySolverMode : byte
     ReciprocalVelocityObstacle
 }
 
+public enum ContactHeatmapMode : byte
+{
+    ContactLoad,
+    ContactSetDensity,
+    EscapeFallback
+}
+
 public struct FlowFieldCell
 {
     public byte Cost; 
@@ -53,6 +60,15 @@ public struct MoveOrder : IComponentData, IEnableableComponent
 }
 
 /// <summary>
+/// 下达 MoveOrder 时的选中单位快照。命令消费阶段不得重新查询实时 UnitSelected，
+/// 否则输入与预测更新之间的时序差会让订单绑定到后续选择。
+/// </summary>
+public struct MoveOrderSelectionElement : IBufferElementData
+{
+    public Entity Entity;
+}
+
+/// <summary>
 /// 单位动态接触 XPBD 求解配置。lambda 在每个 substep 开始时清零。
 /// </summary>
 public struct UnitContactSolverSettings : IComponentData
@@ -69,6 +85,10 @@ public struct UnitContactSolverSettings : IComponentData
     public float DiagnosticCaptureInterval;
     public bool EnableFatAabbCache;
     public float FatAabbCacheMargin;
+    public float TimestepContactMargin;
+    public bool VisualizeContactHeatmap;
+    public ContactHeatmapMode ContactHeatmapMode;
+    public float DiagnosticSlowMotionScale;
 }
 
 /// <summary>
@@ -77,6 +97,18 @@ public struct UnitContactSolverSettings : IComponentData
 /// </summary>
 public struct PredictiveDiscContactStatistics : IComponentData
 {
+    public int TimestepContactSetBuildCount;
+    public int TimestepContactSetClassificationPassCount;
+    public int TimestepContactSetSubstepUseCount;
+    public int TimestepContactSetUniquePairCount;
+    public int TimestepContactSetUniqueActivatedPairCount;
+    public int TimestepContactSetDormantPairCount;
+    public int TimestepContactSetEscapeBodyCount;
+    public int TimestepContactSetFirstEscapeSubstep;
+    public int TimestepContactSetFullRebuildCount;
+    public int TimestepContactSetFallbackAddedPairCount;
+    public long TimestepContactSetBuildNanoseconds;
+    public long TimestepContactSetFallbackNanoseconds;
     public int CandidatePairCount;
     public int ContactPairCount;
     public int ActualGeneratedPairCount;
@@ -118,6 +150,7 @@ public struct PredictiveDiscContactStatistics : IComponentData
 public struct FlowFieldRuntimeState : IComponentData
 {
     public uint ActiveVersion;
+    public uint ActiveRequestVersion;
 }
 
 /// <summary>

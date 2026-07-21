@@ -21,6 +21,7 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
+    public uint ActiveRequestVersion;
 
     [ReadOnly] public NativeArray<float2> CollisionFootprints;
 
@@ -63,6 +64,21 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         FlowFieldCell cell = Grid[flatIndex];
 
         bool hasActiveDestination = destination.IsActive != 0;
+        if (hasActiveDestination && destination.OrderVersion != ActiveRequestVersion)
+        {
+            // 新订单已经分配，但与它对应的距离场尚未发布。
+            // 等待期间必须清零旧速度，避免单位先靠近新槽位、随后又被旧向量场拉回。
+            arrivalState.IsSettled = true;
+            state.CurrentVelocity = float3.zero;
+            state.CellPosition = cellPos;
+            state.Cell = cell;
+            state.IsSettled = true;
+            state.IsInsideGrid = true;
+            state.IndependentForce = float3.zero;
+            States[entityIndex] = state;
+            return;
+        }
+
         float2 destinationDelta = destination.Position.xz - transform.Position.xz;
         float destinationDistance = math.length(destinationDelta);
         float arrivalEnterRadius = math.max(0.01f, destination.ArrivalRadius);

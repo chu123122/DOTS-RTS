@@ -20,38 +20,62 @@ public partial class RtsCommandSystem : SystemBase
     {
         RequireForUpdate<FlowFieldGlobalTarget>();
         RequireForUpdate<FlowFieldGrid>();
+        RequireForUpdate<FlowFieldRuntimeState>();
         RequireForUpdate<MoveOrder>();
+        RequireForUpdate<MoveOrderSelectionElement>();
     }
 
     protected override void OnUpdate()
     {
         var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
+
+        // 首次 Flow Field 尚未发布时保留 MoveOrder 的 enabled 状态。
+        // 启动烘焙完成后的下一帧会继续消费同一条指令。
+        if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0)
+            return;
+
         var moveOrder = EntityManager.GetComponentData<MoveOrder>(gridEntity);
-        EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
 
         FlowFieldGrid grid = SystemAPI.GetSingleton<FlowFieldGrid>();
-        var selectedUnits = new List<SelectedUnit>();
-        foreach (var (selection, transform, entity) in
-                 SystemAPI.Query<RefRO<UnitSelected>, RefRO<LocalTransform>>()
-                     .WithAll<BasicUnitTag, UnitMoveDestination>()
-                     .WithEntityAccess())
+        DynamicBuffer<MoveOrderSelectionElement> recipients =
+            EntityManager.GetBuffer<MoveOrderSelectionElement>(gridEntity);
+        if (recipients.Length == 0)
         {
-            if (!selection.ValueRO.Value)
-                continue;
+            // 空快照不能等待后续左键选择，否则旧目标会错误绑定到未来选择。
+            EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
+            return;
+        }
 
+        var selectedUnits = new List<SelectedUnit>();
+        for (int recipientIndex = 0; recipientIndex < recipients.Length; recipientIndex++)
+        {
+            Entity entity = recipients[recipientIndex].Entity;
+            if (!EntityManager.Exists(entity) ||
+                !EntityManager.HasComponent<BasicUnitTag>(entity) ||
+                !EntityManager.HasComponent<UnitMoveDestination>(entity) ||
+                !EntityManager.HasComponent<LocalTransform>(entity))
+            {
+                continue;
+            }
+
+            LocalTransform transform = EntityManager.GetComponentData<LocalTransform>(entity);
             selectedUnits.Add(new SelectedUnit
             {
                 Entity = entity,
-                Position = transform.ValueRO.Position,
+                Position = transform.Position,
                 FootprintSpan = CalculateFootprintSpan(
                     entity,
-                    transform.ValueRO,
+                    transform,
                     grid.CellRadius * 2f)
             });
         }
 
         if (selectedUnits.Count == 0)
+        {
+            recipients.Clear();
+            EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
             return;
+        }
 
         selectedUnits.Sort((a, b) =>
         {
@@ -88,6 +112,10 @@ public partial class RtsCommandSystem : SystemBase
             positions,
             slots,
             moveOrder.TargetPosition);
+
+        // 只有订单快照获得完整槽位时才消费；不修改实时 UnitSelected。
+        EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
+        recipients.Clear();
 
         foreach (var (destination, arrivalState) in
                  SystemAPI.Query<RefRW<UnitMoveDestination>, RefRW<FlowArrivalState>>()

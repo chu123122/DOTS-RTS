@@ -14,9 +14,9 @@ public partial struct SolveXpbdUnitContactsJob
         ref PredictiveDiscContactStatistics statistics,
         ref float penetrationSum)
     {
-        for (int i = 0; i < Pairs.Length; i++)
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = Pairs[i];
+            UnitCollisionPair pair = TimestepContactPairs[i];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
 
@@ -58,9 +58,9 @@ public partial struct SolveXpbdUnitContactsJob
         int activeCount = 0;
         int predictiveActivatedCount = 0;
 
-        for (int i = 0; i < Pairs.Length; i++)
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = Pairs[i];
+            UnitCollisionPair pair = TimestepContactPairs[i];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
             float radiusSum = bodyA.Radius + bodyB.Radius;
@@ -123,9 +123,9 @@ public partial struct SolveXpbdUnitContactsJob
         float violationSum = 0f;
         maxViolation = 0f;
         int violatingCount = 0;
-        for (int i = 0; i < Pairs.Length; i++)
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = Pairs[i];
+            UnitCollisionPair pair = TimestepContactPairs[i];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
             float radiusSum = bodyA.Radius + bodyB.Radius;
@@ -157,12 +157,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (pair.ContactMode != UnitContactMode.Predictive)
             return math.length(currentDelta) - radiusSum;
 
-        float3 initialDelta = bodyA.StartPosition - bodyB.StartPosition;
-        initialDelta.y = 0;
-        float3 normal = math.normalizesafe(
-            initialDelta,
-            DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
-        return math.dot(currentDelta, normal) - radiusSum;
+        return math.dot(currentDelta, pair.PredictiveNormal) - radiusSum;
     }
 
     private void CaptureSelectedBodyAndPairs(int substepIndex)
@@ -187,7 +182,14 @@ public partial struct SolveXpbdUnitContactsJob
             ContactCorrection = selected.ContactPositionCorrection,
             WallCorrection = selected.WallPositionCorrection,
             VelocityBeforeContact = selected.VelocityBeforeContact,
-            VelocityAfterContact = selected.IntegratedVelocity
+            VelocityAfterContact = selected.IntegratedVelocity,
+            TimestepStartPosition = selected.TimestepStartPosition,
+            TimestepPredictedPosition = selected.TimestepPredictedPosition,
+            TimestepEnvelopeMin = selected.TimestepEnvelopeMin,
+            TimestepEnvelopeMax = selected.TimestepEnvelopeMax,
+            TimestepEscaped = selected.TimestepEscaped,
+            TimestepContactCorrection = selected.TimestepContactCorrection,
+            TimestepWallCorrection = selected.TimestepWallCorrection
         };
 
         if (EnableFatAabbCache)
@@ -210,18 +212,18 @@ public partial struct SolveXpbdUnitContactsJob
 
         SelectedBodyDiagnostic.Value = selectedDiagnostic;
 
-        for (int i = 0; i < Pairs.Length; i++)
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = Pairs[i];
+            UnitCollisionPair pair = TimestepContactPairs[i];
             if (pair.BodyA != selectedBodyIndex && pair.BodyB != selectedBodyIndex)
                 continue;
 
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            float3 r0 = bodyB.StartPosition - bodyA.StartPosition;
+            float3 r0 = bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
             float3 relativeDisplacement =
-                (bodyB.UnconstrainedPredictedPosition - bodyB.StartPosition) -
-                (bodyA.UnconstrainedPredictedPosition - bodyA.StartPosition);
+                (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
+                (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
             r0.y = 0;
             relativeDisplacement.y = 0;
             float relativeLengthSq = math.lengthsq(relativeDisplacement);
@@ -232,7 +234,7 @@ public partial struct SolveXpbdUnitContactsJob
             float radiusSum = bodyA.Radius + bodyB.Radius;
             float startDistanceSq = math.lengthsq(r0);
             float3 endDelta =
-                bodyB.UnconstrainedPredictedPosition - bodyA.UnconstrainedPredictedPosition;
+                bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
             endDelta.y = 0;
             bool potentialPredictive =
                 startDistanceSq >= radiusSum * radiusSum &&
@@ -257,7 +259,7 @@ public partial struct SolveXpbdUnitContactsJob
                 closestTime,
                 minDistance,
                 radiusSum,
-                pair.WasActivated);
+                pair.WasActivatedThisTimestep);
         }
     }
 
@@ -278,12 +280,12 @@ public partial struct SolveXpbdUnitContactsJob
         FlowMovementFrameState selected = States[selectedBodyIndex];
         FlowMovementFrameState other = States[otherBodyIndex];
         float3 selectedClosest = math.lerp(
-            selected.StartPosition,
-            selected.UnconstrainedPredictedPosition,
+            selected.TimestepStartPosition,
+            selected.TimestepPredictedPosition,
             closestTime);
         float3 otherClosest = math.lerp(
-            other.StartPosition,
-            other.UnconstrainedPredictedPosition,
+            other.TimestepStartPosition,
+            other.TimestepPredictedPosition,
             closestTime);
 
         PairDiagnostics.Add(new Stage3ContactPairDiagnostic
@@ -291,12 +293,15 @@ public partial struct SolveXpbdUnitContactsJob
             OtherEntity = other.Entity,
             Kind = kind,
             WasActivated = wasActivated,
+            WasAddedByFallback = pair.WasAddedByFallback,
+            FirstActivatedSubstep = pair.FirstActivatedSubstep,
+            ActivatedSubstepCount = pair.ActivatedSubstepCount,
             ClosestTime = closestTime,
             MinimumDistance = minimumDistance,
             RadiusSum = radiusSum,
             OtherRadius = other.Radius,
-            OtherStartPosition = other.StartPosition,
-            OtherPredictedPosition = other.UnconstrainedPredictedPosition,
+            OtherStartPosition = other.TimestepStartPosition,
+            OtherPredictedPosition = other.TimestepPredictedPosition,
             SelectedClosestPosition = selectedClosest,
             OtherClosestPosition = otherClosest
         });

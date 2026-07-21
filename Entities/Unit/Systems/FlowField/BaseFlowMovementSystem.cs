@@ -94,6 +94,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     {
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
+        var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
         AdaptiveFatAabbSettings adaptiveSettings = AdaptiveFatAabbSettings.Default;
         if (SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings))
@@ -105,7 +106,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection))
             diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
         if (!gridComponent.Grid.IsCreated) return;
-        if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0) return;
+        if (flowFieldRuntimeState.ActiveVersion == 0) return;
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
@@ -142,6 +143,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
             CellRadius = gridComponent.CellRadius,
+            ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
             CollisionFootprints = collisionFootprints,
             States = states
         };
@@ -154,6 +156,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
         var collisionPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
+        var timestepContactPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
         var shadowCellEntries = new NativeList<SweptDiscCellEntry>(
@@ -206,6 +211,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var adaptiveFloodCells = new NativeList<int>(adaptiveCellCount, Allocator.TempJob);
         var adaptiveRegionHistoryScratch =
             new NativeList<AdaptiveFatAabbRegionHistory>(adaptiveCellCount, Allocator.TempJob);
+        var heatSamples = new NativeArray<Stage3ContactHeatSample>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -225,6 +234,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
             AdaptiveSettings = adaptiveSettings,
             AdaptiveCellDimensions = _adaptiveCellDimensions,
+            TimestepContactMargin = contactSolverSettings.TimestepContactMargin,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -232,6 +242,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Grid = gridComponent.Grid,
             SweptCellEntries = sweptCellEntries,
             Pairs = collisionPairs,
+            TimestepContactPairs = timestepContactPairs,
             ShadowCellEntries = shadowCellEntries,
             ShadowBodyPairs = shadowBodyPairs,
             ShadowCurrentProxies = shadowCurrentProxies,
@@ -261,7 +272,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowStatistics = shadowStatistics,
             IterationDiagnostics = iterationDiagnostics,
             PairDiagnostics = pairDiagnostics,
-            SelectedBodyDiagnostic = selectedBodyDiagnostic
+            SelectedBodyDiagnostic = selectedBodyDiagnostic,
+            HeatSamples = heatSamples
         };
         JobHandle solveContactHandle = solveContactJob.Schedule(independentForceHandle);
 
@@ -271,7 +283,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowSource = shadowStatistics,
             SelectedBodySource = selectedBodyDiagnostic,
             IterationSource = iterationDiagnostics,
-            PairSource = pairDiagnostics
+            PairSource = pairDiagnostics,
+            HeatSource = heatSamples
         };
         JobHandle publishStatisticsHandle =
             publishStatisticsJob.Schedule(solveContactHandle);
@@ -295,6 +308,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle footprintDisposeHandle = collisionFootprints.Dispose(applyMovementHandle);
         JobHandle sweptEntryDisposeHandle = sweptCellEntries.Dispose(applyMovementHandle);
         JobHandle collisionPairDisposeHandle = collisionPairs.Dispose(applyMovementHandle);
+        JobHandle timestepContactPairDisposeHandle =
+            timestepContactPairs.Dispose(applyMovementHandle);
         JobHandle shadowCellDisposeHandle = shadowCellEntries.Dispose(applyMovementHandle);
         JobHandle shadowBodyPairDisposeHandle = shadowBodyPairs.Dispose(applyMovementHandle);
         JobHandle shadowProxyDisposeHandle = shadowCurrentProxies.Dispose(applyMovementHandle);
@@ -320,6 +335,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle adaptiveFloodCellsDisposeHandle = adaptiveFloodCells.Dispose(applyMovementHandle);
         JobHandle adaptiveRegionHistoryScratchDisposeHandle =
             adaptiveRegionHistoryScratch.Dispose(applyMovementHandle);
+        JobHandle heatSampleDisposeHandle = heatSamples.Dispose(publishStatisticsHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
@@ -330,9 +346,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             selectedDiagnosticDisposeHandle,
             iterationDiagnosticDisposeHandle,
             pairDiagnosticDisposeHandle);
+        diagnosticDisposeHandle = JobHandle.CombineDependencies(
+            diagnosticDisposeHandle,
+            heatSampleDisposeHandle);
+        JobHandle contactPairDisposeHandle = JobHandle.CombineDependencies(
+            collisionPairDisposeHandle,
+            timestepContactPairDisposeHandle);
         JobHandle broadPhaseDisposeHandle = JobHandle.CombineDependencies(
             sweptEntryDisposeHandle,
-            collisionPairDisposeHandle,
+            contactPairDisposeHandle,
             shadowCellDisposeHandle);
         JobHandle pairDisposeHandle = JobHandle.CombineDependencies(
             broadPhaseDisposeHandle,

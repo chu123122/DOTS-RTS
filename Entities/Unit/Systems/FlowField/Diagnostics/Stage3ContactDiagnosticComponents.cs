@@ -46,13 +46,16 @@ public struct Stage3ContactIterationDiagnostic : IBufferElementData
 }
 
 /// <summary>
-/// 当前诊断单位在最后一个 substep 中遇到的 Broad/Narrow Phase Pair。
+/// 当前诊断单位在本 timestep ContactSet 中保留的 Pair 及其激活生命周期。
 /// </summary>
 public struct Stage3ContactPairDiagnostic : IBufferElementData
 {
     public Entity OtherEntity;
     public Stage3ContactDiagnosticPairKind Kind;
     public byte WasActivated;
+    public byte WasAddedByFallback;
+    public int FirstActivatedSubstep;
+    public int ActivatedSubstepCount;
     public float ClosestTime;
     public float MinimumDistance;
     public float RadiusSum;
@@ -64,7 +67,7 @@ public struct Stage3ContactPairDiagnostic : IBufferElementData
 }
 
 /// <summary>
-/// 当前诊断单位最后一个 substep 的轨迹和求解结果。
+/// 当前诊断单位的 substep 求解结果，以及当前 ContactSet 对应的 timestep 轨迹和包围盒。
 /// </summary>
 public struct Stage3SelectedBodyDiagnostic : IComponentData
 {
@@ -79,9 +82,31 @@ public struct Stage3SelectedBodyDiagnostic : IComponentData
     public float3 WallCorrection;
     public float3 VelocityBeforeContact;
     public float3 VelocityAfterContact;
+    public float3 TimestepStartPosition;
+    public float3 TimestepPredictedPosition;
+    public float2 TimestepEnvelopeMin;
+    public float2 TimestepEnvelopeMax;
+    public byte TimestepEscaped;
+    public float3 TimestepContactCorrection;
+    public float3 TimestepWallCorrection;
     public byte ShadowReferenceAvailable;
     public byte ShadowEscaped;
     public float2 ShadowFatMin;
     public float2 ShadowFatMax;
+}
+
+/// <summary>
+/// 常规热力图使用的每单位 timestep 汇总；不携带完整 Pair 列表。
+/// </summary>
+public struct Stage3ContactHeatSample : IBufferElementData
+{
+    public Entity Entity;
+    public float3 Position;
+    public int ContactPairDegree;
+    public int ActivePairDegree;
+    public int PredictivePairDegree;
+    public float ContactCorrection;
+    public byte Escaped;
+    public byte HasFallbackPair;
 }
 }

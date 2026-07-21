@@ -13,8 +13,8 @@ namespace RTS.Unit.FlowField.Jobs
 
 /// <summary>
 /// Frostbite-inspired Predictive Disc Contact 求解器。
-/// 每个 substep 保存可信起始构型、预测无约束终点、生成 swept disc Pair，
-/// 随后全部 XPBD iteration 复用同一份 Pair，不在 iteration 内重复 Broad/Narrow Phase。
+/// timestep 开始时生成一次 TimestepContactSet；全部 substep 和 XPBD iteration 复用。
+/// 约束修正逃出 timestep envelope 时，针对剩余时间执行完整 Broad Phase 回退。
 /// 缓存、软避让、Broad Phase 与诊断实现分布在同一 partial Job 的独立文件中。
 /// </summary>
 [BurstCompile]
@@ -37,6 +37,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public float FatAabbCacheMargin;
     public AdaptiveFatAabbSettings AdaptiveSettings;
     public int2 AdaptiveCellDimensions;
+    public float TimestepContactMargin;
     public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
@@ -45,7 +46,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
+    // Broad Phase 与软避让共用 Pairs 作为瞬时 scratch；权威接触必须独立保存。
     public NativeList<UnitCollisionPair> Pairs;
+    public NativeList<UnitCollisionPair> TimestepContactPairs;
     public NativeList<SweptDiscCellEntry> ShadowCellEntries;
     public NativeList<UnitCollisionPair> ShadowBodyPairs;
     public NativeList<ShadowFatBodyProxy> ShadowCurrentProxies;
@@ -76,6 +79,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
+    public NativeArray<Stage3ContactHeatSample> HeatSamples;
 
     public void Execute()
     {
@@ -84,6 +88,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         int iterationCount = math.max(1, IterationCount);
         float substepDeltaTime = DeltaTime / substepCount;
         var statistics = new PredictiveDiscContactStatistics();
+        statistics.TimestepContactSetFirstEscapeSubstep = -1;
         var shadowStatistics = new ShadowNeighborCacheStatistics();
         float penetrationSum = 0f;
         bool fatCachePairsMappedThisFrame = false;
@@ -123,6 +128,17 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         if (AdaptiveFatAabbRequested)
             ResetAdaptiveFatAabbCacheWhenInactive();
 
+        PrepareTimestepContactPrediction(DeltaTime, false);
+        long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
+        BuildTimestepContactSet(
+            ref statistics,
+            ref shadowStatistics,
+            ref fatCachePairsMappedThisFrame,
+            false,
+            false);
+        statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - initialContactSetStart);
+
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
@@ -144,29 +160,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
 
             PredictUnconstrainedPositions(substepDeltaTime);
-
-            long pairGenerationStart = ProfilerUnsafeUtility.Timestamp;
-            bool usingFatAabbCache = false;
-            if (HasActiveAdaptiveFatRegions)
-            {
-                usingFatAabbCache = BuildAdaptiveHybridContactPairs(
-                    ref statistics,
-                    ref shadowStatistics,
-                    ref fatCachePairsMappedThisFrame);
-            }
-            else if (EnableFatAabbCache && !AdaptiveFatAabbRequested)
-            {
-                usingFatAabbCache = BuildContactPairsFromFatAabbCache(
-                    ref statistics,
-                    ref shadowStatistics,
-                    ref fatCachePairsMappedThisFrame);
-            }
-            else
-            {
-                BuildSweptContactPairs(ref statistics);
-            }
-            statistics.PairGenerationNanoseconds +=
-                TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - pairGenerationStart);
+            ResetTimestepContactSetForSubstep();
+            statistics.TimestepContactSetSubstepUseCount++;
 
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
@@ -181,22 +176,36 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 }
 
                 SolveWallConstraintIteration(
-                    usingFatAabbCache,
+                    true,
                     out float totalWallPositionCorrection,
                     out float maxWallPositionCorrection);
 
-                if (usingFatAabbCache &&
-                    !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
+                if (!AreCorrectedDiscsInsideTimestepEnvelope(
+                        substepIndex,
+                        ref statistics))
+                {
+                    RebuildTimestepContactSetForRemainingTime(
+                        substepIndex,
+                        substepCount,
+                        substepDeltaTime,
+                        ref statistics,
+                        ref shadowStatistics,
+                        ref fatCachePairsMappedThisFrame);
+                    ResetTimestepContactSetForSubstep();
+                }
+                else if (EnableFatAabbCache &&
+                         FatAabbCacheState.Value.IsValid != 0 &&
+                         !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
                 {
                     InvalidateFatAabbCache(ref shadowStatistics, true);
-                    BuildSweptContactPairs(ref statistics);
-                    shadowStatistics.FullBroadPhaseFallbackCount++;
-                    usingFatAabbCache = false;
+                    fatCachePairsMappedThisFrame = false;
                 }
 
                 SolveContactIteration(
                     substepDeltaTime,
-                    usingFatAabbCache,
+                    substepIndex,
+                    true,
+                    ref statistics,
                     out float totalPositionCorrection,
                     out float maxPositionCorrection);
 
@@ -222,20 +231,27 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         maxWallPositionCorrection);
                 }
 
-                if (usingFatAabbCache &&
-                    !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
+                if (!AreCorrectedDiscsInsideTimestepEnvelope(
+                        substepIndex,
+                        ref statistics))
                 {
-                    InvalidateFatAabbCache(ref shadowStatistics, true);
-                    BuildSweptContactPairs(ref statistics);
-                    shadowStatistics.FullBroadPhaseFallbackCount++;
-                    usingFatAabbCache = false;
+                    RebuildTimestepContactSetForRemainingTime(
+                        substepIndex,
+                        substepCount,
+                        substepDeltaTime,
+                        ref statistics,
+                        ref shadowStatistics,
+                        ref fatCachePairsMappedThisFrame);
 
                     // 最后一轮之后没有正常恢复机会；补一轮只处理新发现的单位接触。
                     if (iterationIndex == iterationCount - 1)
                     {
+                        ResetTimestepContactSetForSubstep();
                         SolveContactIteration(
                             substepDeltaTime,
-                            false,
+                            substepIndex,
+                            true,
+                            ref statistics,
                             out float recoveryCorrection,
                             out float recoveryMaxCorrection);
                         statistics.TotalContactPositionCorrection += recoveryCorrection;
@@ -244,6 +260,13 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                             recoveryMaxCorrection);
                     }
                 }
+                else if (EnableFatAabbCache &&
+                         FatAabbCacheState.Value.IsValid != 0 &&
+                         !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
+                {
+                    InvalidateFatAabbCache(ref shadowStatistics, true);
+                    fatCachePairsMappedThisFrame = false;
+                }
             }
             statistics.IterationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - iterationStart);
@@ -251,9 +274,11 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             AccumulateConstraintStatistics(ref statistics, ref penetrationSum);
             ReconstructVelocities(substepDeltaTime, ref statistics);
 
-            if (EnableDiagnostics)
-                CaptureSelectedBodyAndPairs(substepIndex);
         }
+
+        if (EnableDiagnostics)
+            CaptureSelectedBodyAndPairs(substepCount - 1);
+        BuildContactHeatSamples();
 
         if (EnableFatAabbCache)
         {
@@ -311,6 +336,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             state.SoftAvoidanceVelocity = float3.zero;
             state.WallAvoidanceVelocity = float3.zero;
             state.SoftAvoidanceNeighborCount = 0;
+            state.TimestepContactCorrection = float3.zero;
+            state.TimestepWallCorrection = float3.zero;
             States[i] = state;
         }
     }
@@ -394,7 +421,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
     private void SolveContactIteration(
         float substepDeltaTime,
+        int substepIndex,
         bool trackCorrectedBodies,
+        ref PredictiveDiscContactStatistics statistics,
         out float totalPositionCorrection,
         out float maxPositionCorrection)
     {
@@ -405,9 +434,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         maxPositionCorrection = 0f;
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
 
-        for (int i = 0; i < Pairs.Length; i++)
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = Pairs[i];
+            UnitCollisionPair pair = TimestepContactPairs[i];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
 
@@ -423,11 +452,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
             if (pair.ContactMode == UnitContactMode.Predictive)
             {
-                float3 initialDelta = bodyA.StartPosition - bodyB.StartPosition;
-                initialDelta.y = 0;
-                normal = math.normalizesafe(
-                    initialDelta,
-                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                normal = pair.PredictiveNormal;
                 constraintValue = math.dot(currentDelta, normal) - radiusSum;
             }
             else
@@ -444,9 +469,18 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             float appliedLambda = nextLambda - pair.Lambda;
             pair.Lambda = nextLambda;
 
-            if (nextLambda > 0.0000001f)
+            if (nextLambda > 0.0000001f && pair.WasActivated == 0)
+            {
                 pair.WasActivated = 1;
-            Pairs[i] = pair;
+                pair.ActivatedSubstepCount++;
+                if (pair.WasActivatedThisTimestep == 0)
+                {
+                    pair.WasActivatedThisTimestep = 1;
+                    pair.FirstActivatedSubstep = substepIndex;
+                    statistics.TimestepContactSetUniqueActivatedPairCount++;
+                }
+            }
+            TimestepContactPairs[i] = pair;
 
             if (math.abs(appliedLambda) <= 0.0000001f)
                 continue;
@@ -460,6 +494,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             bodyB.PredictedPosition -= normal * (bodyB.InverseMass * appliedLambda);
             bodyA.ContactPositionCorrection += normal * (bodyA.InverseMass * appliedLambda);
             bodyB.ContactPositionCorrection -= normal * (bodyB.InverseMass * appliedLambda);
+            bodyA.TimestepContactCorrection += normal * (bodyA.InverseMass * appliedLambda);
+            bodyB.TimestepContactCorrection -= normal * (bodyB.InverseMass * appliedLambda);
             bodyA.PredictedPosition.y = bodyA.CurrentPosition.y;
             bodyB.PredictedPosition.y = bodyB.CurrentPosition.y;
             States[pair.BodyA] = bodyA;
@@ -530,6 +566,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     state.PredictedPosition += correction;
                     state.PredictedPosition.y = state.CurrentPosition.y;
                     state.WallPositionCorrection += correction;
+                    state.TimestepWallCorrection += correction;
 
                     float correctionLength = math.length(correction);
                     totalPositionCorrection += correctionLength;
