@@ -79,7 +79,14 @@ public partial struct SolveXpbdUnitContactsJob
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
 
         bool sourcedFromFatCache = false;
-        if (!forceFullBroadPhase && EnableFatAabbCache)
+        if (!forceFullBroadPhase && HasActiveAdaptiveFatRegions)
+        {
+            sourcedFromFatCache = BuildAdaptiveHybridContactPairs(
+                ref statistics,
+                ref shadowStatistics,
+                ref fatCachePairsMappedThisFrame);
+        }
+        else if (!forceFullBroadPhase && EnableFatAabbCache)
         {
             sourcedFromFatCache = BuildContactPairsFromFatAabbCache(
                 ref statistics,
