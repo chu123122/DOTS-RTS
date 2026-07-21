@@ -92,6 +92,8 @@ public struct AdaptiveFatAabbDebugProxy
 public struct AdaptiveFatAabbCacheFeedback
 {
     public float EscapePenalty;
+    public float CandidateExpansionRatio;
+    public float ReuseRatio;
     public int ReuseCount;
     public int RebuildCount;
     public int FallbackCount;

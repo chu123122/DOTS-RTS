@@ -27,6 +27,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<AdaptiveFatAabbDebugCell> _adaptiveDebugCells;
     private NativeList<AdaptiveFatAabbDebugRegion> _adaptiveDebugRegions;
     private NativeList<AdaptiveFatAabbDebugProxy> _adaptiveDebugProxies;
+    private NativeList<AdaptiveFatAabbRegionHistory> _adaptiveRegionHistory;
+    private NativeReference<int> _adaptiveNextRegionId;
+    private NativeReference<AdaptiveFatAabbCacheFeedback> _adaptiveCacheFeedback;
     private int2 _adaptiveCellDimensions;
     private int _adaptiveCellSpan;
 
@@ -54,6 +57,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _adaptiveDebugCells = new NativeList<AdaptiveFatAabbDebugCell>(Allocator.Persistent);
         _adaptiveDebugRegions = new NativeList<AdaptiveFatAabbDebugRegion>(Allocator.Persistent);
         _adaptiveDebugProxies = new NativeList<AdaptiveFatAabbDebugProxy>(Allocator.Persistent);
+        _adaptiveRegionHistory = new NativeList<AdaptiveFatAabbRegionHistory>(Allocator.Persistent);
+        _adaptiveNextRegionId = new NativeReference<int>(Allocator.Persistent);
+        _adaptiveNextRegionId.Value = 1;
+        _adaptiveCacheFeedback = new NativeReference<AdaptiveFatAabbCacheFeedback>(Allocator.Persistent);
     }
 
     protected override void OnDestroy()
@@ -75,6 +82,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _adaptiveDebugRegions.Dispose();
         if (_adaptiveDebugProxies.IsCreated)
             _adaptiveDebugProxies.Dispose();
+        if (_adaptiveRegionHistory.IsCreated)
+            _adaptiveRegionHistory.Dispose();
+        if (_adaptiveNextRegionId.IsCreated)
+            _adaptiveNextRegionId.Dispose();
+        if (_adaptiveCacheFeedback.IsCreated)
+            _adaptiveCacheFeedback.Dispose();
     }
 
     protected override void OnUpdate()
@@ -191,6 +204,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             NativeArrayOptions.ClearMemory);
         var adaptiveFloodQueue = new NativeList<int>(adaptiveCellCount, Allocator.TempJob);
         var adaptiveFloodCells = new NativeList<int>(adaptiveCellCount, Allocator.TempJob);
+        var adaptiveRegionHistoryScratch =
+            new NativeList<AdaptiveFatAabbRegionHistory>(adaptiveCellCount, Allocator.TempJob);
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
@@ -237,6 +252,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             AdaptiveDebugCells = _adaptiveDebugCells,
             AdaptiveDebugRegions = _adaptiveDebugRegions,
             AdaptiveDebugProxies = _adaptiveDebugProxies,
+            AdaptiveRegionHistory = _adaptiveRegionHistory,
+            AdaptiveRegionHistoryScratch = adaptiveRegionHistoryScratch,
+            AdaptiveNextRegionId = _adaptiveNextRegionId,
+            AdaptiveCacheFeedback = _adaptiveCacheFeedback,
             States = states,
             Statistics = contactStatistics,
             ShadowStatistics = shadowStatistics,
@@ -299,6 +318,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle adaptiveBodyRoutingDisposeHandle = adaptiveBodyRouting.Dispose(applyMovementHandle);
         JobHandle adaptiveFloodQueueDisposeHandle = adaptiveFloodQueue.Dispose(applyMovementHandle);
         JobHandle adaptiveFloodCellsDisposeHandle = adaptiveFloodCells.Dispose(applyMovementHandle);
+        JobHandle adaptiveRegionHistoryScratchDisposeHandle =
+            adaptiveRegionHistoryScratch.Dispose(applyMovementHandle);
         JobHandle frameStateDisposeHandle = JobHandle.CombineDependencies(
             stateDisposeHandle,
             footprintDisposeHandle);
@@ -330,7 +351,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             adaptiveBodyRoutingDisposeHandle);
         JobHandle adaptiveFloodDisposeHandle = JobHandle.CombineDependencies(
             adaptiveFloodQueueDisposeHandle,
-            adaptiveFloodCellsDisposeHandle);
+            adaptiveFloodCellsDisposeHandle,
+            adaptiveRegionHistoryScratchDisposeHandle);
         JobHandle adaptiveScratchDisposeHandle = JobHandle.CombineDependencies(
             adaptiveMetricDisposeHandle,
             adaptiveFloodDisposeHandle);

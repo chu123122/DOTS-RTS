@@ -25,6 +25,10 @@ public struct AdaptiveFatAabbSettings : IComponentData
     public float PersistenceWeight;
     public float PressureWeight;
     public float EscapeRiskWeight;
+    public float CachePenaltyWeight;
+    public float CandidateExpansionLimit;
+    public int RegionRetainFrames;
+    public int RegionMatchPadding;
     public float CorrectionReference;
     public float MaximumCacheableSpeed;
     public float ScoreSmoothing;
@@ -46,6 +50,10 @@ public struct AdaptiveFatAabbSettings : IComponentData
         PersistenceWeight = 0.20f,
         PressureWeight = 0.20f,
         EscapeRiskWeight = 0.25f,
+        CachePenaltyWeight = 0.35f,
+        CandidateExpansionLimit = 4f,
+        RegionRetainFrames = 18,
+        RegionMatchPadding = 1,
         CorrectionReference = 0.08f,
         MaximumCacheableSpeed = 4f,
         ScoreSmoothing = 0.25f,
@@ -67,6 +75,10 @@ public struct AdaptiveFatAabbSettings : IComponentData
         value.PersistenceWeight = math.max(0f, value.PersistenceWeight);
         value.PressureWeight = math.max(0f, value.PressureWeight);
         value.EscapeRiskWeight = math.max(0f, value.EscapeRiskWeight);
+        value.CachePenaltyWeight = math.max(0f, value.CachePenaltyWeight);
+        value.CandidateExpansionLimit = math.max(1f, value.CandidateExpansionLimit);
+        value.RegionRetainFrames = math.max(0, value.RegionRetainFrames);
+        value.RegionMatchPadding = math.max(0, value.RegionMatchPadding);
         value.CorrectionReference = math.max(0.0001f, value.CorrectionReference);
         value.MaximumCacheableSpeed = math.max(0.0001f, value.MaximumCacheableSpeed);
         value.ScoreSmoothing = math.clamp(value.ScoreSmoothing, 0.01f, 1f);
@@ -99,6 +111,10 @@ public sealed class AdaptiveFatAabbAuthoring : MonoBehaviour
     [Min(0f)] public float PersistenceWeight = 0.20f;
     [Min(0f)] public float PressureWeight = 0.20f;
     [Min(0f)] public float EscapeRiskWeight = 0.25f;
+    [Min(0f)] public float CachePenaltyWeight = 0.35f;
+    [Min(1f)] public float CandidateExpansionLimit = 4f;
+    [Min(0)] public int RegionRetainFrames = 18;
+    [Min(0)] public int RegionMatchPadding = 1;
     [Min(0.0001f)] public float CorrectionReference = 0.08f;
     [Min(0.0001f)] public float MaximumCacheableSpeed = 4f;
     [Range(0.01f, 1f)] public float ScoreSmoothing = 0.25f;
@@ -127,6 +143,10 @@ public sealed class AdaptiveFatAabbAuthoring : MonoBehaviour
                 PersistenceWeight = authoring.PersistenceWeight,
                 PressureWeight = authoring.PressureWeight,
                 EscapeRiskWeight = authoring.EscapeRiskWeight,
+                CachePenaltyWeight = authoring.CachePenaltyWeight,
+                CandidateExpansionLimit = authoring.CandidateExpansionLimit,
+                RegionRetainFrames = authoring.RegionRetainFrames,
+                RegionMatchPadding = authoring.RegionMatchPadding,
                 CorrectionReference = authoring.CorrectionReference,
                 MaximumCacheableSpeed = authoring.MaximumCacheableSpeed,
                 ScoreSmoothing = authoring.ScoreSmoothing,
