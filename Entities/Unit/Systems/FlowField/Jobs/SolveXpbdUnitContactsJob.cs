@@ -35,6 +35,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public bool EnableDiagnostics;
     public bool EnableFatAabbCache;
     public float FatAabbCacheMargin;
+    public AdaptiveFatAabbSettings AdaptiveSettings;
+    public int2 AdaptiveCellDimensions;
     public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
@@ -55,6 +57,15 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
     public NativeList<ShadowEntityPair> ShadowPreviousPairs;
     public NativeReference<FatAabbCacheState> FatAabbCacheState;
+    public NativeArray<AdaptiveFatAabbCellHistory> AdaptiveCellHistory;
+    public NativeArray<AdaptiveFatAabbCellMetric> AdaptiveCellMetrics;
+    public NativeArray<AdaptiveFatAabbBodyRouting> AdaptiveBodyRouting;
+    public NativeList<int> AdaptiveFloodQueue;
+    public NativeList<int> AdaptiveFloodCells;
+    public NativeList<AdaptiveFatAabbRegion> AdaptiveRegions;
+    public NativeList<AdaptiveFatAabbDebugCell> AdaptiveDebugCells;
+    public NativeList<AdaptiveFatAabbDebugRegion> AdaptiveDebugRegions;
+    public NativeList<AdaptiveFatAabbDebugProxy> AdaptiveDebugProxies;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
     public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
@@ -104,6 +115,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         }
 
         InitializeSolverState();
+        BuildAdaptiveFatAabbHotspots();
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
@@ -223,6 +235,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             if (EnableDiagnostics)
                 CaptureSelectedBodyAndPairs(substepIndex);
         }
+
+        UpdateAdaptiveFatAabbHistoryAfterSolve(ref shadowStatistics);
 
         if (EnableFatAabbCache)
         {
