@@ -66,6 +66,10 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<AdaptiveFatAabbDebugCell> AdaptiveDebugCells;
     public NativeList<AdaptiveFatAabbDebugRegion> AdaptiveDebugRegions;
     public NativeList<AdaptiveFatAabbDebugProxy> AdaptiveDebugProxies;
+    public NativeList<AdaptiveFatAabbRegionHistory> AdaptiveRegionHistory;
+    public NativeList<AdaptiveFatAabbRegionHistory> AdaptiveRegionHistoryScratch;
+    public NativeReference<int> AdaptiveNextRegionId;
+    public NativeReference<AdaptiveFatAabbCacheFeedback> AdaptiveCacheFeedback;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
     public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
@@ -251,8 +255,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 CaptureSelectedBodyAndPairs(substepIndex);
         }
 
-        UpdateAdaptiveFatAabbHistoryAfterSolve(ref shadowStatistics);
-
         if (EnableFatAabbCache)
         {
             FatAabbCacheState cacheState = FatAabbCacheState.Value;
@@ -279,6 +281,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.PredictiveUnactivatedRatio = statistics.PredictivePairCount > 0
             ? (float)statistics.PredictiveUnactivatedCount / statistics.PredictivePairCount
             : 0f;
+        UpdateAdaptiveFatAabbHistoryAfterSolve(
+            ref shadowStatistics,
+            ref statistics);
         statistics.AverageIterationNanoseconds =
             statistics.IterationNanoseconds / math.max(1, substepCount * iterationCount);
         statistics.AverageSoftAvoidanceNanoseconds =

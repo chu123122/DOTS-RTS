@@ -89,8 +89,13 @@ public partial struct SolveXpbdUnitContactsJob
                 AdaptiveSettings.DensityWeight * metric.DensityScore +
                 AdaptiveSettings.PersistenceWeight * metric.PersistenceScore +
                 AdaptiveSettings.PressureWeight * metric.PressureScore;
+            AdaptiveFatAabbCacheFeedback cacheFeedback = AdaptiveCacheFeedback.Value;
+            float cachePenalty = math.max(
+                history.SmoothedEscapePenalty,
+                cacheFeedback.EscapePenalty);
             float rawScore = positiveScore / positiveWeight -
-                             AdaptiveSettings.EscapeRiskWeight * metric.EscapeRiskScore;
+                             AdaptiveSettings.EscapeRiskWeight * metric.EscapeRiskScore -
+                             AdaptiveSettings.CachePenaltyWeight * cachePenalty;
             rawScore = math.saturate(rawScore);
             metric.Score = math.lerp(
                 history.SmoothedScore,
@@ -197,6 +202,98 @@ public partial struct SolveXpbdUnitContactsJob
                 AverageScore = scoreSum / math.max(1, AdaptiveFloodCells.Length),
                 Active = 1
             });
+        }
+
+        StabilizeAdaptiveRegionIds();
+    }
+
+    private void StabilizeAdaptiveRegionIds()
+    {
+        AdaptiveRegionHistoryScratch.Clear();
+        AdaptiveRegionHistoryScratch.AddRange(AdaptiveRegionHistory.AsArray());
+        AdaptiveRegionHistory.Clear();
+        int matchPadding = math.max(0, AdaptiveSettings.RegionMatchPadding);
+
+        for (int regionIndex = 0; regionIndex < AdaptiveRegions.Length; regionIndex++)
+        {
+            AdaptiveFatAabbRegion region = AdaptiveRegions[regionIndex];
+            int bestHistoryIndex = -1;
+            int bestOverlap = 0;
+            for (int historyIndex = 0;
+                 historyIndex < AdaptiveRegionHistoryScratch.Length;
+                 historyIndex++)
+            {
+                AdaptiveFatAabbRegionHistory previous =
+                    AdaptiveRegionHistoryScratch[historyIndex];
+                if (previous.MissingFrames < 0)
+                    continue;
+
+                int2 intersectionMin = math.max(
+                    region.MinCell - matchPadding,
+                    previous.MinCell - matchPadding);
+                int2 intersectionMax = math.min(
+                    region.MaxCell + matchPadding,
+                    previous.MaxCell + matchPadding);
+                int2 size = intersectionMax - intersectionMin + 1;
+                if (size.x <= 0 || size.y <= 0)
+                    continue;
+                int overlap = size.x * size.y;
+                if (overlap <= bestOverlap)
+                    continue;
+                bestOverlap = overlap;
+                bestHistoryIndex = historyIndex;
+            }
+
+            AdaptiveFatAabbRegionHistory nextHistory;
+            if (bestHistoryIndex >= 0)
+            {
+                AdaptiveFatAabbRegionHistory previous =
+                    AdaptiveRegionHistoryScratch[bestHistoryIndex];
+                region.StableId = previous.StableId;
+                nextHistory = new AdaptiveFatAabbRegionHistory
+                {
+                    StableId = previous.StableId,
+                    MinCell = region.MinCell,
+                    MaxCell = region.MaxCell,
+                    LastScore = region.AverageScore,
+                    AgeFrames = previous.AgeFrames + 1,
+                    MissingFrames = 0
+                };
+                previous.MissingFrames = -1;
+                AdaptiveRegionHistoryScratch[bestHistoryIndex] = previous;
+            }
+            else
+            {
+                int stableId = math.max(1, AdaptiveNextRegionId.Value);
+                AdaptiveNextRegionId.Value = stableId + 1;
+                region.StableId = stableId;
+                nextHistory = new AdaptiveFatAabbRegionHistory
+                {
+                    StableId = stableId,
+                    MinCell = region.MinCell,
+                    MaxCell = region.MaxCell,
+                    LastScore = region.AverageScore,
+                    AgeFrames = 1,
+                    MissingFrames = 0
+                };
+            }
+
+            AdaptiveRegions[regionIndex] = region;
+            AdaptiveRegionHistory.Add(nextHistory);
+        }
+
+        int retainFrames = math.max(0, AdaptiveSettings.RegionRetainFrames);
+        for (int historyIndex = 0;
+             historyIndex < AdaptiveRegionHistoryScratch.Length;
+             historyIndex++)
+        {
+            AdaptiveFatAabbRegionHistory previous =
+                AdaptiveRegionHistoryScratch[historyIndex];
+            if (previous.MissingFrames < 0)
+                continue;
+            previous.MissingFrames++;
+            if (previous.MissingFrames <= retainFrames)
+                AdaptiveRegionHistory.Add(previous);
         }
     }
 
@@ -329,10 +426,14 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void UpdateAdaptiveFatAabbHistoryAfterSolve(
-        ref ShadowNeighborCacheStatistics shadowStatistics)
+        ref ShadowNeighborCacheStatistics shadowStatistics,
+        ref PredictiveDiscContactStatistics contactStatistics)
     {
         if (!AdaptiveFatAabbRequested)
+        {
+            AdaptiveCacheFeedback.Value = default;
             return;
+        }
 
         for (int cellIndex = 0; cellIndex < AdaptiveCellMetrics.Length; cellIndex++)
         {
@@ -354,9 +455,34 @@ public partial struct SolveXpbdUnitContactsJob
             AdaptiveCellMetrics[cellIndex] = metric;
         }
 
-        float escapePenalty = math.saturate(
+        int cacheAttempts = shadowStatistics.CacheReuseCount +
+                            shadowStatistics.CacheRebuildCount;
+        float reuseRatio = cacheAttempts > 0
+            ? shadowStatistics.CacheReuseCount / (float)cacheAttempts
+            : 0f;
+        float candidateExpansionRatio = shadowStatistics.CachedCandidatePairCount /
+                                        (float)math.max(1, contactStatistics.ContactPairCount);
+        float expansionPenalty = math.saturate(
+            (candidateExpansionRatio - AdaptiveSettings.CandidateExpansionLimit) /
+            AdaptiveSettings.CandidateExpansionLimit);
+        float fallbackPenalty = math.saturate(
             shadowStatistics.FullBroadPhaseFallbackCount +
             shadowStatistics.PostSolveInvalidationCount);
+        float rebuildPenalty = cacheAttempts > 0
+            ? 1f - reuseRatio
+            : 0f;
+        float escapePenalty = math.saturate(math.max(
+            fallbackPenalty,
+            math.max(expansionPenalty, rebuildPenalty * 0.5f)));
+        AdaptiveCacheFeedback.Value = new AdaptiveFatAabbCacheFeedback
+        {
+            EscapePenalty = escapePenalty,
+            CandidateExpansionRatio = candidateExpansionRatio,
+            ReuseRatio = reuseRatio,
+            ReuseCount = shadowStatistics.CacheReuseCount,
+            RebuildCount = shadowStatistics.CacheRebuildCount,
+            FallbackCount = shadowStatistics.FullBroadPhaseFallbackCount
+        };
         for (int cellIndex = 0; cellIndex < AdaptiveCellMetrics.Length; cellIndex++)
         {
             AdaptiveFatAabbCellMetric metric = AdaptiveCellMetrics[cellIndex];

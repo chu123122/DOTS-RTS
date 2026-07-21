@@ -30,6 +30,9 @@ public abstract partial class BaseFlowMovementSystem
         _adaptiveDebugCells.Clear();
         _adaptiveDebugRegions.Clear();
         _adaptiveDebugProxies.Clear();
+        _adaptiveRegionHistory.Clear();
+        _adaptiveNextRegionId.Value = 1;
+        _adaptiveCacheFeedback.Value = default;
         _shadowPreviousProxies.Clear();
         _shadowPreviousPairs.Clear();
         _fatAabbCacheState.Value = default;
