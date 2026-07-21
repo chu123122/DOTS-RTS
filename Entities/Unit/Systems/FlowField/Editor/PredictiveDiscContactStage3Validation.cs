@@ -1050,17 +1050,17 @@ public static class PredictiveDiscContactStage3Validation
             EnableDiagnostics = false,
             VisualizeContactHeatmap = false
         };
-        Require(!Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+        Require(!Stage3ContactDiagnosticReadback.Required(settings),
             "Fat AABB alone unexpectedly forced diagnostic readback synchronization.");
 
         settings.EnableFatAabbCache = false;
         settings.VisualizeContactHeatmap = true;
-        Require(Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+        Require(Stage3ContactDiagnosticReadback.Required(settings),
             "The regular heatmap did not request its published contact samples.");
 
         settings.VisualizeContactHeatmap = false;
         settings.EnableDiagnostics = true;
-        Require(Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+        Require(Stage3ContactDiagnosticReadback.Required(settings),
             "Explicit diagnostics did not request diagnostic readback synchronization.");
     }
 

@@ -109,4 +109,12 @@ public struct Stage3ContactHeatSample : IBufferElementData
     public byte Escaped;
     public byte HasFallbackPair;
 }
+
+public static class Stage3ContactDiagnosticReadback
+{
+    public static bool Required(UnitContactSolverSettings settings)
+    {
+        return settings.EnableDiagnostics || settings.VisualizeContactHeatmap;
+    }
+}
 }
