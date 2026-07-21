@@ -226,9 +226,12 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private int GetCurrentUnitCount()
     {
-        if (SimulationDebuggerRuntime.TryGetLatest(out var s))
-            return s.Overview.UnitCount;
-        return 0;
+        // 不用 TryGetLatest —— 上一轮 Play Mode 的静态 snapshot 可能未清空。
+        World world = World.DefaultGameObjectInjectionWorld;
+        if (world == null || !world.IsCreated)
+            return 0;
+        using var query = world.EntityManager.CreateEntityQuery(typeof(UnitMoveDestination));
+        return query.CalculateEntityCount();
     }
 
     // ── 随机移动命令 ────────────────────────────────────
