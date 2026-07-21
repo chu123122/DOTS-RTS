@@ -140,8 +140,7 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         if (settings.EnableDiagnostics && settings.VisualizeSelectedContacts)
             TrySelectDiagnosticUnitWithMiddleMouse();
 
-        bool shouldShowOverlay =
-            settings.EnableDiagnostics || settings.EnableFatAabbCache;
+        bool shouldShowOverlay = RequiresDiagnosticReadback(settings);
         _overlay.Visible = true;
         _overlay.ShowDiagnostics = shouldShowOverlay;
         if (!shouldShowOverlay)
@@ -212,6 +211,11 @@ public partial class Stage3ContactDiagnosticVisualizationSystem : SystemBase
         DrawSelectedSweep(selectedBody);
         for (int i = 0; i < pairDiagnostics.Length; i++)
             DrawPair(pairDiagnostics[i]);
+    }
+
+    public static bool RequiresDiagnosticReadback(UnitContactSolverSettings settings)
+    {
+        return settings.EnableDiagnostics;
     }
 
     private void TrySelectDiagnosticUnitWithMiddleMouse()

@@ -39,6 +39,7 @@ public static class PredictiveDiscContactStage3Validation
         ScenarioResult rvoAvoidance = ValidateRvoVelocitySolver();
         ValidateFatAabbDoesNotSweepFromWorldOrigin();
         ValidateRuntimeControlState();
+        ValidateDiagnosticReadbackIsolation();
         (ScenarioResult wallOneIteration, ScenarioResult wallEightIterations) =
             ValidateWallAndUnitConstraintsIterateTogether();
         ScenarioResult fatCache = ValidateFatAabbCache();
@@ -963,6 +964,22 @@ public static class PredictiveDiscContactStage3Validation
                 flowSettings.SoftAvoidanceShell == 0f &&
                 math.abs(flowSettings.RvoTimeHorizon - 0.01f) <= 0.000001f,
             "Runtime soft-avoidance controls were not applied or clamped.");
+    }
+
+    private static void ValidateDiagnosticReadbackIsolation()
+    {
+        var settings = new UnitContactSolverSettings
+        {
+            EnableFatAabbCache = true,
+            EnableDiagnostics = false
+        };
+        Require(!Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+            "Fat AABB alone unexpectedly forced diagnostic readback synchronization.");
+
+        settings.EnableFatAabbCache = false;
+        settings.EnableDiagnostics = true;
+        Require(Stage3ContactDiagnosticVisualizationSystem.RequiresDiagnosticReadback(settings),
+            "Explicit diagnostics did not request diagnostic readback synchronization.");
     }
 
     private static void Require(bool condition, string message)
