@@ -249,7 +249,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     {
                         ResetTimestepContactSetForSubstep();
                         SolveContactIteration(
-                            substepIndex,
                             substepDeltaTime,
                             substepIndex,
                             true,
