@@ -36,6 +36,8 @@ public sealed class SimulationDebuggerWindowState
 /// </summary>
 public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 {
+    public static SimulationDebuggerPanel Instance { get; private set; }
+
     [Header("Window")]
     public bool Visible = true;
     public KeyCode ToggleKey = KeyCode.F8;
@@ -78,11 +80,15 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void OnEnable()
     {
+        Instance = this;
+        EnsureWindowStates();
         RefreshCaptureMask();
     }
 
     private void OnDisable()
     {
+        if (Instance == this)
+            Instance = null;
         if (AutoRefreshCaptureMask)
             SimulationDebuggerRuntime.CaptureMask = SimulationDebuggerCaptureMask.None;
     }
@@ -135,6 +141,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             SimulationDebuggerRuntime.FreezeSnapshot = !SimulationDebuggerRuntime.FreezeSnapshot;
         if (GUILayout.Button(SimulationDebuggerRuntime.OverlayEnabled ? "场景图层" : "图层关闭", GUILayout.Width(68f)))
             SimulationDebuggerRuntime.OverlayEnabled = !SimulationDebuggerRuntime.OverlayEnabled;
+        if (GUILayout.Button("重置布局", GUILayout.Width(68f)))
+            ResetWindowLayout();
         if (GUILayout.Button("×", GUILayout.Width(24f)))
         {
             Visible = false;
@@ -167,11 +175,17 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             _ => DrawViewWindow(view, state),
             GUIContent.none,
             _windowStyle);
-        float desiredWidth = state.Rect.width;
-        float desiredHeight = state.Rect.height;
-        state.Rect = returnedRect;
-        state.Rect.width = Mathf.Max(360f, desiredWidth);
-        state.Rect.height = Mathf.Max(260f, desiredHeight);
+
+        // GUI.Window 返回的是窗口拖拽后的坐标；窗口内部的缩放手柄则直接修改
+        // state.Rect 的宽高。必须在回调结束后读取新宽高，不能用进入 GUI.Window
+        // 前保存的旧尺寸覆盖它。
+        float resizedWidth = state.Rect.width;
+        float resizedHeight = state.Rect.height;
+        state.Rect = new Rect(
+            returnedRect.x,
+            returnedRect.y,
+            Mathf.Max(320f, resizedWidth),
+            Mathf.Max(220f, resizedHeight));
         state.Rect.x = Mathf.Clamp(state.Rect.x, -state.Rect.width + 90f, Screen.width - 80f);
         state.Rect.y = Mathf.Clamp(state.Rect.y, 0f, Screen.height - 35f);
     }
@@ -257,8 +271,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         else if (evt.type == EventType.MouseDrag && state.Resizing)
         {
             Vector2 delta = evt.mousePosition - state.ResizeStartMouse;
-            state.Rect.width = Mathf.Max(360f, state.ResizeStartSize.x + delta.x);
-            state.Rect.height = Mathf.Max(260f, state.ResizeStartSize.y + delta.y);
+            state.Rect.width = Mathf.Max(320f, state.ResizeStartSize.x + delta.x);
+            state.Rect.height = Mathf.Max(220f, state.ResizeStartSize.y + delta.y);
             evt.Use();
         }
         else if (evt.type == EventType.MouseUp && state.Resizing)
@@ -266,6 +280,66 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             state.Resizing = false;
             evt.Use();
         }
+    }
+
+    public static bool IsPointerOverDebugger(Vector2 inputScreenPosition)
+    {
+        SimulationDebuggerPanel panel = Instance;
+        if (panel == null || !panel.Visible)
+            return false;
+
+        // Input.mousePosition 的原点在左下角，IMGUI Rect 的原点在左上角。
+        Vector2 guiPoint = new Vector2(
+            inputScreenPosition.x,
+            Screen.height - inputScreenPosition.y);
+        if (panel.LauncherRect.Contains(guiPoint))
+            return true;
+        return IsVisibleWindowHit(panel.OverviewWindow, guiPoint) ||
+               IsVisibleWindowHit(panel.AabbWindow, guiPoint) ||
+               IsVisibleWindowHit(panel.ContactWindow, guiPoint) ||
+               IsVisibleWindowHit(panel.SettingsWindow, guiPoint);
+    }
+
+    private static bool IsVisibleWindowHit(
+        SimulationDebuggerWindowState state,
+        Vector2 guiPoint)
+    {
+        return state != null && state.Visible && state.Rect.Contains(guiPoint);
+    }
+
+    private void EnsureWindowStates()
+    {
+        OverviewWindow ??= SimulationDebuggerWindowState.Create(
+            new Rect(18f, 58f, 510f, 440f),
+            SimulationDebuggerHeatmap.OverallPressure);
+        AabbWindow ??= SimulationDebuggerWindowState.Create(
+            new Rect(542f, 58f, 510f, 440f),
+            SimulationDebuggerHeatmap.AabbBenefit);
+        ContactWindow ??= SimulationDebuggerWindowState.Create(
+            new Rect(18f, 512f, 510f, 440f),
+            SimulationDebuggerHeatmap.ContactActivation);
+        SettingsWindow ??= SimulationDebuggerWindowState.Create(
+            new Rect(542f, 512f, 510f, 520f),
+            SimulationDebuggerHeatmap.None);
+    }
+
+    private void ResetWindowLayout()
+    {
+        EnsureWindowStates();
+        float gap = 12f;
+        float top = 58f;
+        float availableWidth = Mathf.Max(680f, Screen.width - 36f);
+        float width = Mathf.Clamp((availableWidth - gap) * 0.5f, 320f, 620f);
+        float height = Mathf.Clamp((Screen.height - top - gap - 24f) * 0.5f, 220f, 520f);
+        OverviewWindow.Rect = new Rect(18f, top, width, height);
+        AabbWindow.Rect = new Rect(18f + width + gap, top, width, height);
+        ContactWindow.Rect = new Rect(18f, top + height + gap, width, height);
+        SettingsWindow.Rect = new Rect(18f + width + gap, top + height + gap, width, height);
+        OverviewWindow.Visible = true;
+        AabbWindow.Visible = true;
+        ContactWindow.Visible = true;
+        SettingsWindow.Visible = true;
+        RefreshCaptureMask();
     }
 
     private static string ViewTitle(SimulationDebuggerView view)
