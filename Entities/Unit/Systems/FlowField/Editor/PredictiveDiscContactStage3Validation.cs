@@ -932,7 +932,7 @@ public static class PredictiveDiscContactStage3Validation
                 EnablePredictivePairGeneration = enablePredictivePairGeneration,
                 EnablePredictiveContacts = enablePredictiveContacts,
                 EnableDiagnostics = true,
-                EnableFatAabbCache = enableFatAabbCache,
+                EnablePersistentContactCache = enableFatAabbCache && enableTimestepContactSetCache,
                 EnableTimestepContactSetCache = enableTimestepContactSetCache,
                 FatAabbCacheMargin = fatAabbMargin,
                 TimestepContactMargin = timestepContactMargin,
