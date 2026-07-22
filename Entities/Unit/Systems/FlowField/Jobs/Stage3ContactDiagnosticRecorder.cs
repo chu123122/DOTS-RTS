@@ -192,7 +192,7 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepWallCorrection = selected.TimestepWallCorrection
         };
 
-        if (EnableFatAabbCache)
+        if (AdaptiveFatAabbRequested)
         {
             if (TryFindProxy(
                     ShadowPreviousProxies,

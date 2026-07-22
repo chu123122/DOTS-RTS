@@ -105,7 +105,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             return;
         }
 
-        if (!EnableFatAabbCache)
+        if (!AdaptiveFatAabbRequested)
         {
             ShadowPreviousProxies.Clear();
             ShadowPreviousPairs.Clear();
@@ -148,14 +148,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
-            bool useFatCandidatesForSoftAvoidance = EnableFatAabbCache &&
-                                                    !HasActiveAdaptiveFatRegions &&
-                                                    SoftAvoidanceShell > 0f &&
-                                                    SoftAvoidanceResponseRate > 0f &&
-                                                    EnsureFatAabbRawCandidates(
-                                                        ref shadowStatistics,
-                                                        ref fatCachePairsMappedThisFrame,
-                                                        false);
+            // Global Fat AABB 路径已移除，软避让统一使用 swept spatial hash。
+            bool useFatCandidatesForSoftAvoidance = false;
             CalculateSoftAvoidanceForSubstep(
                 useFatCandidatesForSoftAvoidance,
                 substepDeltaTime,
@@ -212,7 +206,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         ref fatCachePairsMappedThisFrame);
                     ResetTimestepContactSetForSubstep();
                 }
-                else if (EnableFatAabbCache &&
+                else if (AdaptiveFatAabbRequested &&
                          FatAabbCacheState.Value.IsValid != 0 &&
                          !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
                 {
@@ -280,7 +274,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                             recoveryMaxCorrection);
                     }
                 }
-                else if (EnableFatAabbCache &&
+                else if (AdaptiveFatAabbRequested &&
                          FatAabbCacheState.Value.IsValid != 0 &&
                          !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
                 {
@@ -300,7 +294,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             CaptureSelectedBodyAndPairs(substepCount - 1);
         BuildContactHeatSamples();
 
-        if (EnableFatAabbCache)
+        if (AdaptiveFatAabbRequested)
         {
             FatAabbCacheState cacheState = FatAabbCacheState.Value;
             if (cacheState.IsValid != 0 && shadowStatistics.CacheRebuildCount == 0)

@@ -606,12 +606,12 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
         GUILayout.Label(
-            "三个变量互相独立：A 为跨帧 AABB，B 为跨子步接触集，C 为软避让求解器。",
+            "三个变量互相独立：A 为跨帧 AABB 热点缓存，B 为跨子步接触集，C 为软避让求解器。",
             _mutedStyle);
-        draft.EnableFatAabbCache = DrawToggle(
-            "A：跨帧 AABB 候选缓存",
-            draft.EnableFatAabbCache,
-            snapshot.EffectiveSettings.EnableFatAabbCache);
+        draft.EnableAdaptiveFatAabb = DrawToggle(
+            "A：跨帧 AABB 热点缓存",
+            draft.EnableAdaptiveFatAabb,
+            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
         draft.EnableTimestepContactSetCache = DrawToggle(
             "B：跨子步接触集缓存",
             draft.EnableTimestepContactSetCache,
@@ -701,6 +701,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(6f);
         GUILayout.Label("跨帧 AABB 参数", _sectionStyle);
+        bool adaptiveEnabled = draft.EnableAdaptiveFatAabb != 0;
+        GUI.enabled = adaptiveEnabled;
         draft.FatAabbCacheMargin = DrawFloatSlider(
             "Fat AABB 外扩余量",
             draft.FatAabbCacheMargin,
@@ -708,10 +710,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             0f,
             5f,
             "0.00");
-        draft.EnableAdaptiveFatAabb = DrawToggle(
-            "启用拥挤热点自适应",
-            draft.EnableAdaptiveFatAabb,
-            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
         draft.AdaptiveDetectionCellSpan = DrawIntSlider(
             "检测格子跨度",
             draft.AdaptiveDetectionCellSpan,
@@ -797,6 +795,19 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             SimulationDebuggerRuntime.MaximumVisualizedPairs,
             1,
             128);
+        GUILayout.Space(6f);
+        GUILayout.Label("摄像机跟随与时间减缓", _sectionStyle);
+        SimulationDebuggerRuntime.SlowTimeScale = DrawFloatSlider(
+            "选中单位时减缓倍率",
+            SimulationDebuggerRuntime.SlowTimeScale,
+            SimulationDebuggerRuntime.SlowTimeScale,
+            0.01f,
+            1f,
+            "0.00");
+        DrawDetailRow(
+            "说明",
+            "中键点击单位→自动跟随+时间减缓；中键点击空地→退出。跟随模式下仍可边缘滚动和缩放。");
+
         SimulationDebuggerRuntime.HeatmapOpacity = DrawFloatSlider(
             "场景热力图透明度",
             SimulationDebuggerRuntime.HeatmapOpacity,
@@ -1603,7 +1614,14 @@ internal static class SimulationDebuggerPanelBootstrap
         if (gameObject.GetComponent<SimulationDebuggerWorldOverlay>() == null)
             gameObject.AddComponent<SimulationDebuggerWorldOverlay>();
         if (gameObject.GetComponent<SimulationDebuggerUnitPicker>() == null)
-            gameObject.AddComponent<SimulationDebuggerUnitPicker>();
+        {
+            var picker = gameObject.AddComponent<SimulationDebuggerUnitPicker>();
+            picker.ClearSelectionWhenNothingHit = true;
+        }
+        if (gameObject.GetComponent<SimulationDebuggerCameraFollow>() == null)
+        {
+            gameObject.AddComponent<SimulationDebuggerCameraFollow>();
+        }
     }
 #endif
 }
