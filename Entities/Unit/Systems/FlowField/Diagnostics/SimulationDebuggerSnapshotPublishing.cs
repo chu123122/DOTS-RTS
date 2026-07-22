@@ -47,13 +47,10 @@ public abstract partial class BaseFlowMovementSystem
         snapshot.SubstepCount = math.max(1, solverSettings.SubstepCount);
         snapshot.IterationCount = math.max(1, solverSettings.IterationCount);
         snapshot.CapturedMask = captureMask;
-        AdaptiveFatAabbSettings adaptiveSettings = AdaptiveFatAabbSettings.Default;
-        if (SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings))
-            adaptiveSettings = configuredAdaptiveSettings.Sanitized();
         snapshot.EffectiveSettings = BuildEffectiveSettings(
             SystemAPI.GetSingleton<FlowFieldSettings>(),
             solverSettings,
-            adaptiveSettings);
+            AdaptiveFatAabbSettings.Default);
         snapshot.Experiment = SimulationDebuggerRuntime.UpdateExperimentIdentity(
             snapshot.EffectiveSettings);
 
@@ -70,10 +67,10 @@ public abstract partial class BaseFlowMovementSystem
             hasContactStatistics,
             contactStatistics);
         snapshot.BroadPhase = BuildBroadPhaseMetrics(
-            hasShadowStatistics,
-            shadowStatistics,
+            false,
+            default,
             hasContactStatistics ? contactStatistics.ContactPairCount : 0,
-            snapshot.EffectiveSettings.EnableAdaptiveFatAabb != 0);
+            false);
         snapshot.ContactSet = BuildContactSetMetrics(
             hasContactStatistics,
             contactStatistics,
@@ -81,19 +78,7 @@ public abstract partial class BaseFlowMovementSystem
             hasShadowStatistics ? shadowStatistics.FullBroadPhaseFallbackCount : 0,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
-        bool wantsSpatial = (captureMask & (
-            SimulationDebuggerCaptureMask.OverviewHeatmap |
-            SimulationDebuggerCaptureMask.AabbHeatmap |
-            SimulationDebuggerCaptureMask.ContactSetHeatmap)) != 0;
-        if (wantsSpatial)
-            CopySimulationDebuggerCells(snapshot, grid);
 
-        if ((captureMask & SimulationDebuggerCaptureMask.Regions) != 0)
-            CopySimulationDebuggerRegions(snapshot);
-
-        if ((captureMask & SimulationDebuggerCaptureMask.Proxies) != 0 ||
-            (captureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0)
-            CopySimulationDebuggerProxies(snapshot);
 
         CaptureSelectedEntityDetails(snapshot);
         SimulationDebuggerRuntime.Publish(snapshot);
