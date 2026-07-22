@@ -230,8 +230,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var currentIncrementalProxies = new NativeList<PersistentSweptProxy>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        var currentPredictiveContacts = new NativeList<PersistentPredictiveContact>(
+            math.max(unitCount * 2, 1),
+            Allocator.TempJob);
         var incrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(
             math.max(unitCount, 1),
+            Allocator.TempJob);
+        var predictiveContactScratch = new NativeList<PersistentPredictiveContact>(
+            math.max(unitCount * 4, 1),
             Allocator.TempJob);
         var incrementalNeighborPairScratch = new NativeList<PersistentNeighborPair>(
             math.max(unitCount * 8, 1),
@@ -321,7 +327,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
+            CurrentPredictiveContacts = currentPredictiveContacts,
             PersistentPredictiveContacts = _persistentPredictiveContacts,
+            PredictiveContactScratch = predictiveContactScratch,
             IncrementalDirtyBodies = incrementalDirtyBodies,
             IncrementalNeighborPairScratch = incrementalNeighborPairScratch,
             PredictiveContactSchedule = predictiveContactSchedule,
@@ -398,8 +406,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             mappedFatCachePairs.Dispose(applyMovementHandle);
         JobHandle currentIncrementalProxyDisposeHandle =
             currentIncrementalProxies.Dispose(applyMovementHandle);
+        JobHandle currentPredictiveContactDisposeHandle =
+            currentPredictiveContacts.Dispose(applyMovementHandle);
         JobHandle incrementalDirtyBodyDisposeHandle =
             incrementalDirtyBodies.Dispose(applyMovementHandle);
+        JobHandle predictiveContactScratchDisposeHandle =
+            predictiveContactScratch.Dispose(applyMovementHandle);
         JobHandle incrementalNeighborPairScratchDisposeHandle =
             incrementalNeighborPairScratch.Dispose(applyMovementHandle);
         JobHandle predictiveContactScheduleDisposeHandle =
@@ -469,6 +481,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             currentIncrementalProxyDisposeHandle,
             incrementalDirtyBodyDisposeHandle,
+            predictiveContactScratchDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
             incrementalNeighborPairScratchDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,

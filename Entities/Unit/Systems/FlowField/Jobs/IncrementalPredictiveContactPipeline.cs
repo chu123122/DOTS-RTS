@@ -84,10 +84,120 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ReclassifiedPairCount += Pairs.Length;
         FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
         incrementalStatistics.SweptHitCount += Pairs.Length;
+        SynchronizePersistentPredictiveContacts(ref incrementalStatistics);
         incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - classificationStart);
         incrementalStatistics.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
         return true;
+    }
+
+    private void SynchronizePersistentPredictiveContacts(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        PredictiveContactScratch.Clear();
+        uint timestep = IncrementalCacheState.Value.Timestep;
+
+        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
+        {
+            UnitCollisionPair pair = Pairs[pairIndex];
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            StableEntityPairKey key = StableEntityPairKey.Create(bodyA.Entity, bodyB.Entity);
+
+            PersistentContactLifecycle lifecycle;
+            float3 currentDelta = bodyA.TimestepStartPosition - bodyB.TimestepStartPosition;
+            currentDelta.y = 0f;
+            float radiusSum = bodyA.Radius + bodyB.Radius;
+            if (math.lengthsq(currentDelta) <= radiusSum * radiusSum)
+                lifecycle = PersistentContactLifecycle.Actual;
+            else if (pair.IsDormant != 0)
+                lifecycle = PersistentContactLifecycle.Dormant;
+            else if (pair.ContactMode == UnitContactMode.Predictive)
+                lifecycle = PersistentContactLifecycle.Predictive;
+            else
+                lifecycle = PersistentContactLifecycle.Approaching;
+
+            float3 stableNormal = pair.PredictiveNormal;
+            sbyte fixedSide = pair.ContactMode == UnitContactMode.Predictive
+                ? (sbyte)1
+                : (sbyte)0;
+            if (TryFindPersistentPredictiveContact(
+                    key,
+                    out PersistentPredictiveContact previous) &&
+                math.dot(previous.StableNormal, stableNormal) > 0.5f)
+            {
+                stableNormal = previous.StableNormal;
+                fixedSide = previous.FixedSide != 0 ? previous.FixedSide : fixedSide;
+            }
+
+            PersistentSweptProxy proxyA = default;
+            PersistentSweptProxy proxyB = default;
+            TryFindPersistentProxy(bodyA.Entity, out proxyA);
+            TryFindPersistentProxy(bodyB.Entity, out proxyB);
+
+            PredictiveContactScratch.Add(new PersistentPredictiveContact
+            {
+                Key = key,
+                StableNormal = stableNormal,
+                Lifecycle = lifecycle,
+                FixedSide = fixedSide,
+                FirstPossibleSubstep = lifecycle == PersistentContactLifecycle.Dormant
+                    ? ushort.MaxValue
+                    : (ushort)0,
+                NextCheckSubstep = lifecycle == PersistentContactLifecycle.Dormant
+                    ? ushort.MaxValue
+                    : (ushort)0,
+                LastSeenTimestep = timestep,
+                MotionVersionA = proxyA.MotionVersion,
+                MotionVersionB = proxyB.MotionVersion
+            });
+
+            switch (lifecycle)
+            {
+                case PersistentContactLifecycle.Dormant:
+                    incrementalStatistics.DormantPairCount++;
+                    break;
+                case PersistentContactLifecycle.Predictive:
+                case PersistentContactLifecycle.Approaching:
+                    incrementalStatistics.PredictivePairCount++;
+                    break;
+                case PersistentContactLifecycle.Actual:
+                    incrementalStatistics.ActualPairCount++;
+                    break;
+            }
+        }
+
+        if (PredictiveContactScratch.Length > 1)
+            PredictiveContactScratch.AsArray().Sort(new PersistentPredictiveContactComparer());
+        PersistentPredictiveContacts.Clear();
+        PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
+    }
+
+    private bool TryFindPersistentPredictiveContact(
+        StableEntityPairKey key,
+        out PersistentPredictiveContact contact)
+    {
+        int low = 0;
+        int high = PersistentPredictiveContacts.Length - 1;
+        var comparer = new StableEntityPairKeyComparer();
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            PersistentPredictiveContact candidate = PersistentPredictiveContacts[middle];
+            int comparison = comparer.Compare(candidate.Key, key);
+            if (comparison == 0)
+            {
+                contact = candidate;
+                return true;
+            }
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        contact = default;
+        return false;
     }
 
     private bool ValidateAndClassifyIncrementalDirtyBodies(
