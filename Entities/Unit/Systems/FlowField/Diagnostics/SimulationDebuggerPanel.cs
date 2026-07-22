@@ -1682,7 +1682,7 @@ internal static class SimulationDebuggerPanelBootstrap
 
         var gameObject = new GameObject("Simulation Debugger")
         {
-            hideFlags = HideFlags.DontSave
+            hideFlags = HideFlags.HideAndDontSave
         };
         gameObject.AddComponent<SimulationDebuggerPanel>();
         UnityEngine.Object.DontDestroyOnLoad(gameObject);
