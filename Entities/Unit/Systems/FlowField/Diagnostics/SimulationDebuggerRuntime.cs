@@ -20,9 +20,37 @@ public static class SimulationDebuggerRuntime
     private static uint _experimentConfigurationId;
     private static int _experimentFramesSinceChanged;
     private static int _experimentLastKey = int.MinValue;
-
-    public static SimulationDebuggerCaptureMask CaptureMask { get; set; } =
+    private static SimulationDebuggerCaptureMask _captureMask =
         SimulationDebuggerCaptureMask.Summary;
+    private static SimulationDebuggerCaptureMask _localRecordingCaptureMask;
+
+    public static SimulationDebuggerCaptureMask CaptureMask
+    {
+        get
+        {
+            lock (Gate)
+                return _captureMask | _localRecordingCaptureMask;
+        }
+        set
+        {
+            lock (Gate)
+                _captureMask = value;
+        }
+    }
+
+    /// <summary>
+    /// 本地记录期间保留最小快照，避免关闭面板或切换窗口时丢失采样数据。
+    /// 该租约不会覆盖面板自身的 CaptureMask。
+    /// </summary>
+    public static void SetLocalRecordingCapture(bool enabled)
+    {
+        lock (Gate)
+        {
+            _localRecordingCaptureMask = enabled
+                ? SimulationDebuggerCaptureMask.Summary | SimulationDebuggerCaptureMask.Regions
+                : SimulationDebuggerCaptureMask.None;
+        }
+    }
 
     public static SimulationDebuggerView ActiveView { get; set; } =
         SimulationDebuggerView.Overview;
@@ -234,6 +262,7 @@ public static class SimulationDebuggerRuntime
         {
             _latest = null;
             _publishedVersion = 0;
+            _localRecordingCaptureMask = SimulationDebuggerCaptureMask.None;
         }
         CaptureMask = SimulationDebuggerCaptureMask.Summary;
         ActiveView = SimulationDebuggerView.Overview;
