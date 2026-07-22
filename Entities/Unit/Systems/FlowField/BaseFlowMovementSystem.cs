@@ -242,8 +242,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
-        var shadowStatistics =
-            new NativeReference<ShadowNeighborCacheStatistics>(Allocator.TempJob);
         var incrementalStatistics =
             new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
         var iterationDiagnostics = new NativeList<Stage3ContactIterationDiagnostic>(
@@ -315,7 +313,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SimulationDebuggerSelectedUnitValid = _simulationDebuggerSelectedUnitValid,
             States = states,
             Statistics = contactStatistics,
-            ShadowStatistics = shadowStatistics,
             IterationDiagnostics = iterationDiagnostics,
             PairDiagnostics = pairDiagnostics,
             SelectedBodyDiagnostic = selectedBodyDiagnostic,
@@ -326,7 +323,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
             Source = contactStatistics,
-            ShadowSource = shadowStatistics,
             SelectedBodySource = selectedBodyDiagnostic,
             IterationSource = iterationDiagnostics,
             PairSource = pairDiagnostics,
@@ -345,7 +341,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                     effectiveTimestepContactSetCache,
                     effectivePersistentContactCache),
                 SolverSource = contactStatistics,
-                LegacyBroadPhaseSource = shadowStatistics,
                 Source = incrementalStatistics,
                 Target = _incrementalDiagnosticsEntity,
                 SnapshotLookup =
@@ -410,8 +405,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             publishIncrementalStatisticsHandle);
         JobHandle statisticsDisposeHandle =
             contactStatistics.Dispose(allStatisticsPublishedHandle);
-        JobHandle shadowStatisticsDisposeHandle =
-            shadowStatistics.Dispose(allStatisticsPublishedHandle);
         JobHandle incrementalStatisticsDisposeHandle =
             incrementalStatistics.Dispose(publishIncrementalStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle =
@@ -463,9 +456,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   incrementalStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
-  statisticsDisposeHandle,
-  shadowStatisticsDisposeHandle,
-  selectedDiagnosticDisposeHandle);
+            statisticsDisposeHandle,
+            selectedDiagnosticDisposeHandle);
         diagnosticDisposeHandle = JobHandle.CombineDependencies(
   diagnosticDisposeHandle,
   iterationDiagnosticDisposeHandle,
