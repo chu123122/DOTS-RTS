@@ -45,7 +45,7 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         if (snapshot.Statistics.Timestep == 0)
         {
             EditorGUILayout.HelpBox(
-                "No v2 contact-pipeline snapshot is available. Enter Play Mode and run at least one simulation timestep.",
+                "No v3 contact-pipeline snapshot is available. Enter Play Mode and run at least one simulation timestep.",
                 MessageType.Info);
             return;
         }
@@ -132,6 +132,7 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
             $"{configuration.GuardEnvelopeMargin:G5} / {configuration.PredictiveSkin:G5} / {configuration.TimestepContactMargin:G5}");
         Metric("Soft-avoidance shell", configuration.SoftAvoidanceShell.ToString("G5"));
         Metric("Timestep cache", Bool(configuration.TimestepCacheEnabled));
+        Metric("Cross-frame topology", Bool(configuration.CrossFrameTopologyEnabled));
         Metric("Predictive contacts", Bool(configuration.PredictiveContactsEnabled));
         Metric("Diagnostics", Bool(configuration.DiagnosticsEnabled));
 
@@ -226,7 +227,7 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
 
     private static void DrawRecording()
     {
-        EditorGUILayout.LabelField("CSV v2 recorder", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("CSV v3 recorder", EditorStyles.boldLabel);
         Metric("State", IncrementalContactPipelineCsvRecorderRuntime.IsRecording ? "Recording" : "Idle");
         Metric("Progress",
             $"{IncrementalContactPipelineCsvRecorderRuntime.RecordedFrames}/{IncrementalContactPipelineCsvRecorderRuntime.TargetFrames}");

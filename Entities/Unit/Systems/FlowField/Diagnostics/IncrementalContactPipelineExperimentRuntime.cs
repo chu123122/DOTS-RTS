@@ -46,7 +46,8 @@ public static class IncrementalContactPipelineExperimentRuntime
         float deltaTime,
         float softAvoidanceShell,
         UnitContactSolverSettings settings,
-        bool effectiveTimestepCacheEnabled)
+        bool effectiveTimestepCacheEnabled,
+        bool effectiveCrossFrameTopologyEnabled)
     {
         return new IncrementalContactPipelineConfiguration
         {
@@ -62,6 +63,7 @@ public static class IncrementalContactPipelineExperimentRuntime
             TimestepContactMargin = settings.TimestepContactMargin,
             SoftAvoidanceShell = softAvoidanceShell,
             TimestepCacheEnabled = (byte)(effectiveTimestepCacheEnabled ? 1 : 0),
+            CrossFrameTopologyEnabled = (byte)(effectiveCrossFrameTopologyEnabled ? 1 : 0),
             PredictiveContactsEnabled = (byte)(settings.EnablePredictiveContacts ? 1 : 0),
             DiagnosticsEnabled = (byte)(settings.EnableDiagnostics ? 1 : 0)
         };
