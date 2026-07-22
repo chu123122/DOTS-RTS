@@ -249,21 +249,9 @@ public abstract partial class BaseFlowMovementSystem
         SimulationDebuggerFrameSnapshot snapshot,
         FlowFieldGrid grid)
     {
-        AdaptiveFatAabbCacheFeedback feedback = _adaptiveCacheFeedback.IsCreated
-            ? _adaptiveCacheFeedback.Value
-            : default;
         for (int i = 0; i < _adaptiveDebugCells.Length; i++)
         {
             AdaptiveFatAabbDebugCell cell = _adaptiveDebugCells[i];
-            float globalBenefit = math.saturate(
-                0.5f + snapshot.BroadPhase.EstimatedBenefitScore * 0.5f);
-            bool adaptiveEnabled = snapshot.EffectiveSettings.EnableAdaptiveFatAabb != 0;
-            float localBenefit = adaptiveEnabled
-                ? math.saturate(0.5f + 0.5f * (feedback.ReuseRatio - cell.CachePenalty))
-                : globalBenefit;
-            float candidateExpansion = math.saturate(
-                snapshot.BroadPhase.CandidateExpansion /
-                math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit));
             snapshot.Cells.Add(new SimulationDebuggerCellSample
             {
                 Coordinate = CellCoordinateFromBounds(cell.Min, grid),
@@ -276,12 +264,11 @@ public abstract partial class BaseFlowMovementSystem
                     math.max(cell.PressureScore, math.max(cell.AverageCorrection, cell.ContactLoad)))),
                 Density = cell.DensityScore,
                 SolverCorrection = math.saturate(cell.PressureScore),
-                AabbBenefit = math.saturate(math.min(globalBenefit, localBenefit)),
-                AabbSlack = NormalizeCellSlack(cell.Min, cell.Max),
-                CandidateExpansion = math.saturate(math.max(
-                    candidateExpansion * math.max(0.25f, cell.ContactLoad),
-                    feedback.CandidateExpansionRatio /
-                    math.max(1f, AdaptiveFatAabbSettings.Default.CandidateExpansionLimit))),
+                // Legacy enum fields are retained for snapshot compatibility. They now
+                // describe persistent-contact topology instead of Fat AABB reuse.
+                AabbBenefit = cell.PersistenceScore,
+                AabbSlack = math.saturate(1f - cell.EscapeRiskScore),
+                CandidateExpansion = cell.ContactLoad,
                 EscapeRisk = math.saturate(math.max(
                     cell.EscapeRiskScore,
                     cell.CachePenalty)),
@@ -290,7 +277,7 @@ public abstract partial class BaseFlowMovementSystem
                     cell.ContactLoad * (1f - cell.ContactActivation)),
                 ContactSupplementRisk = math.saturate(math.max(
                     cell.ContactSupplementRisk,
-                    cell.ContactLoad * (cell.EscapeRiskScore + feedback.EscapePenalty)))
+                    cell.ContactLoad * cell.EscapeRiskScore))
             });
         }
     }
