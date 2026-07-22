@@ -272,7 +272,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var softAvoidancePairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
-        var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
+        var previousTimestepContactPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
         var currentIncrementalProxies = new NativeList<PersistentSweptProxy>(
@@ -375,7 +375,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowCurrentProxies = shadowCurrentProxies,
             ShadowCurrentPairs = shadowCurrentPairs,
             CurrentBodyIndexByEntity = currentBodyIndexByEntity,
-            MappedFatCachePairs = mappedFatCachePairs,
+            PreviousTimestepContactPairs = previousTimestepContactPairs,
             TimestepInteractionPairs = timestepInteractionPairs,
             SoftAvoidancePairs = softAvoidancePairs,
             CorrectedBodyFlags = correctedBodyFlags,
@@ -487,7 +487,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle currentBodyIndexDisposeHandle =
             currentBodyIndexByEntity.Dispose(applyMovementHandle);
         JobHandle mappedFatCachePairDisposeHandle =
-            mappedFatCachePairs.Dispose(applyMovementHandle);
+            previousTimestepContactPairs.Dispose(applyMovementHandle);
         JobHandle timestepInteractionPairDisposeHandle =
             timestepInteractionPairs.Dispose(applyMovementHandle);
         JobHandle softAvoidancePairDisposeHandle =

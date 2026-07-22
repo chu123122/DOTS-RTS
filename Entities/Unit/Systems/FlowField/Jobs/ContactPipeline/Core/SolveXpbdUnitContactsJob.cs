@@ -58,7 +58,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<ShadowFatBodyProxy> ShadowCurrentProxies;
     public NativeList<ShadowEntityPair> ShadowCurrentPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
-    public NativeList<UnitCollisionPair> MappedFatCachePairs;
+    // Snapshot of the previous finalized timestep view, used only to preserve
+    // activation/fallback history while rebuilding the current view.
+    public NativeList<UnitCollisionPair> PreviousTimestepContactPairs;
     // 中层跨子步 InteractionSet。跨帧缓存与全量 Sweep 只能作为它的两种来源；
     // Soft Avoidance 和 XPBD 不得直接读取任何跨帧持久容器。
     public NativeList<UnitCollisionPair> TimestepInteractionPairs;
@@ -119,7 +121,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         var shadowStatistics = new ShadowNeighborCacheStatistics();
         var incrementalStatistics = new IncrementalContactPipelineStatistics();
         float penetrationSum = 0f;
-        bool fatCachePairsMappedThisFrame = false;
         IterationDiagnostics.Clear();
         PairDiagnostics.Clear();
         SelectedBodyDiagnostic.Value = default;
@@ -155,8 +156,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
             BuildTimestepContactSet(
                 ref statistics,
-                ref shadowStatistics,
-                ref fatCachePairsMappedThisFrame,
                 ref incrementalStatistics,
                 false,
                 false);
@@ -192,8 +191,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     substepDeltaTime,
                     true,
                     ref statistics,
-                    ref shadowStatistics,
-                    ref fatCachePairsMappedThisFrame,
                     ref incrementalStatistics,
                     false);
             }
@@ -223,8 +220,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     substepDeltaTime,
                     EnableTimestepContactSetCache,
                     ref statistics,
-                    ref shadowStatistics,
-                    ref fatCachePairsMappedThisFrame,
                     ref incrementalStatistics,
                     false);
                 rebuiltPredictedContactView = true;
@@ -274,8 +269,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         substepDeltaTime,
                         EnableTimestepContactSetCache,
                         ref statistics,
-                        ref shadowStatistics,
-                        ref fatCachePairsMappedThisFrame,
                         ref incrementalStatistics);
                     ResetTimestepContactSetForSubstep();
                 }
@@ -322,8 +315,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         substepDeltaTime,
                         EnableTimestepContactSetCache,
                         ref statistics,
-                        ref shadowStatistics,
-                        ref fatCachePairsMappedThisFrame,
                         ref incrementalStatistics);
 
                     // 最后一轮之后没有正常恢复机会；补一轮只处理新发现的单位接触。
