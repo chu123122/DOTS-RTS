@@ -376,14 +376,13 @@ public sealed partial class AdaptiveParameterTuner
     private bool AreBenchmarkUnitsSettled()
     {
         _benchmarkEntityManager.CompleteAllTrackedJobs();
-        using var query = _benchmarkEntityManager.CreateEntityQuery(ComponentType.ReadOnly<BasicUnitTag>(), ComponentType.ReadOnly<FlowArrivalState>(), ComponentType.ReadOnly<Velocity>());
-        using NativeArray<FlowArrivalState> arrivals = query.ToComponentDataArray<FlowArrivalState>(Allocator.Temp);
+        using var query = _benchmarkEntityManager.CreateEntityQuery(ComponentType.ReadOnly<BasicUnitTag>(), ComponentType.ReadOnly<Velocity>());
         using NativeArray<Velocity> velocities = query.ToComponentDataArray<Velocity>(Allocator.Temp);
-        if (arrivals.Length == 0)
+        if (velocities.Length == 0)
             return false;
         float thresholdSq = BenchmarkSettledSpeedThreshold * BenchmarkSettledSpeedThreshold;
-        for (int i = 0; i < arrivals.Length; i++)
-            if (!arrivals[i].IsSettled || math.lengthsq(velocities[i].Value) > thresholdSq)
+        for (int i = 0; i < velocities.Length; i++)
+            if (math.lengthsq(velocities[i].Value) > thresholdSq)
                 return false;
         return true;
     }
