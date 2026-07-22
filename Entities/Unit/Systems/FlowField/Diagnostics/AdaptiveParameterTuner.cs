@@ -26,7 +26,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 ///
 /// 不需要任何手动操作——场景进入 Play Mode 后全自动完成。
 /// </summary>
-public sealed class AdaptiveParameterTuner : MonoBehaviour
+public sealed partial class AdaptiveParameterTuner : MonoBehaviour
 {
     [Header("Spawn")]
     [Min(1)] public int UnitCount = 200;
@@ -134,6 +134,12 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private void Update()
     {
+        if (UseScenarioBenchmark)
+        {
+            UpdateScenarioBenchmark();
+            return;
+        }
+
         switch (_phase)
         {
             case Phase.WaitingForScene:
@@ -173,6 +179,12 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (UseScenarioBenchmark)
+        {
+            FinalizeScenarioBenchmark();
+            return;
+        }
+
         WriteCsv();
     }
 

@@ -161,6 +161,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         // 持久邻居拓扑只能为跨子步接触集提供候选；不允许“跨帧开、跨子步关”。
         bool effectivePersistentContactCache =
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
+        if (SimulationDebuggerRuntime.TryConsumeContactCacheReset())
+            ResetPersistentContactCaches();
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
@@ -561,6 +563,19 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         Dependency = JobHandle.CombineDependencies(
             mainDisposeHandle,
             diagnosticDisposeHandle);
+    }
+
+    private void ResetPersistentContactCaches()
+    {
+        // 复位只发生在 benchmark 采样前。先完成上一帧依赖，避免清空仍被 Job 访问的容器。
+        Dependency.Complete();
+        _shadowPreviousProxies.Clear();
+        _shadowPreviousPairs.Clear();
+        _fatAabbCacheState.Value = default;
+        _persistentSweptProxies.Clear();
+        _persistentNeighborPairs.Clear();
+        _persistentPredictiveContacts.Clear();
+        _incrementalContactCacheState.Value = default;
     }
 }
 }
