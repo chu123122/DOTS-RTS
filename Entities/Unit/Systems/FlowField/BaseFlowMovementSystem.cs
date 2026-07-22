@@ -252,6 +252,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var incrementalNeighborPairScratch = new NativeList<PersistentNeighborPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
+        var incrementalOracleContactPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
         var predictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(
             math.max(unitCount * 2, 1),
             Allocator.TempJob);
@@ -341,6 +344,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PredictiveContactScratch = predictiveContactScratch,
             IncrementalDirtyBodies = incrementalDirtyBodies,
             IncrementalNeighborPairScratch = incrementalNeighborPairScratch,
+            IncrementalOracleContactPairs = incrementalOracleContactPairs,
             PredictiveContactSchedule = predictiveContactSchedule,
             IncrementalCacheState = _incrementalContactCacheState,
             IncrementalStatistics = incrementalStatistics,
@@ -441,6 +445,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             predictiveContactScratch.Dispose(applyMovementHandle);
         JobHandle incrementalNeighborPairScratchDisposeHandle =
             incrementalNeighborPairScratch.Dispose(applyMovementHandle);
+        JobHandle incrementalOracleContactPairDisposeHandle =
+            incrementalOracleContactPairs.Dispose(applyMovementHandle);
         JobHandle predictiveContactScheduleDisposeHandle =
             predictiveContactSchedule.Dispose(applyMovementHandle);
         JobHandle correctedBodyFlagDisposeHandle =
@@ -518,6 +524,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
             incrementalNeighborPairScratchDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
+            incrementalOracleContactPairDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
             predictiveContactScheduleDisposeHandle);

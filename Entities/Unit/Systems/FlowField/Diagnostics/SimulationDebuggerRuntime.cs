@@ -95,9 +95,10 @@ public static class SimulationDebuggerRuntime
     {
         lock (Gate)
         {
-            int key = (settings.EnableFatAabbCache != 0 ? 1 : 0) |
-                      (settings.EnableTimestepContactSetCache != 0 ? 2 : 0) |
-                      ((settings.SoftAvoidanceVelocitySolver & 1) << 2);
+            // Fat AABB is retained only for serialized compatibility; the persistent
+            // incremental topology is controlled by the timestep contact-set switch.
+            int key = (settings.EnableTimestepContactSetCache != 0 ? 1 : 0) |
+                      ((settings.SoftAvoidanceVelocitySolver & 1) << 1);
             if (_experimentLastKey != key)
             {
                 _experimentLastKey = key;
@@ -111,7 +112,7 @@ public static class SimulationDebuggerRuntime
 
             return new SimulationExperimentMetrics
             {
-                PersistentBroadPhaseCache = settings.EnableFatAabbCache,
+                PersistentBroadPhaseCache = settings.EnableTimestepContactSetCache,
                 TimestepContactSetCache = settings.EnableTimestepContactSetCache,
                 SoftAvoidanceSolver = settings.SoftAvoidanceVelocitySolver,
                 ConfigurationId = _experimentConfigurationId,

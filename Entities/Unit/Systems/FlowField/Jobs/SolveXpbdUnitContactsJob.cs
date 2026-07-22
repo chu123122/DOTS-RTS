@@ -69,6 +69,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PersistentPredictiveContact> PredictiveContactScratch;
     public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
     public NativeList<PersistentNeighborPair> IncrementalNeighborPairScratch;
+    // 仅在诊断校验中使用：保存当前帧的增量管线接触对，避免与求解 scratch 混用。
+    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
     public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using RTS.Unit.FlowField.Jobs;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
@@ -33,7 +34,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         : 0f;
 
     private StreamWriter _overviewWriter;
-    private StreamWriter _aabbWriter;
+    private StreamWriter _topologyWriter;
     private StreamWriter _contactWriter;
     private StreamWriter _settingsWriter;
     private bool _isRecording;
@@ -106,8 +107,8 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         {
             _overviewWriter = CreateWriter("01_overview.csv",
                 "elapsed_s,frame,units,solver_us,soft_avoidance_us,pair_generation_us,iteration_us,other_us,candidate_pairs,contact_pairs,max_contact_correction,max_wall_correction,max_velocity_change,substeps,iterations");
-            _aabbWriter = CreateWriter("02_fat_aabb.csv",
-                "elapsed_s,frame,adaptive_hotspot_enabled,broadphase_panel_enabled,cache_valid,cache_age_frames,reuse,rebuild,fallback,invalidation,cached_candidate_pairs,final_contact_pairs,reuse_ratio,candidate_expansion,estimated_benefit,active_regions,hotspot_units,cache_build_us,cache_validation_us,cache_mapping_us");
+            _topologyWriter = CreateWriter("02_incremental_topology.csv",
+                "elapsed_s,frame,timestep,mode,proxy_count,topology_dirty_bodies,motion_dirty_bodies,escaped_bodies,local_proxy_queries,persistent_neighbor_pairs,pairs_added,pairs_removed,pairs_retained,full_rebuilds,incremental_repairs,clean_proxy_ratio,retained_pair_ratio,proxy_validation_us,local_broadphase_us,pair_diff_us,oracle_missing_pairs,oracle_extra_pairs");
             _contactWriter = CreateWriter("03_timestep_contact_set.csv",
                 "elapsed_s,frame,cache_enabled,builds,contact_set_size,active_contacts,inactive_contacts,actual_contacts,predictive_contacts,predictive_activated,fallbacks,activation_ratio,predictive_activation_ratio,substeps");
             _settingsWriter = CreateWriter("04_settings.csv",
@@ -156,7 +157,8 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
     {
         float elapsed = ElapsedSeconds;
         SimulationOverviewMetrics overview = snapshot.Overview;
-        PersistentBroadPhaseMetrics broadPhase = snapshot.BroadPhase;
+        IncrementalContactPipelineSnapshot incremental =
+            IncrementalContactPipelineDiagnosticsRuntime.Latest;
         TimestepContactSetMetrics contactSet = snapshot.ContactSet;
         SimulationDebuggerEffectiveSettings settings = snapshot.EffectiveSettings;
 
@@ -173,28 +175,19 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
             Number(overview.MaxContactCorrection), Number(overview.MaxWallCorrection),
             Number(overview.MaxVelocityChange), snapshot.SubstepCount, snapshot.IterationCount));
 
-        int activeRegions = 0;
-        int hotspotUnits = 0;
-        for (int i = 0; i < snapshot.Regions.Count; i++)
-        {
-            SimulationDebuggerRegionSample region = snapshot.Regions[i];
-            if (region.Active == 0)
-                continue;
-            activeRegions++;
-            hotspotUnits += region.UnitCount;
-        }
-
-        _aabbWriter.WriteLine(string.Join(",",
-            Number(elapsed), snapshot.FrameId,
-            settings.EnableAdaptiveFatAabb, broadPhase.Enabled, broadPhase.Valid,
-            broadPhase.CacheAgeFrames, broadPhase.ReuseCount, broadPhase.RebuildCount,
-            broadPhase.FallbackCount, broadPhase.InvalidationCount,
-            broadPhase.CachedCandidatePairCount, broadPhase.FinalContactPairCount,
-            Number(broadPhase.ReuseRatio), Number(broadPhase.CandidateExpansion),
-            Number(broadPhase.EstimatedBenefitScore), activeRegions, hotspotUnits,
-            Microseconds(broadPhase.CacheBuildNanoseconds),
-            Microseconds(broadPhase.CacheValidationNanoseconds),
-            Microseconds(broadPhase.CachePairMappingNanoseconds)));
+        IncrementalContactPipelineStatistics topology = incremental.Statistics;
+        _topologyWriter.WriteLine(string.Join(",",
+            Number(elapsed), snapshot.FrameId, topology.Timestep, incremental.Mode,
+            topology.ProxyCount, topology.TopologyDirtyBodyCount, topology.MotionDirtyBodyCount,
+            topology.CorrectedEscapeBodyCount, topology.LocalProxyQueryCount,
+            topology.PersistentNeighborPairCount, topology.NeighborPairAddedCount,
+            topology.NeighborPairRemovedCount, topology.NeighborPairRetainedCount,
+            topology.FullRebuildCount, topology.IncrementalRepairCount,
+            Number(incremental.CleanProxyRatio), Number(incremental.RetainedNeighborPairRatio),
+            Microseconds(topology.ProxyValidationNanoseconds),
+            Microseconds(topology.LocalBroadPhaseNanoseconds),
+            Microseconds(topology.PairDiffNanoseconds), topology.OracleMissingPairCount,
+            topology.OracleExtraPairCount));
 
         _contactWriter.WriteLine(string.Join(",",
             Number(elapsed), snapshot.FrameId, contactSet.CacheEnabled,
@@ -233,11 +226,11 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
     {
         FlushWriters();
         _overviewWriter?.Dispose();
-        _aabbWriter?.Dispose();
+        _topologyWriter?.Dispose();
         _contactWriter?.Dispose();
         _settingsWriter?.Dispose();
         _overviewWriter = null;
-        _aabbWriter = null;
+        _topologyWriter = null;
         _contactWriter = null;
         _settingsWriter = null;
     }
@@ -245,7 +238,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
     private void FlushWriters()
     {
         _overviewWriter?.Flush();
-        _aabbWriter?.Flush();
+        _topologyWriter?.Flush();
         _contactWriter?.Flush();
         _settingsWriter?.Flush();
     }
