@@ -411,7 +411,7 @@ public sealed partial class AdaptiveParameterTuner
             float speed = math.sqrt(speedSq);
             maxSpeed = math.max(maxSpeed, speed);
             avgSpeed += speed;
-            if (!destinations[i].IsActive) noDest++;
+            if (destinations[i].IsActive == 0) noDest++;
             if (!arrivals[i].IsSettled) notSettled++;
             if (speedSq > thresholdSq) tooFast++;
             float dist = math.distance(transforms[i].Position, destinations[i].Position);
