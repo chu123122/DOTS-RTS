@@ -1060,7 +1060,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (state.IsValid == 0 ||
             state.BodyCount != States.Length ||
             PersistentSweptProxies.Length != CurrentIncrementalProxies.Length ||
-            state.GuardMargin != math.max(0f, FatAabbCacheMargin) ||
+            state.GuardMargin != math.max(0f, GuardEnvelopeMargin) ||
             state.PredictiveSkin != math.max(0f, PredictiveSkin) ||
             state.TimestepContactMargin != math.max(0f, TimestepContactMargin) ||
             state.SoftAvoidanceShell != math.max(0f, SoftAvoidanceShell) ||
@@ -1642,7 +1642,7 @@ public partial struct SolveXpbdUnitContactsJob
     private void BuildCurrentIncrementalSweptProxies()
     {
         CurrentIncrementalProxies.Clear();
-        float guardMargin = math.max(0f, FatAabbCacheMargin);
+        float guardMargin = math.max(0f, GuardEnvelopeMargin);
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
@@ -1833,7 +1833,7 @@ public partial struct SolveXpbdUnitContactsJob
         state.TopologyEpoch = nextTopologyEpoch;
         state.BodyCount = States.Length;
         state.NeighborPairCount = PersistentNeighborPairs.Length;
-        state.GuardMargin = math.max(0f, FatAabbCacheMargin);
+        state.GuardMargin = math.max(0f, GuardEnvelopeMargin);
         state.PredictiveSkin = math.max(0f, PredictiveSkin);
         state.TimestepContactMargin = math.max(0f, TimestepContactMargin);
         state.SoftAvoidanceShell = math.max(0f, SoftAvoidanceShell);

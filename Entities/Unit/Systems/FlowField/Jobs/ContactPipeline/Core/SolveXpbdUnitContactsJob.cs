@@ -21,25 +21,26 @@ namespace RTS.Unit.FlowField.Jobs
 [BurstCompile]
 public partial struct SolveXpbdUnitContactsJob : IJob
 {
-    public float DeltaTime;
-    public int SubstepCount;
-    public int IterationCount;
-    public float Compliance;
-    public float PredictiveSkin;
-    public float SoftAvoidanceResponseRate;
-    public float SoftAvoidanceShell;
-    public float SettledSoftAvoidanceMultiplier;
-    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
-    public float RvoTimeHorizon;
-    public bool EnablePredictivePairGeneration;
-    public bool EnablePredictiveContacts;
-    public bool EnableDiagnostics;
-    // Persistent topology is cross-frame reuse; the timestep switch controls
-    // whether a contact set is reused across substeps.
-    public bool EnablePersistentContactCache;
-    public bool EnableTimestepContactSetCache;
-    public float FatAabbCacheMargin;
-    public float TimestepContactMargin;
+    public ContactPipelineConfiguration Configuration;
+
+    private float DeltaTime => Configuration.DeltaTime;
+    private int SubstepCount => Configuration.SubstepCount;
+    private int IterationCount => Configuration.IterationCount;
+    private float Compliance => Configuration.Compliance;
+    private float PredictiveSkin => Configuration.PredictiveSkin;
+    private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
+    private float SoftAvoidanceShell => Configuration.SoftAvoidanceShell;
+    private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
+    private SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver =>
+        Configuration.SoftAvoidanceVelocitySolver;
+    private float RvoTimeHorizon => Configuration.RvoTimeHorizon;
+    private bool EnablePredictivePairGeneration => Configuration.EnablePredictivePairGeneration;
+    private bool EnablePredictiveContacts => Configuration.EnablePredictiveContacts;
+    private bool EnableDiagnostics => Configuration.EnableDiagnostics;
+    private bool EnablePersistentContactCache => Configuration.EnablePersistentContactCache;
+    private bool EnableTimestepContactSetCache => Configuration.EnableTimestepContactSetCache;
+    private float GuardEnvelopeMargin => Configuration.GuardEnvelopeMargin;
+    private float TimestepContactMargin => Configuration.TimestepContactMargin;
     public Entity DiagnosticSelectedEntity;
 
     public float3 GridOrigin;
