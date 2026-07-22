@@ -201,7 +201,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (GUILayout.Button("字+", GUILayout.Width(34f)))
             FontScale = Mathf.Clamp(FontScale + ZoomStep, 0.5f, 2f);
         DrawWindowVisibilityButton("整体", OverviewWindow);
-        DrawWindowVisibilityButton("跨帧 AABB", AabbWindow);
+        DrawWindowVisibilityButton("跨帧接触缓存", AabbWindow);
         DrawWindowVisibilityButton("跨子步接触", ContactWindow);
         DrawWindowVisibilityButton("设置", SettingsWindow);
         GUILayout.FlexibleSpace();
@@ -427,7 +427,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         return view switch
         {
             SimulationDebuggerView.Overview => "整体仿真",
-            SimulationDebuggerView.PersistentBroadPhase => "跨帧 AABB",
+            SimulationDebuggerView.PersistentBroadPhase => "跨帧接触缓存",
             SimulationDebuggerView.TimestepContactSet => "跨子步接触缓存",
             _ => "运行时设置"
         };
@@ -506,21 +506,54 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawPersistentBroadPhase(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawTrendChart(SimulationDebuggerRuntime.GetCacheHitHistory(), "命中率");
-        GUILayout.Space(4f);
+        IncrementalContactPipelineSnapshot pipeline =
+            IncrementalContactPipelineDiagnosticsRuntime.Latest;
+        var statistics = pipeline.Statistics;
+        bool cacheEnabled = snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
+        bool hasPipelineSnapshot = statistics.Timestep != 0;
+        SimulationDebuggerHealth health;
+        string status;
+        if (!cacheEnabled)
+        {
+            health = SimulationDebuggerHealth.Disabled;
+            status = "跨帧邻居拓扑已关闭；当前每个子步重新生成接触候选。";
+        }
+        else if (!hasPipelineSnapshot)
+        {
+            health = SimulationDebuggerHealth.Warning;
+            status = "等待增量接触管线发布首个时间步快照。";
+        }
+        else if (statistics.OracleMissingPairCount != 0 || statistics.OracleMismatch != 0)
+        {
+            health = SimulationDebuggerHealth.Critical;
+            status = "Oracle 发现缺失接触对，下一步将失效并重建拓扑。";
+        }
+        else if (statistics.FullRebuildCount != 0)
+        {
+            health = SimulationDebuggerHealth.Warning;
+            status = "本时间步发生完整重建；检查脏体比例和局部查询范围。";
+        }
+        else
+        {
+            health = SimulationDebuggerHealth.Healthy;
+            status = "持久邻居拓扑有效，当前数据来自增量接触管线。";
+        }
 
-        PersistentBroadPhaseMetrics metrics = snapshot.BroadPhase;
-        DrawStatus("跨帧 AABB", metrics.Health, BroadPhaseStatus(metrics));
+        DrawStatus("跨帧接触缓存", health, status);
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
-        DrawMetric("缓存复用率", Percent(metrics.ReuseRatio), "复用次数 / 复用与重建总次数");
-        DrawMetric("候选膨胀", $"{metrics.CandidateExpansion:0.00}×", "缓存候选 / 最终 Contact");
-        DrawMetric("重建 / 回退", $"{metrics.RebuildCount} / {metrics.FallbackCount}", "重建越少越好，回退应接近 0");
+        DrawMetric("拓扑脏体", hasPipelineSnapshot
+            ? $"{statistics.TopologyDirtyBodyCount} / {statistics.ProxyCount}"
+            : "--", "脏体越少，跨帧邻居拓扑复用越高");
+        DrawMetric("持久邻居对", hasPipelineSnapshot
+            ? statistics.PersistentNeighborPairCount.ToString("N0") : "--", "跨帧保留的局部候选对");
+        DrawMetric("更新模式", hasPipelineSnapshot ? pipeline.Mode.ToString() : "--",
+            "Reuse 最优；Repair 为局部更新；FullRebuild 为完整重建");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
-            "AABB 热力图",
+            "接触拓扑热力图",
             new[]
             {
                 SimulationDebuggerHeatmap.AabbBenefit,
@@ -536,21 +569,23 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (!_showDetails)
             return;
 
-        GUILayout.Label("缓存详情", _sectionStyle);
-        DrawDetailRow("状态", metrics.Enabled == 0 ? "关闭" : metrics.Valid != 0 ? "有效" : "无效");
-        DrawDetailRow("缓存年龄", $"{metrics.CacheAgeFrames} 帧");
-        DrawDetailRow("缓存候选 Pair", metrics.CachedCandidatePairCount.ToString("N0"));
-        DrawDetailRow("最终 Contact", metrics.FinalContactPairCount.ToString("N0"));
-        DrawDetailRow("失效次数", metrics.InvalidationCount.ToString("N0"));
-        DrawDetailRow("估算收益评分", metrics.EstimatedBenefitScore.ToString("+0.00;-0.00;0.00"));
-        DrawDetailRow("缓存构建", Nanoseconds(metrics.CacheBuildNanoseconds));
-        DrawDetailRow("缓存校验", Nanoseconds(metrics.CacheValidationNanoseconds));
-        DrawDetailRow("Pair 映射", Nanoseconds(metrics.CachePairMappingNanoseconds));
-
-        GUILayout.Space(6f);
-        GUILayout.Label("60 帧趋势", _sectionStyle);
-        DrawTrendRow("缓存命中率", SimulationDebuggerRuntime.GetCacheHitTrend(), "0.0", "%");
-        DrawTrendRow("接触对数量", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
+        GUILayout.Label("增量拓扑详情", _sectionStyle);
+        DrawDetailRow("时间步 / 模式", hasPipelineSnapshot
+            ? $"{statistics.Timestep} / {pipeline.Mode}" : "尚无快照");
+        DrawDetailRow("运动脏体 / 逃逸", hasPipelineSnapshot
+            ? $"{statistics.MotionDirtyBodyCount} / {statistics.CorrectedEscapeBodyCount}" : "--");
+        DrawDetailRow("新增 / 移除 / 保留 Pair", hasPipelineSnapshot
+            ? $"{statistics.NeighborPairAddedCount} / {statistics.NeighborPairRemovedCount} / {statistics.NeighborPairRetainedCount}" : "--");
+        DrawDetailRow("完整重建 / 局部修复", hasPipelineSnapshot
+            ? $"{statistics.FullRebuildCount} / {statistics.IncrementalRepairCount}" : "--");
+        DrawDetailRow("干净代理 / Pair 保留率", hasPipelineSnapshot
+            ? $"{pipeline.CleanProxyRatio:P1} / {pipeline.RetainedNeighborPairRatio:P1}" : "--");
+        DrawDetailRow("局部代理查询", hasPipelineSnapshot
+            ? statistics.LocalProxyQueryCount.ToString("N0") : "--");
+        DrawDetailRow("代理校验 / 局部 Broad / Pair Diff", hasPipelineSnapshot
+            ? $"{Nanoseconds(statistics.ProxyValidationNanoseconds)} / {Nanoseconds(statistics.LocalBroadPhaseNanoseconds)} / {Nanoseconds(statistics.PairDiffNanoseconds)}" : "--");
+        DrawDetailRow("Oracle 缺失 / 额外", hasPipelineSnapshot
+            ? $"{statistics.OracleMissingPairCount} / {statistics.OracleExtraPairCount}" : "--");
     }
 
     private void DrawContactSet(SimulationDebuggerFrameSnapshot snapshot)
@@ -612,14 +647,14 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
         GUILayout.Label(
-            "三个变量互相独立：A 为跨帧 AABB 热点缓存，B 为跨子步接触集，C 为软避让求解器。",
+            "A 仅控制热点网格诊断；跨帧邻居拓扑与跨子步接触集共用 B 开关，C 为软避让求解器。",
             _mutedStyle);
         draft.EnableAdaptiveFatAabb = DrawToggle(
-            "A：跨帧 AABB 热点缓存",
+            "A：热点网格诊断（非执行路径）",
             draft.EnableAdaptiveFatAabb,
             snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
         draft.EnableTimestepContactSetCache = DrawToggle(
-            "B：跨子步接触集缓存",
+            "B：接触缓存（跨帧 / 跨子步）",
             draft.EnableTimestepContactSetCache,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache);
         GUILayout.BeginHorizontal();
@@ -1480,9 +1515,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             SimulationDebuggerHeatmap.OverallPressure => "综合压力",
             SimulationDebuggerHeatmap.UnitDensity => "密度",
             SimulationDebuggerHeatmap.SolverCorrection => "修正量",
-            SimulationDebuggerHeatmap.AabbBenefit => "缓存收益",
-            SimulationDebuggerHeatmap.AabbSlack => "剩余余量",
-            SimulationDebuggerHeatmap.CandidateExpansion => "候选膨胀",
+            SimulationDebuggerHeatmap.AabbBenefit => "拓扑稳定度",
+            SimulationDebuggerHeatmap.AabbSlack => "低运动风险",
+            SimulationDebuggerHeatmap.CandidateExpansion => "接触负载",
             SimulationDebuggerHeatmap.EscapeRisk => "逃逸风险",
             SimulationDebuggerHeatmap.ContactActivation => "激活",
             SimulationDebuggerHeatmap.ContactWaste => "未使用",

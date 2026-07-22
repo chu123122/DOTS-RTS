@@ -75,7 +75,12 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
     private bool TryPickUnit(Vector2 screenPosition, out Entity selected)
     {
         selected = Entity.Null;
-        Camera camera = SelectionCamera != null ? SelectionCamera : Camera.main;
+        SimulationDebuggerCameraFollow follow = GetComponent<SimulationDebuggerCameraFollow>();
+        Camera camera = SelectionCamera != null
+            ? SelectionCamera
+            : follow != null && follow.FollowCamera != null
+                ? follow.FollowCamera
+                : Camera.main;
         World world = World.DefaultGameObjectInjectionWorld;
         if (camera == null || world == null || !world.IsCreated)
             return false;
@@ -96,28 +101,25 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
                 for (int i = 0; i < entities.Length; i++)
                 {
                     float3 position = transforms[i].Position;
-                    Vector3 viewport = camera.WorldToViewportPoint(
+                    Vector3 screen = camera.WorldToScreenPoint(
                         new Vector3(position.x, position.y, position.z));
-                    if (viewport.z <= 0f)
+                    if (screen.z <= 0f)
                         continue;
 
-                    // 只选中屏幕视口内的单位，排除视锥外或背后的单位。
-                    if (viewport.x < 0f || viewport.x > 1f ||
-                        viewport.y < 0f || viewport.y > 1f)
+                    // WorldToScreenPoint 返回全屏像素坐标，兼容非全屏 viewport。
+                    Vector2 projected = new Vector2(screen.x, screen.y);
+                    if (!camera.pixelRect.Contains(projected))
                         continue;
 
-                    float screenX = viewport.x * camera.pixelWidth;
-                    float screenY = viewport.y * camera.pixelHeight;
-                    float distanceSq = (new Vector2(screenX, screenY) - screenPosition)
-                        .sqrMagnitude;
+                    float distanceSq = (projected - screenPosition).sqrMagnitude;
                     if (distanceSq > bestDistanceSq)
                         continue;
                     if (Mathf.Approximately(distanceSq, bestDistanceSq) &&
-                        viewport.z >= bestDepth)
+                        screen.z >= bestDepth)
                         continue;
 
                     bestDistanceSq = distanceSq;
-                    bestDepth = viewport.z;
+                    bestDepth = screen.z;
                     selected = entities[i];
                 }
             }

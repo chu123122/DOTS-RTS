@@ -38,6 +38,8 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
     private Camera _controlledCamera;
     private Transform _cameraTransform;
 
+    public Camera FollowCamera => ControlledCamera;
+
     private Camera ControlledCamera
     {
         get
@@ -114,7 +116,7 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
         _followOffset = Vector3.zero;
         _smoothVelocity = Vector3.zero;
 
-        Vector3 target = CalculateCameraTarget(unitPos, FollowHeight);
+        Vector3 target = CalculateRigTarget(unitPos, FollowHeight);
         _cameraTransform.position = target;
         _isFollowing = true;
     }
@@ -149,7 +151,7 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
             Time.timeScale = SimulationDebuggerRuntime.SlowTimeScale;
 
         float effectiveHeight = FollowHeight + _followOffset.y;
-        Vector3 target = CalculateCameraTarget(unitPos, effectiveHeight)
+        Vector3 target = CalculateRigTarget(unitPos, effectiveHeight)
                        + new Vector3(_followOffset.x, 0f, _followOffset.z);
 
         _cameraTransform.position = Vector3.SmoothDamp(
@@ -161,10 +163,10 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
             deltaTime);
     }
 
-    private Vector3 CalculateCameraTarget(Vector3 unitPos, float height)
+    private Vector3 CalculateRigTarget(Vector3 unitPos, float height)
     {
         Camera camera = ControlledCamera;
-        if (camera == null)
+        if (camera == null || _cameraTransform == null)
             return unitPos + Vector3.up * height;
 
         Vector3 forward = camera.transform.forward;
@@ -172,12 +174,15 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
         if (Mathf.Abs(fy) < 0.001f)
             return unitPos + Vector3.up * height;
 
+        // 先求实际子 Camera 应处的世界坐标，再扣除其相对 Rig 的当前世界偏移。
+        // 旧实现把子 Camera 坐标直接写给 CameraController 的 Rig，导致固定偏移跟随。
         float t = height / fy;
-
-        return new Vector3(
+        Vector3 desiredCameraPosition = new Vector3(
             unitPos.x + forward.x * t,
             unitPos.y + height,
             unitPos.z + forward.z * t);
+        Vector3 cameraOffsetFromRig = camera.transform.position - _cameraTransform.position;
+        return desiredCameraPosition - cameraOffsetFromRig;
     }
 
     private void HandleEdgeScroll(float deltaTime)
