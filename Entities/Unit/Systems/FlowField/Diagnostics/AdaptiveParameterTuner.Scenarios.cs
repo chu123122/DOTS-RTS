@@ -28,6 +28,7 @@ public sealed partial class AdaptiveParameterTuner
     [Min(1)] public int BenchmarkSettledFrames = 30;
     [Min(1)] public int BenchmarkMaxPreparationFrames = 3600;
     [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.15f;
+    [Range(0.5f, 1f)] public float BenchmarkSettledUnitRatio = 0.95f;
 
     [Tooltip("三种模式均从 PointA 稳定后的同一 ECS 快照开始。ObstaclePingPong 直接使用场景障碍物。")]
     public List<BenchmarkScenario> BenchmarkScenarios = new()
@@ -380,11 +381,17 @@ public sealed partial class AdaptiveParameterTuner
         using NativeArray<Velocity> velocities = query.ToComponentDataArray<Velocity>(Allocator.Temp);
         if (velocities.Length == 0)
             return false;
+        // settled_hold 要求全部静止，ping_pong 允许少量单位有残余速度。
+        float requiredRatio = CurrentBenchmarkScenario.Mode == BenchmarkScenarioMode.MoveThenHold
+            ? 1f
+            : BenchmarkSettledUnitRatio;
+        int required = math.max(1, (int)(velocities.Length * requiredRatio));
         float thresholdSq = BenchmarkSettledSpeedThreshold * BenchmarkSettledSpeedThreshold;
+        int settled = 0;
         for (int i = 0; i < velocities.Length; i++)
-            if (math.lengthsq(velocities[i].Value) > thresholdSq)
-                return false;
-        return true;
+            if (math.lengthsq(velocities[i].Value) <= thresholdSq)
+                settled++;
+        return settled >= required;
     }
 
     private void LogSettlementDiagnostics()
@@ -393,34 +400,32 @@ public sealed partial class AdaptiveParameterTuner
         using var query = _benchmarkEntityManager.CreateEntityQuery(
             ComponentType.ReadOnly<BasicUnitTag>(),
             ComponentType.ReadOnly<UnitMoveDestination>(),
-            ComponentType.ReadOnly<FlowArrivalState>(),
             ComponentType.ReadOnly<Velocity>(),
             ComponentType.ReadOnly<LocalTransform>());
         using NativeArray<UnitMoveDestination> destinations = query.ToComponentDataArray<UnitMoveDestination>(Allocator.Temp);
-        using NativeArray<FlowArrivalState> arrivals = query.ToComponentDataArray<FlowArrivalState>(Allocator.Temp);
         using NativeArray<Velocity> velocities = query.ToComponentDataArray<Velocity>(Allocator.Temp);
         using NativeArray<LocalTransform> transforms = query.ToComponentDataArray<LocalTransform>(Allocator.Temp);
-        if (arrivals.Length == 0) { Debug.Log("[Benchmark] 稳定诊断：当前无单位。"); return; }
-        int notSettled = 0, tooFast = 0, noDest = 0;
+        if (velocities.Length == 0) { Debug.Log("[Benchmark] 稳定诊断：当前无单位。"); return; }
+        int tooFast = 0, noDest = 0;
         float maxSpeed = 0f, avgSpeed = 0f, maxDist = 0f, avgDist = 0f;
         float thresholdSq = BenchmarkSettledSpeedThreshold * BenchmarkSettledSpeedThreshold;
-        for (int i = 0; i < arrivals.Length; i++)
+        for (int i = 0; i < velocities.Length; i++)
         {
             float speedSq = math.lengthsq(velocities[i].Value);
             float speed = math.sqrt(speedSq);
             maxSpeed = math.max(maxSpeed, speed);
             avgSpeed += speed;
             if (destinations[i].IsActive == 0) noDest++;
-            if (!arrivals[i].IsSettled) notSettled++;
             if (speedSq > thresholdSq) tooFast++;
             float dist = math.distance(transforms[i].Position, destinations[i].Position);
             maxDist = math.max(maxDist, dist);
             avgDist += dist;
         }
-        avgSpeed /= arrivals.Length;
-        avgDist /= arrivals.Length;
+        avgSpeed /= velocities.Length;
+        avgDist /= velocities.Length;
+        float settledRatio = (velocities.Length - tooFast) / (float)velocities.Length;
         Debug.Log($"[Benchmark] 帧 {_benchmarkPreparationFrames} 稳定诊断："
-                + $"总数={arrivals.Length} 无目标={noDest} 未到达={notSettled} 超速={tooFast}(>{BenchmarkSettledSpeedThreshold:0.00})"
+                + $"总数={velocities.Length} 无目标={noDest} 静止={velocities.Length - tooFast}({settledRatio:P0}) 超速={tooFast}(>{BenchmarkSettledSpeedThreshold:0.00})"
                 + $" 最大速度={maxSpeed:0.000} 平均={avgSpeed:0.000}"
                 + $" 最大距离={maxDist:0.00} 平均={avgDist:0.00}");
     }
