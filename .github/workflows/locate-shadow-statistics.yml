@@ -1,0 +1,29 @@
+name: Locate remaining ShadowStatistics reference
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+
+permissions:
+  contents: read
+
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect exact identifier matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Rnw --include='*.cs' \
+            Entities/Unit/Systems/FlowField \
+            -e 'ShadowStatistics' \
+            > shadow-statistics-matches.txt || true
+          cat shadow-statistics-matches.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow-statistics-matches
+          path: shadow-statistics-matches.txt
+          if-no-files-found: error
