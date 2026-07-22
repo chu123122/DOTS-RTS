@@ -149,8 +149,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             IncrementalCacheState.Value = default;
         }
 
-        // 即使旧 Fat AABB 已退出执行路径，热力图仍需要从当前状态构建诊断网格。
-        BuildAdaptiveFatAabbHotspots();
         if (EnableTimestepContactSetCache)
         {
             PrepareTimestepContactPrediction(DeltaTime, false);
@@ -426,7 +424,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     incrementalStatistics.UniqueActivatedPairCount)
                 : 0f;
         // 记录本时间步的接触/修正结果，供下一帧热力图快照读取。
-        UpdateAdaptiveFatAabbHistoryAfterSolve(ref shadowStatistics, ref statistics);
         CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;
