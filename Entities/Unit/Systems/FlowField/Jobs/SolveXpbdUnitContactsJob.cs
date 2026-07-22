@@ -61,6 +61,14 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
     public NativeList<ShadowEntityPair> ShadowPreviousPairs;
     public NativeReference<FatAabbCacheState> FatAabbCacheState;
+    public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
+    public NativeList<PersistentSweptProxy> PersistentSweptProxies;
+    public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
+    public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
+    public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
+    public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
+    public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeArray<AdaptiveFatAabbCellHistory> AdaptiveCellHistory;
     public NativeArray<AdaptiveFatAabbCellMetric> AdaptiveCellMetrics;
     public NativeArray<AdaptiveFatAabbBodyRouting> AdaptiveBodyRouting;
@@ -91,6 +99,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         var statistics = new PredictiveDiscContactStatistics();
         statistics.TimestepContactSetFirstEscapeSubstep = -1;
         var shadowStatistics = new ShadowNeighborCacheStatistics();
+        var incrementalStatistics = new IncrementalContactPipelineStatistics();
         float penetrationSum = 0f;
         bool fatCachePairsMappedThisFrame = false;
         IterationDiagnostics.Clear();
@@ -102,6 +111,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         {
             Statistics.Value = statistics;
             ShadowStatistics.Value = shadowStatistics;
+            IncrementalStatistics.Value = incrementalStatistics;
             return;
         }
 
@@ -138,6 +148,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 ref statistics,
                 ref shadowStatistics,
                 ref fatCachePairsMappedThisFrame,
+                ref incrementalStatistics,
                 false,
                 false);
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
@@ -167,6 +178,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     ref statistics,
                     ref shadowStatistics,
                     ref fatCachePairsMappedThisFrame,
+                    ref incrementalStatistics,
                     false,
                     false);
                 statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
@@ -203,7 +215,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         EnableTimestepContactSetCache,
                         ref statistics,
                         ref shadowStatistics,
-                        ref fatCachePairsMappedThisFrame);
+                        ref fatCachePairsMappedThisFrame,
+                        ref incrementalStatistics);
                     ResetTimestepContactSetForSubstep();
                 }
                 else if (AdaptiveFatAabbRequested &&
@@ -255,7 +268,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         EnableTimestepContactSetCache,
                         ref statistics,
                         ref shadowStatistics,
-                        ref fatCachePairsMappedThisFrame);
+                        ref fatCachePairsMappedThisFrame,
+                        ref incrementalStatistics);
 
                     // 最后一轮之后没有正常恢复机会；补一轮只处理新发现的单位接触。
                     if (iterationIndex == iterationCount - 1)
@@ -334,6 +348,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;
+        IncrementalStatistics.Value = incrementalStatistics;
     }
 
     private void InitializeSolverState()

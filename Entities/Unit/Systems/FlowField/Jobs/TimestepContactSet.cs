@@ -70,6 +70,7 @@ public partial struct SolveXpbdUnitContactsJob
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
         ref bool fatCachePairsMappedThisFrame,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullBroadPhase,
         bool fallback)
     {
@@ -79,7 +80,14 @@ public partial struct SolveXpbdUnitContactsJob
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
 
         bool sourcedFromFatCache = false;
-        if (!forceFullBroadPhase && HasActiveAdaptiveFatRegions)
+        if (EnableFatAabbCache)
+        {
+            sourcedFromFatCache = BuildContactPairsFromPersistentNeighborSet(
+                ref statistics,
+                ref incrementalStatistics,
+                forceFullBroadPhase);
+        }
+        else if (!forceFullBroadPhase && HasActiveAdaptiveFatRegions)
         {
             sourcedFromFatCache = BuildAdaptiveHybridContactPairs(
                 ref statistics,
@@ -184,7 +192,8 @@ public partial struct SolveXpbdUnitContactsJob
         bool persistAcrossSubsteps,
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
-        ref bool fatCachePairsMappedThisFrame)
+        ref bool fatCachePairsMappedThisFrame,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         float remainingDuration = persistAcrossSubsteps
             ? math.max(
@@ -198,6 +207,7 @@ public partial struct SolveXpbdUnitContactsJob
             ref statistics,
             ref shadowStatistics,
             ref fatCachePairsMappedThisFrame,
+            ref incrementalStatistics,
             true,
             true);
         shadowStatistics.FullBroadPhaseFallbackCount++;

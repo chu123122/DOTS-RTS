@@ -22,6 +22,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<ShadowFatBodyProxy> _shadowPreviousProxies;
     private NativeList<ShadowEntityPair> _shadowPreviousPairs;
     private NativeReference<FatAabbCacheState> _fatAabbCacheState;
+    private NativeList<PersistentSweptProxy> _persistentSweptProxies;
+    private NativeList<PersistentNeighborPair> _persistentNeighborPairs;
+    private NativeList<PersistentPredictiveContact> _persistentPredictiveContacts;
+    private NativeReference<IncrementalContactCacheState> _incrementalContactCacheState;
     private NativeList<AdaptiveFatAabbCellHistory> _adaptiveCellHistory;
     private NativeList<AdaptiveFatAabbRegion> _adaptiveRegions;
     private NativeList<AdaptiveFatAabbDebugCell> _adaptiveDebugCells;
@@ -55,6 +59,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _shadowPreviousProxies = new NativeList<ShadowFatBodyProxy>(Allocator.Persistent);
         _shadowPreviousPairs = new NativeList<ShadowEntityPair>(Allocator.Persistent);
         _fatAabbCacheState = new NativeReference<FatAabbCacheState>(Allocator.Persistent);
+        _persistentSweptProxies = new NativeList<PersistentSweptProxy>(Allocator.Persistent);
+        _persistentNeighborPairs = new NativeList<PersistentNeighborPair>(Allocator.Persistent);
+        _persistentPredictiveContacts =
+            new NativeList<PersistentPredictiveContact>(Allocator.Persistent);
+        _incrementalContactCacheState =
+            new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
         _adaptiveCellHistory = new NativeList<AdaptiveFatAabbCellHistory>(Allocator.Persistent);
         _adaptiveRegions = new NativeList<AdaptiveFatAabbRegion>(Allocator.Persistent);
         _adaptiveDebugCells = new NativeList<AdaptiveFatAabbDebugCell>(Allocator.Persistent);
@@ -81,6 +91,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _shadowPreviousPairs.Dispose();
         if (_fatAabbCacheState.IsCreated)
             _fatAabbCacheState.Dispose();
+        if (_persistentSweptProxies.IsCreated)
+            _persistentSweptProxies.Dispose();
+        if (_persistentNeighborPairs.IsCreated)
+            _persistentNeighborPairs.Dispose();
+        if (_persistentPredictiveContacts.IsCreated)
+            _persistentPredictiveContacts.Dispose();
+        if (_incrementalContactCacheState.IsCreated)
+            _incrementalContactCacheState.Dispose();
         if (_adaptiveCellHistory.IsCreated)
             _adaptiveCellHistory.Dispose();
         if (_adaptiveRegions.IsCreated)
@@ -209,6 +227,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
+        var currentIncrementalProxies = new NativeList<PersistentSweptProxy>(
+            math.max(unitCount, 1),
+            Allocator.TempJob);
+        var incrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(
+            math.max(unitCount, 1),
+            Allocator.TempJob);
+        var predictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(
+            math.max(unitCount * 2, 1),
+            Allocator.TempJob);
         var correctedBodyFlags = new NativeArray<byte>(
             unitCount,
             Allocator.TempJob,
@@ -220,6 +247,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var shadowStatistics =
             new NativeReference<ShadowNeighborCacheStatistics>(Allocator.TempJob);
+        var incrementalStatistics =
+            new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
         var iterationDiagnostics = new NativeList<Stage3ContactIterationDiagnostic>(
             math.max(contactSolverSettings.SubstepCount * contactSolverSettings.IterationCount, 1),
             Allocator.TempJob);
@@ -286,6 +315,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowPreviousProxies = _shadowPreviousProxies,
             ShadowPreviousPairs = _shadowPreviousPairs,
             FatAabbCacheState = _fatAabbCacheState,
+            CurrentIncrementalProxies = currentIncrementalProxies,
+            PersistentSweptProxies = _persistentSweptProxies,
+            PersistentNeighborPairs = _persistentNeighborPairs,
+            PersistentPredictiveContacts = _persistentPredictiveContacts,
+            IncrementalDirtyBodies = incrementalDirtyBodies,
+            PredictiveContactSchedule = predictiveContactSchedule,
+            IncrementalCacheState = _incrementalContactCacheState,
+            IncrementalStatistics = incrementalStatistics,
             AdaptiveCellHistory = _adaptiveCellHistory.AsArray(),
             AdaptiveCellMetrics = adaptiveCellMetrics,
             AdaptiveBodyRouting = adaptiveBodyRouting,
@@ -355,12 +392,20 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             currentBodyIndexByEntity.Dispose(applyMovementHandle);
         JobHandle mappedFatCachePairDisposeHandle =
             mappedFatCachePairs.Dispose(applyMovementHandle);
+        JobHandle currentIncrementalProxyDisposeHandle =
+            currentIncrementalProxies.Dispose(applyMovementHandle);
+        JobHandle incrementalDirtyBodyDisposeHandle =
+            incrementalDirtyBodies.Dispose(applyMovementHandle);
+        JobHandle predictiveContactScheduleDisposeHandle =
+            predictiveContactSchedule.Dispose(applyMovementHandle);
         JobHandle correctedBodyFlagDisposeHandle =
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
         JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
         JobHandle shadowStatisticsDisposeHandle = shadowStatistics.Dispose(publishStatisticsHandle);
+        JobHandle incrementalStatisticsDisposeHandle =
+            incrementalStatistics.Dispose(applyMovementHandle);
         JobHandle selectedDiagnosticDisposeHandle =
             selectedBodyDiagnostic.Dispose(publishStatisticsHandle);
         JobHandle iterationDiagnosticDisposeHandle =
@@ -415,9 +460,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle adaptiveScratchDisposeHandle = JobHandle.CombineDependencies(
             adaptiveMetricDisposeHandle,
             adaptiveFloodDisposeHandle);
+        JobHandle incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            currentIncrementalProxyDisposeHandle,
+            incrementalDirtyBodyDisposeHandle,
+            predictiveContactScheduleDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
+            incrementalStatisticsDisposeHandle);
         JobHandle fatCacheScratchDisposeHandle = JobHandle.CombineDependencies(
             mappingScratchDisposeHandle,
-            correctionScratchDisposeHandle);
+            correctionScratchDisposeHandle,
+            incrementalScratchDisposeHandle);
         JobHandle mainDisposeWithoutShadowCache = JobHandle.CombineDependencies(
             frameStateDisposeHandle,
             lookupDisposeHandle,
