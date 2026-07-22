@@ -84,6 +84,7 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Space();
         EditorGUILayout.LabelField("Contact funnel", EditorStyles.boldLabel);
         FunnelRow("Persistent neighbors", statistics.PersistentNeighborPairCount, null);
+        FunnelRow("Soft-avoidance view", statistics.CurrentSoftAvoidancePairCount, null);
         FunnelRow("Swept contacts", statistics.CurrentSweptContactCount,
             snapshot.NeighborToSweptRatio);
         FunnelRow("Current active", statistics.CurrentActiveConstraintCount,
@@ -96,13 +97,21 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Metric("Topology dirty", $"{statistics.TopologyDirtyBodyCount}/{statistics.ProxyCount} ({snapshot.TopologyDirtyRatio:P1})");
         Metric("Motion dirty", statistics.MotionDirtyBodyCount.ToString());
         Metric("Escaped bodies", statistics.CorrectedEscapeBodyCount.ToString());
+        Metric("Interaction-envelope escapes", statistics.InteractionEnvelopeEscapeCount.ToString());
         Metric("Pair delta", $"+{statistics.NeighborPairAddedCount} / -{statistics.NeighborPairRemovedCount}");
         Metric("Rebuild / repair", $"{statistics.FullRebuildCount} / {statistics.IncrementalRepairCount}");
+        Metric("Classification skipped / evaluated",
+            $"{statistics.ClassificationSkippedCount} / {statistics.SweptClassificationEvaluationCount}");
+        Metric("Persistent view reuse / rebuild",
+            $"{statistics.PersistentViewReuseCount} / {statistics.PersistentViewRebuildCount}");
 
-        if (statistics.OracleMissingPairCount != 0 || statistics.OracleMismatch != 0)
+        if (statistics.OracleMissingPairCount != 0 ||
+            statistics.SoftAvoidanceOracleMissingPairCount != 0 ||
+            statistics.OracleMismatch != 0)
         {
             EditorGUILayout.HelpBox(
-                $"Oracle mismatch: missing={statistics.OracleMissingPairCount}, extra={statistics.OracleExtraPairCount}. " +
+                $"Oracle mismatch: contact missing={statistics.OracleMissingPairCount}, " +
+                $"soft missing={statistics.SoftAvoidanceOracleMissingPairCount}, extra={statistics.OracleExtraPairCount}. " +
                 "The incremental cache will be invalidated and rebuilt.",
                 MessageType.Error);
         }
@@ -176,9 +185,13 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Space();
         EditorGUILayout.LabelField("Predictive lifecycle", EditorStyles.boldLabel);
         Metric("Reclassified evaluations", statistics.ReclassifiedPairEvaluationCount.ToString());
+        Metric("Classification reused / skipped",
+            $"{statistics.ClassificationReuseCount} / {statistics.ClassificationSkippedCount}");
         Metric("Swept evaluations", statistics.SweptClassificationEvaluationCount.ToString());
+        Metric("Soft-avoidance evaluations", statistics.SoftAvoidancePairEvaluationCount.ToString());
         Metric("Constraint evaluations", statistics.ActiveConstraintEvaluationCount.ToString());
         Metric("Timestep interactions", statistics.CurrentInteractionPairCount.ToString());
+        Metric("Soft-avoidance view", statistics.CurrentSoftAvoidancePairCount.ToString());
         Metric("Current swept", statistics.CurrentSweptContactCount.ToString());
         Metric("Dormant / approaching",
             $"{statistics.CurrentDormantPairCount} / {statistics.CurrentApproachingPairCount}");
@@ -190,6 +203,9 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Metric("Unique activated / corrected",
             $"{statistics.UniqueActivatedPairCount} / {statistics.UniqueCorrectedPairCount}");
         Metric("Expired", statistics.ExpiredPairCount.ToString());
+        Metric("Persistent view reuse / rebuild",
+            $"{statistics.PersistentViewReuseCount} / {statistics.PersistentViewRebuildCount}");
+        Metric("Interaction-envelope escapes", statistics.InteractionEnvelopeEscapeCount.ToString());
         Metric("Neighbor → swept", snapshot.NeighborToSweptRatio.ToString("P2"));
         Metric("Swept → current active", snapshot.SweptToCurrentActiveRatio.ToString("P2"));
         Metric("Activated → corrected", snapshot.ActivatedToCorrectedRatio.ToString("P2"));
@@ -210,6 +226,8 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Metric("Oracle health", snapshot.OracleHealthy != 0 ? "OK" : "MISMATCH");
         Metric("Oracle pair / missing / extra",
             $"{statistics.OraclePairCount} / {statistics.OracleMissingPairCount} / {statistics.OracleExtraPairCount}");
+        Metric("Soft oracle pair / missing",
+            $"{statistics.SoftAvoidanceOraclePairCount} / {statistics.SoftAvoidanceOracleMissingPairCount}");
 
         _showLegacy = EditorGUILayout.Foldout(_showLegacy,
             "Legacy Fat/Adaptive compatibility counters", true);
@@ -230,7 +248,9 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
 
     private static void DrawRecording()
     {
-        EditorGUILayout.LabelField("CSV v3 recorder", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField(
+            $"CSV v{IncrementalContactPipelineCsvRecorderRuntime.CsvSchemaVersion} recorder",
+            EditorStyles.boldLabel);
         Metric("State", IncrementalContactPipelineCsvRecorderRuntime.IsRecording ? "Recording" : "Idle");
         Metric("Progress",
             $"{IncrementalContactPipelineCsvRecorderRuntime.RecordedFrames}/{IncrementalContactPipelineCsvRecorderRuntime.TargetFrames}");

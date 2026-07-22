@@ -31,6 +31,10 @@ public struct FlowMovementFrameState
     public float3 TimestepPredictedPosition;
     public float2 TimestepEnvelopeMin;
     public float2 TimestepEnvelopeMax;
+    // B 层 InteractionSet 的完整包络，除接触路径外还覆盖 Soft/RVO horizon。
+    // 它与接触包络分开，避免宽 RVO 包络掩盖 XPBD 接触逃逸。
+    public float2 TimestepInteractionEnvelopeMin;
+    public float2 TimestepInteractionEnvelopeMax;
     public byte TimestepEscaped;
     public float3 TimestepContactCorrection;
     public float3 TimestepWallCorrection;

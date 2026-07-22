@@ -12,7 +12,8 @@ public partial struct SolveXpbdUnitContactsJob
 {
     private void CalculateSoftAvoidanceForSubstep(
         float substepDeltaTime,
-        ref PredictiveDiscContactStatistics statistics)
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         float softShell = math.max(0f, SoftAvoidanceShell);
 
@@ -45,10 +46,12 @@ public partial struct SolveXpbdUnitContactsJob
             if (EnablePersistentContactCache)
                 statistics.SoftAvoidanceFatAabbUseCount++;
             statistics.SoftAvoidanceCandidatePairCount +=
-                TimestepInteractionPairs.Length;
+                SoftAvoidancePairs.Length;
+            incrementalStatistics.SoftAvoidancePairEvaluationCount +=
+                SoftAvoidancePairs.Length;
             statistics.SoftAvoidanceActivatedPairCount +=
                 AccumulateUnitAvoidanceVelocities(
-                    TimestepInteractionPairs.AsArray(),
+                    SoftAvoidancePairs.AsArray(),
                     softShell,
                     substepDeltaTime);
         }
@@ -75,6 +78,120 @@ public partial struct SolveXpbdUnitContactsJob
 
             States[bodyIndex] = state;
         }
+    }
+
+    private void BuildSoftAvoidancePairViewFromInteractions(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        SoftAvoidancePairs.Clear();
+        if (SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)
+        {
+            incrementalStatistics.CurrentSoftAvoidancePairCount = 0;
+            return;
+        }
+
+        for (int pairIndex = 0;
+             pairIndex < TimestepInteractionPairs.Length;
+             pairIndex++)
+        {
+            UnitCollisionPair pair = TimestepInteractionPairs[pairIndex];
+            if (!CouldEnterSoftAvoidanceRange(
+                    States[pair.BodyA],
+                    States[pair.BodyB]))
+                continue;
+            SoftAvoidancePairs.Add(new UnitCollisionPair
+            {
+                BodyA = pair.BodyA,
+                BodyB = pair.BodyB
+            });
+        }
+        incrementalStatistics.CurrentSoftAvoidancePairCount =
+            SoftAvoidancePairs.Length;
+        ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
+            ref incrementalStatistics);
+    }
+
+    private bool CouldEnterSoftAvoidanceRange(
+        FlowMovementFrameState bodyA,
+        FlowMovementFrameState bodyB)
+    {
+        if (SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)
+            return false;
+
+        float maxDistance = bodyA.Radius + bodyB.Radius +
+                            math.max(0f, SoftAvoidanceShell);
+        float3 relativeStart = bodyB.TimestepStartPosition -
+                               bodyA.TimestepStartPosition;
+        float3 relativeTimestepDisplacement =
+            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
+            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+        relativeStart.y = 0f;
+        relativeTimestepDisplacement.y = 0f;
+        if (CouldRelativePathApproach(
+                relativeStart,
+                relativeTimestepDisplacement,
+                maxDistance))
+            return true;
+
+        if (SoftAvoidanceVelocitySolver !=
+            SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle)
+            return false;
+
+        float3 relativeHorizonDisplacement =
+            (bodyB.BasePredictedVelocity - bodyA.BasePredictedVelocity) *
+            math.max(0f, RvoTimeHorizon);
+        relativeHorizonDisplacement.y = 0f;
+        return CouldRelativePathApproach(
+            relativeStart,
+            relativeHorizonDisplacement,
+            maxDistance);
+    }
+
+    private static bool CouldRelativePathApproach(
+        float3 relativeStart,
+        float3 relativeDisplacement,
+        float maxDistance)
+    {
+        float relativeLengthSq = math.lengthsq(relativeDisplacement);
+        float closestTime = relativeLengthSq > 0.0000001f
+            ? math.clamp(
+                -math.dot(relativeStart, relativeDisplacement) /
+                relativeLengthSq,
+                0f,
+                1f)
+            : 0f;
+        float minDistanceSq = math.lengthsq(
+            relativeStart + closestTime * relativeDisplacement);
+        return minDistanceSq <= maxDistance * maxDistance;
+    }
+
+    private void ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        if (!EnableDiagnostics || SoftAvoidanceShell <= 0f ||
+            SoftAvoidanceResponseRate <= 0f)
+            return;
+
+        int oracleCount = 0;
+        int missingCount = 0;
+        for (int bodyA = 0; bodyA < States.Length; bodyA++)
+        {
+            if (!States[bodyA].IsInsideGrid)
+                continue;
+            for (int bodyB = bodyA + 1; bodyB < States.Length; bodyB++)
+            {
+                if (!States[bodyB].IsInsideGrid ||
+                    !CouldEnterSoftAvoidanceRange(States[bodyA], States[bodyB]))
+                    continue;
+                oracleCount++;
+                if (FindPairIndex(SoftAvoidancePairs, bodyA, bodyB) < 0)
+                    missingCount++;
+            }
+        }
+        incrementalStatistics.SoftAvoidanceOraclePairCount += oracleCount;
+        incrementalStatistics.SoftAvoidanceOracleMissingPairCount += missingCount;
+        if (missingCount > 0)
+            incrementalStatistics.OracleMismatch = 1;
     }
 
     private int AccumulateUnitAvoidanceVelocities(

@@ -14,9 +14,12 @@ METRICS = [
     "AvgPersistentMapNs", "AvgProxyValidationNs",
     "AvgLocalBroadPhaseNs", "AvgPairDiffNs", "AvgClassificationNs",
     "AvgContactActivationNs", "AvgFallbackNs",
-    "AvgDirtyBodies", "AvgPersistentPairs", "AvgInteractionPairs",
-    "AvgSoftCandidateEvaluations", "AvgConstraintEvaluations", "AvgFullRebuilds",
+    "AvgDirtyBodies", "AvgMotionDirtyBodies", "AvgPersistentPairs", "AvgInteractionPairs",
+    "AvgSoftAvoidancePairs", "AvgClassificationEvaluations", "AvgClassificationSkipped",
+    "AvgSoftPairEvaluations", "AvgConstraintEvaluations", "AvgPersistentViewReuse",
+    "AvgPersistentViewRebuild", "AvgInteractionEnvelopeEscapes", "AvgFullRebuilds",
     "AvgIncrementalRepairs", "AvgContactPairs", "AvgActivePairs", "AvgPredictivePairs",
+    "AvgSoftOracleMissing",
 ]
 
 
@@ -60,7 +63,8 @@ def main():
     has_pair_generation = "AvgPairGenerationNs" in rows[0]
     has_unified_metrics = all(key in rows[0] for key in (
         "AvgFullSweepSourceNs", "AvgPersistentMapNs", "AvgInteractionPairs",
-        "AvgSoftCandidateEvaluations", "AvgConstraintEvaluations"))
+        "AvgSoftAvoidancePairs", "AvgClassificationEvaluations",
+        "AvgClassificationSkipped", "AvgConstraintEvaluations"))
 
     issues = []
     by_scenario = defaultdict(list)
@@ -70,6 +74,8 @@ def main():
         hashes = {row["BaselineHash"] for row in scenario_rows}
         if len(hashes) != 1:
             issues.append(f"INVALID {scenario}: baseline hash differs across trials ({', '.join(sorted(hashes))})")
+        if any(number(row, "AvgSoftOracleMissing") > 0 for row in scenario_rows):
+            issues.append(f"INVALID {scenario}: soft-avoidance oracle reported missing pairs")
 
     grouped = defaultdict(list)
     for row in rows:
@@ -126,9 +132,17 @@ def main():
             "CandidateFallbackNsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgFallbackNs") for r in common),
             "BaselineDirtyBodiesMean": statistics.fmean(number(base_by_repeat[r], "AvgDirtyBodies") for r in common),
             "CandidateDirtyBodiesMean": statistics.fmean(number(candidate_by_repeat[r], "AvgDirtyBodies") for r in common),
+            "CandidateMotionDirtyBodiesMean": statistics.fmean(number(candidate_by_repeat[r], "AvgMotionDirtyBodies") for r in common),
             "CandidatePersistentPairsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgPersistentPairs") for r in common),
             "InteractionPairDelta": statistics.fmean(number(candidate_by_repeat[r], "AvgInteractionPairs") - number(base_by_repeat[r], "AvgInteractionPairs") for r in common),
-            "SoftCandidateEvaluationDelta": statistics.fmean(number(candidate_by_repeat[r], "AvgSoftCandidateEvaluations") - number(base_by_repeat[r], "AvgSoftCandidateEvaluations") for r in common),
+            "SoftAvoidancePairDelta": statistics.fmean(number(candidate_by_repeat[r], "AvgSoftAvoidancePairs") - number(base_by_repeat[r], "AvgSoftAvoidancePairs") for r in common),
+            "SoftPairEvaluationDelta": statistics.fmean(number(candidate_by_repeat[r], "AvgSoftPairEvaluations") - number(base_by_repeat[r], "AvgSoftPairEvaluations") for r in common),
+            "BaselineClassificationEvaluationsMean": statistics.fmean(number(base_by_repeat[r], "AvgClassificationEvaluations") for r in common),
+            "CandidateClassificationEvaluationsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgClassificationEvaluations") for r in common),
+            "CandidateClassificationSkippedMean": statistics.fmean(number(candidate_by_repeat[r], "AvgClassificationSkipped") for r in common),
+            "CandidatePersistentViewReuseMean": statistics.fmean(number(candidate_by_repeat[r], "AvgPersistentViewReuse") for r in common),
+            "CandidatePersistentViewRebuildMean": statistics.fmean(number(candidate_by_repeat[r], "AvgPersistentViewRebuild") for r in common),
+            "CandidateInteractionEnvelopeEscapesMean": statistics.fmean(number(candidate_by_repeat[r], "AvgInteractionEnvelopeEscapes") for r in common),
             "ConstraintEvaluationDelta": statistics.fmean(number(candidate_by_repeat[r], "AvgConstraintEvaluations") - number(base_by_repeat[r], "AvgConstraintEvaluations") for r in common),
             "IterationDeltaNs": statistics.fmean(number(candidate_by_repeat[r], "AvgIterationNs") - number(base_by_repeat[r], "AvgIterationNs") for r in common),
             "SoftAvoidDeltaNs": statistics.fmean(number(candidate_by_repeat[r], "AvgSoftAvoidNs") - number(base_by_repeat[r], "AvgSoftAvoidNs") for r in common),
@@ -142,7 +156,7 @@ def main():
 
     comparison_path = output_dir / "analysis_comparison.csv"
     with comparison_path.open("w", newline="", encoding="utf-8") as handle:
-        fields = ["Scenario", "Pairs", "BaselineProfile", "CandidateProfile", "BaselineSolverNsMean", "CandidateSolverNsMean", "SolverDeltaNs", "SolverDeltaPercent", "PairGenerationAvailable", "UnifiedMetricsAvailable", "BaselinePairGenerationNsMean", "CandidatePairGenerationNsMean", "PairGenerationDeltaNs", "BaselineFullSweepSourceNsMean", "CandidatePersistentMapNsMean", "CandidateProxyValidationNsMean", "CandidateLocalBroadPhaseNsMean", "CandidatePairDiffNsMean", "BaselineClassificationNsMean", "CandidateClassificationNsMean", "CandidateFallbackNsMean", "BaselineDirtyBodiesMean", "CandidateDirtyBodiesMean", "CandidatePersistentPairsMean", "InteractionPairDelta", "SoftCandidateEvaluationDelta", "ConstraintEvaluationDelta", "IterationDeltaNs", "SoftAvoidDeltaNs"]
+        fields = ["Scenario", "Pairs", "BaselineProfile", "CandidateProfile", "BaselineSolverNsMean", "CandidateSolverNsMean", "SolverDeltaNs", "SolverDeltaPercent", "PairGenerationAvailable", "UnifiedMetricsAvailable", "BaselinePairGenerationNsMean", "CandidatePairGenerationNsMean", "PairGenerationDeltaNs", "BaselineFullSweepSourceNsMean", "CandidatePersistentMapNsMean", "CandidateProxyValidationNsMean", "CandidateLocalBroadPhaseNsMean", "CandidatePairDiffNsMean", "BaselineClassificationNsMean", "CandidateClassificationNsMean", "CandidateFallbackNsMean", "BaselineDirtyBodiesMean", "CandidateDirtyBodiesMean", "CandidateMotionDirtyBodiesMean", "CandidatePersistentPairsMean", "InteractionPairDelta", "SoftAvoidancePairDelta", "SoftPairEvaluationDelta", "BaselineClassificationEvaluationsMean", "CandidateClassificationEvaluationsMean", "CandidateClassificationSkippedMean", "CandidatePersistentViewReuseMean", "CandidatePersistentViewRebuildMean", "CandidateInteractionEnvelopeEscapesMean", "ConstraintEvaluationDelta", "IterationDeltaNs", "SoftAvoidDeltaNs"]
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader(); writer.writerows(comparison_rows)
 
@@ -173,14 +187,22 @@ def main():
                          f"{row['CandidateLocalBroadPhaseNsMean'] / 1000:.1f}/"
                          f"{row['CandidatePairDiffNsMean'] / 1000:.1f}/"
                          f"{row['CandidateClassificationNsMean'] / 1000:.1f}us；"
-                         f"Interaction/Soft候选/XPBD求解次数 Δ="
+                         f"Interaction/Soft视图/Soft评估/XPBD求解次数 Δ="
                          f"{row['InteractionPairDelta']:+.1f}/"
-                         f"{row['SoftCandidateEvaluationDelta']:+.1f}/"
+                         f"{row['SoftAvoidancePairDelta']:+.1f}/"
+                         f"{row['SoftPairEvaluationDelta']:+.1f}/"
                          f"{row['ConstraintEvaluationDelta']:+.1f}；"
+                         f"分类 eval A0→A1={row['BaselineClassificationEvaluationsMean']:.1f}→"
+                         f"{row['CandidateClassificationEvaluationsMean']:.1f}，"
+                         f"skipped={row['CandidateClassificationSkippedMean']:.1f}；"
+                         f"持久视图 reuse/rebuild={row['CandidatePersistentViewReuseMean']:.2f}/"
+                         f"{row['CandidatePersistentViewRebuildMean']:.2f}，"
+                         f"interaction escapes={row['CandidateInteractionEnvelopeEscapesMean']:.2f}；"
                          f"Soft/Iteration Δ={row['SoftAvoidDeltaNs'] / 1000:+.1f}/"
                          f"{row['IterationDeltaNs'] / 1000:+.1f}us；"
                          f"A1 persistent pairs={row['CandidatePersistentPairsMean']:.1f}，"
-                         f"dirty={row['CandidateDirtyBodiesMean']:.2f}。\n")
+                         f"topology/motion dirty={row['CandidateDirtyBodiesMean']:.2f}/"
+                         f"{row['CandidateMotionDirtyBodiesMean']:.2f}。\n")
         handle.write("\nPairGeneration 是父级完整生成阶段；A0 source/classify 与 A1 validation/map/local/diff/classify 是其内部归因项，不能再与 PairGeneration 相加。\n")
 
     print(f"wrote {aggregate_path}")

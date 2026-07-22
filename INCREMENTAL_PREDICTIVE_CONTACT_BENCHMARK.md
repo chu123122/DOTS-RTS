@@ -57,11 +57,13 @@ P50, P95, P99 and maximum rather than only the mean.
 
 ## Configurations
 
-1. `full_swept_per_substep`: timestep cache disabled.
-2. `full_swept_per_timestep`: old swept ContactSet baseline.
-3. `incremental_topology`: persistent proxies and neighbor-pair delta only.
-4. `incremental_predictive`: topology + persistent predictive contacts.
-5. `incremental_scheduled`: complete pipeline with dormant substep scheduling.
+1. `A0_B0`: full swept InteractionSet per substep.
+2. `A0_B1`: full swept source once per timestep, reused across substeps.
+3. `A1_B1`: cross-frame persistent topology/classification views feeding the
+   same cross-substep InteractionSet. A requires B, so `A1_B0` is invalid.
+
+Classification reuse, the Soft-avoidance view and dormant scheduling are
+derived implementation stages, not independent benchmark strategy switches.
 
 ## Metrics
 
@@ -101,8 +103,19 @@ Unique timestep events:
 Accumulated work counters:
 
 - `ReclassifiedPairEvaluationCount`
+- `ClassificationReuseCount`
+- `ClassificationSkippedCount`
 - `SweptClassificationEvaluationCount`
+- `SoftAvoidancePairEvaluationCount`
 - `ActiveConstraintEvaluationCount`
+
+Derived-view gauges/events:
+
+- `CurrentInteractionPairCount`
+- `CurrentSoftAvoidancePairCount`
+- `PersistentViewReuseCount`
+- `PersistentViewRebuildCount`
+- `InteractionEnvelopeEscapeCount`
 
 Record neighbor-to-swept, swept-to-current-active and activated-to-corrected
 ratios. Never divide a cumulative evaluation count by a current-state gauge.
@@ -121,6 +134,7 @@ ratios. Never divide a cumulative evaluation count by a current-state gauge.
 ### Correctness
 
 - `OracleMissingPairCount == 0`;
+- `SoftAvoidanceOracleMissingPairCount == 0` in diagnostic runs;
 - no NaN/Inf position or velocity;
 - max penetration no worse than the full swept baseline tolerance;
 - deterministic final-state hash matches repeated runs with the same seed.
@@ -136,15 +150,15 @@ The legacy execution path can be deleted after all five scenarios satisfy:
 - soft avoidance no longer performs a spatial-hash rebuild per substep when the
   incremental cache is valid.
 
-## Diagnostics schema v2
+## Diagnostics schema v5
 
 The migrated recorder writes one row per completed timestep from
 `IncrementalContactPipelineSnapshot`; configuration, solver statistics, topology
 deltas, contact lifecycle, timings and oracle counters therefore share the same
 timestep. Existing `adaptive_tuning_result.csv` files are schema v1 legacy data
-and must not be concatenated with v2 results.
+and must not be concatenated with v5 results.
 
-The recorder skips the configured warmup interval, writes raw v2 CSV samples,
+The recorder skips the configured warmup interval, writes raw v5 CSV samples,
 and emits a sibling `_summary.csv` containing average, P50, P95, P99 and maximum
 for solver, soft avoidance, topology update, predictive contact and key count
 metrics. The benchmark tuner intentionally does not reset the scene; each trial
@@ -153,7 +167,7 @@ cache.
 
 ## Legacy recorder migration
 
-| Schema v1 field | Schema v2 replacement |
+| Schema v1 field | Schema v5 replacement |
 | --- | --- |
 | `EnableFatAabb` / `EnableAdaptive` | `PipelineMode`, `TimestepCacheEnabled`, configuration label |
 | `FatCacheMargin` | `GuardEnvelopeMargin` |
@@ -166,3 +180,10 @@ cache.
 
 The default debugger page is deliberately implementation-neutral. Legacy Fat
 AABB counters are available only in the detailed compatibility foldout.
+
+For the current no-sleep migration, compare `A0_B1` and `A1_B1` from the same
+restored baseline. In a warmed static run, `ClassificationSkippedCount` should
+approach `PersistentNeighborPairCount`, classification evaluations should
+approach zero, and `PersistentViewReuseCount` should dominate rebuilds. Sleeping
+variants and sleeping counters are intentionally excluded until that feature is
+migrated separately.

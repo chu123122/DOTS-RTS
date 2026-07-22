@@ -62,6 +62,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     // 中层跨子步 InteractionSet。跨帧缓存与全量 Sweep 只能作为它的两种来源；
     // Soft Avoidance 和 XPBD 不得直接读取任何跨帧持久容器。
     public NativeList<UnitCollisionPair> TimestepInteractionPairs;
+    // B 层 InteractionSet 的 Soft/RVO 紧凑派生视图。
+    public NativeList<UnitCollisionPair> SoftAvoidancePairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
@@ -71,12 +73,18 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
+    public NativeList<StableEntityPairKey> PersistentActiveContactKeys;
+    public NativeList<StableEntityPairKey> PersistentSoftAvoidancePairKeys;
+    public NativeList<PredictiveContactScheduleEntry> PersistentDormantContactSchedule;
     public NativeList<PersistentPredictiveContact> PredictiveContactScratch;
     public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
+    public NativeArray<byte> IncrementalDirtyFlagsByBody;
     public NativeList<PersistentNeighborPair> IncrementalNeighborPairScratch;
     // 仅在诊断校验中使用：保存当前帧的增量管线接触对，避免与求解 scratch 混用。
     public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
+    public NativeList<PredictiveContactScheduleEntry> PredictiveContactScheduleScratch;
+    public NativeReference<int> PredictiveContactScheduleCursor;
     public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeArray<AdaptiveFatAabbCellHistory> AdaptiveCellHistory;
@@ -141,7 +149,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             IncrementalCacheState.Value = default;
         }
 
-        InitializeSolverState();
         // 即使旧 Fat AABB 已退出执行路径，热力图仍需要从当前状态构建诊断网格。
         BuildAdaptiveFatAabbHotspots();
         if (EnableTimestepContactSetCache)
@@ -174,17 +181,54 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                     ProfilerUnsafeUtility.Timestamp - substepInteractionStart);
             }
+            else if (!AreSoftAvoidanceTrajectoriesInsideInteractionEnvelope(
+                         substepIndex,
+                         ref statistics,
+                         ref incrementalStatistics))
+            {
+                // RVO/base-velocity changes occur before position prediction.
+                // Rebuild now so Soft Avoidance never consumes a stale view.
+                RebuildTimestepContactSetForRemainingTime(
+                    substepIndex,
+                    substepCount,
+                    substepDeltaTime,
+                    true,
+                    ref statistics,
+                    ref shadowStatistics,
+                    ref fatCachePairsMappedThisFrame,
+                    ref incrementalStatistics,
+                    false);
+            }
 
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             CalculateSoftAvoidanceForSubstep(
                 substepDeltaTime,
-                ref statistics);
+                ref statistics,
+                ref incrementalStatistics);
             statistics.SoftAvoidanceEvaluationCount++;
             statistics.SoftAvoidanceNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
 
             PredictUnconstrainedPositions(substepDeltaTime);
-            if (!EnableTimestepContactSetCache)
+            bool rebuiltPredictedContactView = false;
+            if (!ArePredictedDiscsInsideTimestepEnvelope(
+                    substepIndex,
+                    ref statistics,
+                    ref incrementalStatistics))
+            {
+                RebuildTimestepContactSetForRemainingTime(
+                    substepIndex,
+                    substepCount,
+                    substepDeltaTime,
+                    EnableTimestepContactSetCache,
+                    ref statistics,
+                    ref shadowStatistics,
+                    ref fatCachePairsMappedThisFrame,
+                    ref incrementalStatistics,
+                    false);
+                rebuiltPredictedContactView = true;
+            }
+            if (!EnableTimestepContactSetCache && !rebuiltPredictedContactView)
             {
                 PrepareSubstepContactPrediction();
                 long substepContactViewStart = ProfilerUnsafeUtility.Timestamp;
@@ -377,27 +421,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;
         IncrementalStatistics.Value = incrementalStatistics;
-    }
-
-    private void InitializeSolverState()
-    {
-        for (int i = 0; i < States.Length; i++)
-        {
-            FlowMovementFrameState state = States[i];
-            state.IntegratedVelocity = state.IsInsideGrid ? state.CurrentVelocity : float3.zero;
-            state.StartPosition = state.CurrentPosition;
-            state.UnconstrainedPredictedPosition = state.CurrentPosition;
-            state.PredictedPosition = state.CurrentPosition;
-            state.PreviousSubstepPosition = state.CurrentPosition;
-            state.ContactPositionCorrection = float3.zero;
-            state.WallPositionCorrection = float3.zero;
-            state.SoftAvoidanceVelocity = float3.zero;
-            state.WallAvoidanceVelocity = float3.zero;
-            state.SoftAvoidanceNeighborCount = 0;
-            state.TimestepContactCorrection = float3.zero;
-            state.TimestepWallCorrection = float3.zero;
-            States[i] = state;
-        }
     }
 
     private void PredictUnconstrainedPositions(float substepDeltaTime)

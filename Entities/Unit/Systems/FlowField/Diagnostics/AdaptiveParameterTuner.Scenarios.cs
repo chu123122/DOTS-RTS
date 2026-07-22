@@ -563,7 +563,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkDirectory = Path.Combine(Application.dataPath, "..", "BenchmarkResults", "contact_benchmark_" + stamp);
         Directory.CreateDirectory(_benchmarkDirectory);
         _benchmarkRawWriter = new StreamWriter(Path.Combine(_benchmarkDirectory, "adaptive_tuning_raw.csv"));
-        _benchmarkRawWriter.WriteLine("Scenario,Mode,Profile,Repetition,SampleFrame,LegIndex,BaselineHash,SolverNs,PairGenerationNs,TimestepContactSetBuildNs,IterationNs,SoftAvoidNs,FullSweepSourceNs,PersistentMapNs,ProxyValidationNs,LocalBroadPhaseNs,PairDiffNs,ClassificationNs,ContactActivationNs,FallbackNs,DirtyBodies,PersistentNeighborPairs,InteractionPairs,SoftCandidateEvaluations,ConstraintEvaluations,FullRebuilds,IncrementalRepairs,ContactPairs,ActivePairs,PredictivePairs");
+        _benchmarkRawWriter.WriteLine("Scenario,Mode,Profile,Repetition,SampleFrame,LegIndex,BaselineHash,SolverNs,PairGenerationNs,TimestepContactSetBuildNs,IterationNs,SoftAvoidNs,FullSweepSourceNs,PersistentMapNs,ProxyValidationNs,LocalBroadPhaseNs,PairDiffNs,ClassificationNs,ContactActivationNs,FallbackNs,TopologyDirtyBodies,MotionDirtyBodies,PersistentNeighborPairs,InteractionPairs,SoftAvoidancePairs,ClassificationEvaluations,ClassificationSkipped,SoftPairEvaluations,ConstraintEvaluations,PersistentViewReuse,PersistentViewRebuild,InteractionEnvelopeEscapes,FullRebuilds,IncrementalRepairs,ContactPairs,ActivePairs,PredictivePairs,SoftOracleMissing");
     }
 
     private void WriteBenchmarkRawSample(SimulationDebuggerFrameSnapshot snapshot)
@@ -578,8 +578,8 @@ public sealed partial class AdaptiveParameterTuner
             CurrentBenchmarkRun.Repetition.ToString(CultureInfo.InvariantCulture), _benchmarkMeasuredFrames.ToString(CultureInfo.InvariantCulture), _benchmarkLegIndex.ToString(CultureInfo.InvariantCulture), _benchmarkSnapshot.Hash.ToString("X16", CultureInfo.InvariantCulture),
             snapshot.Overview.SolverNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.PairGenerationNanoseconds.ToString(CultureInfo.InvariantCulture), solver.TimestepContactSetBuildNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.IterationNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.SoftAvoidanceNanoseconds.ToString(CultureInfo.InvariantCulture),
             p.FullSweepSourceNanoseconds.ToString(CultureInfo.InvariantCulture), p.PersistentPairMappingNanoseconds.ToString(CultureInfo.InvariantCulture), p.ProxyValidationNanoseconds.ToString(CultureInfo.InvariantCulture), p.LocalBroadPhaseNanoseconds.ToString(CultureInfo.InvariantCulture), p.PairDiffNanoseconds.ToString(CultureInfo.InvariantCulture), p.SweptClassificationNanoseconds.ToString(CultureInfo.InvariantCulture), p.ContactActivationNanoseconds.ToString(CultureInfo.InvariantCulture), p.FallbackNanoseconds.ToString(CultureInfo.InvariantCulture),
-            p.TopologyDirtyBodyCount.ToString(CultureInfo.InvariantCulture), p.PersistentNeighborPairCount.ToString(CultureInfo.InvariantCulture), p.CurrentInteractionPairCount.ToString(CultureInfo.InvariantCulture), solver.SoftAvoidanceCandidatePairCount.ToString(CultureInfo.InvariantCulture), p.ActiveConstraintEvaluationCount.ToString(CultureInfo.InvariantCulture), p.FullRebuildCount.ToString(CultureInfo.InvariantCulture), p.IncrementalRepairCount.ToString(CultureInfo.InvariantCulture),
-            snapshot.ContactSet.ContactSetSize.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.ActiveContactCount.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.PredictiveContactCount.ToString(CultureInfo.InvariantCulture)
+            p.TopologyDirtyBodyCount.ToString(CultureInfo.InvariantCulture), p.MotionDirtyBodyCount.ToString(CultureInfo.InvariantCulture), p.PersistentNeighborPairCount.ToString(CultureInfo.InvariantCulture), p.CurrentInteractionPairCount.ToString(CultureInfo.InvariantCulture), p.CurrentSoftAvoidancePairCount.ToString(CultureInfo.InvariantCulture), p.SweptClassificationEvaluationCount.ToString(CultureInfo.InvariantCulture), p.ClassificationSkippedCount.ToString(CultureInfo.InvariantCulture), p.SoftAvoidancePairEvaluationCount.ToString(CultureInfo.InvariantCulture), p.ActiveConstraintEvaluationCount.ToString(CultureInfo.InvariantCulture), p.PersistentViewReuseCount.ToString(CultureInfo.InvariantCulture), p.PersistentViewRebuildCount.ToString(CultureInfo.InvariantCulture), p.InteractionEnvelopeEscapeCount.ToString(CultureInfo.InvariantCulture), p.FullRebuildCount.ToString(CultureInfo.InvariantCulture), p.IncrementalRepairCount.ToString(CultureInfo.InvariantCulture),
+            snapshot.ContactSet.ContactSetSize.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.ActiveContactCount.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.PredictiveContactCount.ToString(CultureInfo.InvariantCulture), p.SoftAvoidanceOracleMissingPairCount.ToString(CultureInfo.InvariantCulture)
         }));
     }
 
@@ -599,7 +599,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkRawWriter = null;
         string summaryPath = Path.Combine(_benchmarkDirectory, "adaptive_tuning_summary.csv");
         using var writer = new StreamWriter(summaryPath);
-        writer.WriteLine("Scenario,Mode,Profile,Repetition,UnitCount,FrameCount,BaselineHash,FinalHash,AvgSolverNs,AvgPairGenerationNs,AvgTimestepContactSetBuildNs,AvgIterationNs,AvgSoftAvoidNs,AvgFullSweepSourceNs,AvgPersistentMapNs,AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs,AvgContactActivationNs,AvgFallbackNs,AvgDirtyBodies,AvgPersistentPairs,AvgInteractionPairs,AvgSoftCandidateEvaluations,AvgConstraintEvaluations,AvgFullRebuilds,AvgIncrementalRepairs,AvgContactPairs,AvgActivePairs,AvgPredictivePairs,CrossFrameCache,CrossSubstepCache,Diagnostics,GuardMargin,Substeps,Iterations");
+        writer.WriteLine("Scenario,Mode,Profile,Repetition,UnitCount,FrameCount,BaselineHash,FinalHash,AvgSolverNs,AvgPairGenerationNs,AvgTimestepContactSetBuildNs,AvgIterationNs,AvgSoftAvoidNs,AvgFullSweepSourceNs,AvgPersistentMapNs,AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs,AvgContactActivationNs,AvgFallbackNs,AvgDirtyBodies,AvgMotionDirtyBodies,AvgPersistentPairs,AvgInteractionPairs,AvgSoftAvoidancePairs,AvgClassificationEvaluations,AvgClassificationSkipped,AvgSoftPairEvaluations,AvgConstraintEvaluations,AvgPersistentViewReuse,AvgPersistentViewRebuild,AvgInteractionEnvelopeEscapes,AvgFullRebuilds,AvgIncrementalRepairs,AvgContactPairs,AvgActivePairs,AvgPredictivePairs,AvgSoftOracleMissing,CrossFrameCache,CrossSubstepCache,Diagnostics,GuardMargin,Substeps,Iterations");
         foreach (BenchmarkResult result in _benchmarkResults)
             writer.WriteLine(result.ToCsv());
         File.WriteAllText(Path.Combine(_benchmarkDirectory, "adaptive_tuning_manifest.txt"),
@@ -660,13 +660,23 @@ public sealed partial class AdaptiveParameterTuner
     {
         private int _frames, _unitCount;
         private long _solver, _pairGeneration, _timestepContactSetBuild, _iteration, _softAvoid, _fullSweepSource, _persistentMap, _proxyValidation, _localBroadPhase, _pairDiff, _classification, _contactActivation, _fallback;
-        private long _dirtyBodies, _persistentPairs, _interactionPairs, _softCandidateEvaluations, _constraintEvaluations, _fullRebuilds, _incrementalRepairs, _contactPairs, _activePairs, _predictivePairs;
+        private long _dirtyBodies, _motionDirtyBodies, _persistentPairs, _interactionPairs;
+        private long _softAvoidancePairs, _classificationEvaluations, _classificationSkipped;
+        private long _softPairEvaluations, _constraintEvaluations, _persistentViewReuse;
+        private long _persistentViewRebuild, _interactionEnvelopeEscapes, _fullRebuilds;
+        private long _incrementalRepairs, _contactPairs, _activePairs, _predictivePairs;
+        private long _softOracleMissing;
 
         public void Reset()
         {
             _frames = _unitCount = 0;
             _solver = _pairGeneration = _timestepContactSetBuild = _iteration = _softAvoid = _fullSweepSource = _persistentMap = _proxyValidation = _localBroadPhase = _pairDiff = _classification = _contactActivation = _fallback = 0;
-            _dirtyBodies = _persistentPairs = _interactionPairs = _softCandidateEvaluations = _constraintEvaluations = _fullRebuilds = _incrementalRepairs = _contactPairs = _activePairs = _predictivePairs = 0;
+            _dirtyBodies = _motionDirtyBodies = _persistentPairs = _interactionPairs = 0;
+            _softAvoidancePairs = _classificationEvaluations = _classificationSkipped = 0;
+            _softPairEvaluations = _constraintEvaluations = _persistentViewReuse = 0;
+            _persistentViewRebuild = _interactionEnvelopeEscapes = _fullRebuilds = 0;
+            _incrementalRepairs = _contactPairs = _activePairs = _predictivePairs = 0;
+            _softOracleMissing = 0;
         }
 
         public void Add(SimulationDebuggerFrameSnapshot snapshot)
@@ -682,7 +692,6 @@ public sealed partial class AdaptiveParameterTuner
             _activePairs += snapshot.ContactSet.ActiveContactCount;
             _predictivePairs += snapshot.ContactSet.PredictiveContactCount;
             IncrementalContactPipelineStatistics p = IncrementalContactPipelineDiagnosticsRuntime.Latest.Statistics;
-            PredictiveDiscContactStatistics solver = IncrementalContactPipelineDiagnosticsRuntime.Latest.SolverStatistics;
             _fullSweepSource += p.FullSweepSourceNanoseconds;
             _persistentMap += p.PersistentPairMappingNanoseconds;
             _proxyValidation += p.ProxyValidationNanoseconds;
@@ -692,12 +701,20 @@ public sealed partial class AdaptiveParameterTuner
             _contactActivation += p.ContactActivationNanoseconds;
             _fallback += p.FallbackNanoseconds;
             _dirtyBodies += p.TopologyDirtyBodyCount;
+            _motionDirtyBodies += p.MotionDirtyBodyCount;
             _persistentPairs += p.PersistentNeighborPairCount;
             _interactionPairs += p.CurrentInteractionPairCount;
-            _softCandidateEvaluations += solver.SoftAvoidanceCandidatePairCount;
+            _softAvoidancePairs += p.CurrentSoftAvoidancePairCount;
+            _classificationEvaluations += p.SweptClassificationEvaluationCount;
+            _classificationSkipped += p.ClassificationSkippedCount;
+            _softPairEvaluations += p.SoftAvoidancePairEvaluationCount;
             _constraintEvaluations += p.ActiveConstraintEvaluationCount;
+            _persistentViewReuse += p.PersistentViewReuseCount;
+            _persistentViewRebuild += p.PersistentViewRebuildCount;
+            _interactionEnvelopeEscapes += p.InteractionEnvelopeEscapeCount;
             _fullRebuilds += p.FullRebuildCount;
             _incrementalRepairs += p.IncrementalRepairCount;
+            _softOracleMissing += p.SoftAvoidanceOracleMissingPairCount;
         }
 
         public BenchmarkResult ToResult(BenchmarkScenario scenario, BenchmarkRun run, ulong baselineHash, ulong finalHash)
@@ -709,8 +726,11 @@ public sealed partial class AdaptiveParameterTuner
                 UnitCount = _unitCount, FrameCount = _frames, BaselineHash = baselineHash, FinalHash = finalHash,
                 AverageSolverNs = (long)(_solver * inv), AveragePairGenerationNs = (long)(_pairGeneration * inv), AverageTimestepContactSetBuildNs = (long)(_timestepContactSetBuild * inv), AverageIterationNs = (long)(_iteration * inv), AverageSoftAvoidNs = (long)(_softAvoid * inv),
                 AverageFullSweepSourceNs = (long)(_fullSweepSource * inv), AveragePersistentMapNs = (long)(_persistentMap * inv), AverageProxyValidationNs = (long)(_proxyValidation * inv), AverageLocalBroadPhaseNs = (long)(_localBroadPhase * inv), AveragePairDiffNs = (long)(_pairDiff * inv), AverageClassificationNs = (long)(_classification * inv), AverageContactActivationNs = (long)(_contactActivation * inv), AverageFallbackNs = (long)(_fallback * inv),
-                AverageDirtyBodies = _dirtyBodies * inv, AveragePersistentPairs = _persistentPairs * inv, AverageInteractionPairs = _interactionPairs * inv, AverageSoftCandidateEvaluations = _softCandidateEvaluations * inv, AverageConstraintEvaluations = _constraintEvaluations * inv, AverageFullRebuilds = _fullRebuilds * inv, AverageIncrementalRepairs = _incrementalRepairs * inv,
+                AverageDirtyBodies = _dirtyBodies * inv, AverageMotionDirtyBodies = _motionDirtyBodies * inv, AveragePersistentPairs = _persistentPairs * inv, AverageInteractionPairs = _interactionPairs * inv,
+                AverageSoftAvoidancePairs = _softAvoidancePairs * inv, AverageClassificationEvaluations = _classificationEvaluations * inv, AverageClassificationSkipped = _classificationSkipped * inv, AverageSoftPairEvaluations = _softPairEvaluations * inv, AverageConstraintEvaluations = _constraintEvaluations * inv,
+                AveragePersistentViewReuse = _persistentViewReuse * inv, AveragePersistentViewRebuild = _persistentViewRebuild * inv, AverageInteractionEnvelopeEscapes = _interactionEnvelopeEscapes * inv, AverageFullRebuilds = _fullRebuilds * inv, AverageIncrementalRepairs = _incrementalRepairs * inv,
                 AverageContactPairs = _contactPairs * inv, AverageActivePairs = _activePairs * inv, AveragePredictivePairs = _predictivePairs * inv,
+                AverageSoftOracleMissing = _softOracleMissing * inv,
                 CrossFrameCache = run.Trial.EnableFatAabbCache, CrossSubstepCache = run.Trial.EnableTimestepContactSetCache,
                 Diagnostics = run.Trial.EnableDiagnostics, GuardMargin = run.Trial.FatAabbCacheMargin, Substeps = run.Trial.SubstepCount, Iterations = run.Trial.IterationCount
             };
@@ -724,7 +744,12 @@ public sealed partial class AdaptiveParameterTuner
         public int Repetition, UnitCount, FrameCount, Substeps, Iterations;
         public ulong BaselineHash, FinalHash;
         public long AverageSolverNs, AveragePairGenerationNs, AverageTimestepContactSetBuildNs, AverageIterationNs, AverageSoftAvoidNs, AverageFullSweepSourceNs, AveragePersistentMapNs, AverageProxyValidationNs, AverageLocalBroadPhaseNs, AveragePairDiffNs, AverageClassificationNs, AverageContactActivationNs, AverageFallbackNs;
-        public float AverageDirtyBodies, AveragePersistentPairs, AverageInteractionPairs, AverageSoftCandidateEvaluations, AverageConstraintEvaluations, AverageFullRebuilds, AverageIncrementalRepairs, AverageContactPairs, AverageActivePairs, AveragePredictivePairs, GuardMargin;
+        public float AverageDirtyBodies, AverageMotionDirtyBodies, AveragePersistentPairs, AverageInteractionPairs;
+        public float AverageSoftAvoidancePairs, AverageClassificationEvaluations, AverageClassificationSkipped;
+        public float AverageSoftPairEvaluations, AverageConstraintEvaluations, AveragePersistentViewReuse;
+        public float AveragePersistentViewRebuild, AverageInteractionEnvelopeEscapes, AverageFullRebuilds;
+        public float AverageIncrementalRepairs, AverageContactPairs, AverageActivePairs, AveragePredictivePairs;
+        public float AverageSoftOracleMissing, GuardMargin;
         public byte CrossFrameCache, CrossSubstepCache, Diagnostics;
 
         public string ToCsv() => string.Join(",", new[]
@@ -732,7 +757,7 @@ public sealed partial class AdaptiveParameterTuner
             CsvBenchmark(Scenario), CsvBenchmark(Mode.ToString()), CsvBenchmark(Profile), Repetition.ToString(CultureInfo.InvariantCulture), UnitCount.ToString(CultureInfo.InvariantCulture), FrameCount.ToString(CultureInfo.InvariantCulture),
             BaselineHash.ToString("X16", CultureInfo.InvariantCulture), FinalHash.ToString("X16", CultureInfo.InvariantCulture),
             AverageSolverNs.ToString(CultureInfo.InvariantCulture), AveragePairGenerationNs.ToString(CultureInfo.InvariantCulture), AverageTimestepContactSetBuildNs.ToString(CultureInfo.InvariantCulture), AverageIterationNs.ToString(CultureInfo.InvariantCulture), AverageSoftAvoidNs.ToString(CultureInfo.InvariantCulture), AverageFullSweepSourceNs.ToString(CultureInfo.InvariantCulture), AveragePersistentMapNs.ToString(CultureInfo.InvariantCulture), AverageProxyValidationNs.ToString(CultureInfo.InvariantCulture), AverageLocalBroadPhaseNs.ToString(CultureInfo.InvariantCulture), AveragePairDiffNs.ToString(CultureInfo.InvariantCulture), AverageClassificationNs.ToString(CultureInfo.InvariantCulture), AverageContactActivationNs.ToString(CultureInfo.InvariantCulture), AverageFallbackNs.ToString(CultureInfo.InvariantCulture),
-            NumberBenchmark(AverageDirtyBodies), NumberBenchmark(AveragePersistentPairs), NumberBenchmark(AverageInteractionPairs), NumberBenchmark(AverageSoftCandidateEvaluations), NumberBenchmark(AverageConstraintEvaluations), NumberBenchmark(AverageFullRebuilds), NumberBenchmark(AverageIncrementalRepairs), NumberBenchmark(AverageContactPairs), NumberBenchmark(AverageActivePairs), NumberBenchmark(AveragePredictivePairs),
+            NumberBenchmark(AverageDirtyBodies), NumberBenchmark(AverageMotionDirtyBodies), NumberBenchmark(AveragePersistentPairs), NumberBenchmark(AverageInteractionPairs), NumberBenchmark(AverageSoftAvoidancePairs), NumberBenchmark(AverageClassificationEvaluations), NumberBenchmark(AverageClassificationSkipped), NumberBenchmark(AverageSoftPairEvaluations), NumberBenchmark(AverageConstraintEvaluations), NumberBenchmark(AveragePersistentViewReuse), NumberBenchmark(AveragePersistentViewRebuild), NumberBenchmark(AverageInteractionEnvelopeEscapes), NumberBenchmark(AverageFullRebuilds), NumberBenchmark(AverageIncrementalRepairs), NumberBenchmark(AverageContactPairs), NumberBenchmark(AverageActivePairs), NumberBenchmark(AveragePredictivePairs), NumberBenchmark(AverageSoftOracleMissing),
             CrossFrameCache.ToString(CultureInfo.InvariantCulture), CrossSubstepCache.ToString(CultureInfo.InvariantCulture), Diagnostics.ToString(CultureInfo.InvariantCulture), NumberBenchmark(GuardMargin), Substeps.ToString(CultureInfo.InvariantCulture), Iterations.ToString(CultureInfo.InvariantCulture)
         });
     }
