@@ -28,6 +28,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           flow = Path('Entities/Unit/Systems/FlowField')
           all_flow = '\n'.join(
@@ -42,9 +43,13 @@ jobs:
               'UpdateAdaptiveFatAabbHistoryAfterSolve',
               'AreCorrectedDiscsInsideFatCache'
           ]
-          found = [name for name in forbidden_execution if name in all_flow]
+          found = [
+              name for name in forbidden_execution
+              if re.search(rf'\b{re.escape(name)}\b', all_flow)
+          ]
           if found:
-              raise SystemExit('Legacy execution symbols returned: ' + ', '.join(found))
+              raise SystemExit(
+                  'Legacy execution symbols returned: ' + ', '.join(found))
 
           forbidden_data = [
               'ShadowStatistics',
@@ -52,9 +57,13 @@ jobs:
               'LegacyBroadPhaseSource',
               'MappedFatCachePairs'
           ]
-          found = [name for name in forbidden_data if name in all_flow]
+          found = [
+              name for name in forbidden_data
+              if re.search(rf'\b{re.escape(name)}\b', all_flow)
+          ]
           if found:
-              raise SystemExit('Legacy data flow returned: ' + ', '.join(found))
+              raise SystemExit(
+                  'Legacy data flow returned: ' + ', '.join(found))
 
           if Path('Entities/Unit/Systems/FlowField/Jobs/Legacy').exists():
               raise SystemExit('Jobs/Legacy must not be recreated')
