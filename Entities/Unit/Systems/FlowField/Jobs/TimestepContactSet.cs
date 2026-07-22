@@ -154,9 +154,11 @@ public partial struct SolveXpbdUnitContactsJob
 
     private bool AreCorrectedDiscsInsideTimestepEnvelope(
         int substepIndex,
-        ref PredictiveDiscContactStatistics statistics)
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         bool allInside = true;
+        IncrementalDirtyBodies.Clear();
         float skin = math.max(0f, PredictiveSkin);
         for (int correctedIndex = 0; correctedIndex < CorrectedBodyIndices.Length; correctedIndex++)
         {
@@ -173,6 +175,12 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             allInside = false;
+            IncrementalDirtyBodies.Add(new IncrementalDirtyBody
+            {
+                BodyIndex = bodyIndex,
+                Flags = IncrementalBodyDirtyFlags.Topology |
+                        IncrementalBodyDirtyFlags.CorrectedEscape
+            });
             if (state.TimestepEscaped == 0)
             {
                 state.TimestepEscaped = 1;
@@ -182,6 +190,7 @@ public partial struct SolveXpbdUnitContactsJob
                 States[bodyIndex] = state;
             }
         }
+        incrementalStatistics.CorrectedEscapeBodyCount += IncrementalDirtyBodies.Length;
         return allInside;
     }
 
@@ -200,17 +209,25 @@ public partial struct SolveXpbdUnitContactsJob
                 substepDeltaTime,
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
+        int escapedBodyCount = IncrementalDirtyBodies.Length;
+        float escapedRatio = States.Length > 0
+            ? (float)escapedBodyCount / States.Length
+            : 1f;
+        bool forceFullBroadPhase = !EnableFatAabbCache ||
+                                   escapedRatio > IncrementalDirtyBodyRatioThreshold;
+
         PrepareTimestepContactPrediction(remainingDuration, true);
-        if (AdaptiveFatAabbRequested)
+        if (forceFullBroadPhase && AdaptiveFatAabbRequested)
             InvalidateFatAabbCache(ref shadowStatistics, true);
         BuildTimestepContactSet(
             ref statistics,
             ref shadowStatistics,
             ref fatCachePairsMappedThisFrame,
             ref incrementalStatistics,
-            true,
+            forceFullBroadPhase,
             true);
-        shadowStatistics.FullBroadPhaseFallbackCount++;
+        if (forceFullBroadPhase)
+            shadowStatistics.FullBroadPhaseFallbackCount++;
     }
 
     private static int FindPairIndex(
