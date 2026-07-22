@@ -25,9 +25,9 @@ public sealed partial class AdaptiveParameterTuner
     [Min(1)] public int BenchmarkHoldFrames = 600;
     [Min(1)] public int BenchmarkFramesPerLeg = 300;
     [Min(1)] public int BenchmarkRawSampleInterval = 10;
-    [Min(1)] public int BenchmarkSettledFrames = 45;
-    [Min(1)] public int BenchmarkMaxPreparationFrames = 1800;
-    [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.03f;
+    [Min(1)] public int BenchmarkSettledFrames = 30;
+    [Min(1)] public int BenchmarkMaxPreparationFrames = 3600;
+    [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.15f;
 
     [Tooltip("三种模式均从 PointA 稳定后的同一 ECS 快照开始。ObstaclePingPong 直接使用场景障碍物。")]
     public List<BenchmarkScenario> BenchmarkScenarios = new()
