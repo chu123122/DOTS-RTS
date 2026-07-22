@@ -39,8 +39,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public bool EnablePersistentContactCache;
     public bool EnableTimestepContactSetCache;
     public float FatAabbCacheMargin;
-    public AdaptiveFatAabbSettings AdaptiveSettings;
-    public int2 AdaptiveCellDimensions;
     public float TimestepContactMargin;
     public Entity DiagnosticSelectedEntity;
 
@@ -53,10 +51,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     // Broad Phase 与软避让共用 Pairs 作为瞬时 scratch；权威接触必须独立保存。
     public NativeList<UnitCollisionPair> Pairs;
     public NativeList<UnitCollisionPair> TimestepContactPairs;
-    public NativeList<SweptDiscCellEntry> ShadowCellEntries;
-    public NativeList<UnitCollisionPair> ShadowBodyPairs;
-    public NativeList<ShadowFatBodyProxy> ShadowCurrentProxies;
-    public NativeList<ShadowEntityPair> ShadowCurrentPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
     // Snapshot of the previous finalized timestep view, used only to preserve
     // activation/fallback history while rebuilding the current view.
@@ -68,9 +62,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> SoftAvoidancePairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
-    public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
-    public NativeList<ShadowEntityPair> ShadowPreviousPairs;
-    public NativeReference<FatAabbCacheState> FatAabbCacheState;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
@@ -89,19 +80,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeReference<int> PredictiveContactScheduleCursor;
     public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeArray<AdaptiveFatAabbCellHistory> AdaptiveCellHistory;
-    public NativeArray<AdaptiveFatAabbCellMetric> AdaptiveCellMetrics;
-    public NativeArray<AdaptiveFatAabbBodyRouting> AdaptiveBodyRouting;
-    public NativeList<int> AdaptiveFloodQueue;
-    public NativeList<int> AdaptiveFloodCells;
-    public NativeList<AdaptiveFatAabbRegion> AdaptiveRegions;
-    public NativeList<AdaptiveFatAabbDebugCell> AdaptiveDebugCells;
-    public NativeList<AdaptiveFatAabbDebugRegion> AdaptiveDebugRegions;
-    public NativeList<AdaptiveFatAabbDebugProxy> AdaptiveDebugProxies;
-    public NativeList<AdaptiveFatAabbRegionHistory> AdaptiveRegionHistory;
-    public NativeList<AdaptiveFatAabbRegionHistory> AdaptiveRegionHistoryScratch;
-    public NativeReference<int> AdaptiveNextRegionId;
-    public NativeReference<AdaptiveFatAabbCacheFeedback> AdaptiveCacheFeedback;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
     public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
@@ -133,15 +111,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             IncrementalStatistics.Value = incrementalStatistics;
             return;
         }
-
-        // Legacy global/adaptive Fat AABB state is no longer an execution
-        // source. Keep the containers cleared during the migration window so
-        // existing debugger UI cannot report stale cache hits.
-        ShadowPreviousProxies.Clear();
-        ShadowPreviousPairs.Clear();
-        ShadowCurrentProxies.Clear();
-        ShadowCurrentPairs.Clear();
-        FatAabbCacheState.Value = default;
         if (!EnablePersistentContactCache)
         {
             PersistentSweptProxies.Clear();
