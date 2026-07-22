@@ -26,20 +26,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<StableEntityPairKey> _persistentSoftAvoidancePairKeys;
     private NativeList<PredictiveContactScheduleEntry> _persistentDormantContactSchedule;
     private NativeReference<IncrementalContactCacheState> _incrementalContactCacheState;
-    private NativeList<AdaptiveFatAabbCellHistory> _adaptiveCellHistory;
-    private NativeList<AdaptiveFatAabbRegion> _adaptiveRegions;
-    private NativeList<AdaptiveFatAabbDebugCell> _adaptiveDebugCells;
-    private NativeList<AdaptiveFatAabbDebugRegion> _adaptiveDebugRegions;
-    private NativeList<AdaptiveFatAabbDebugProxy> _adaptiveDebugProxies;
-    private NativeList<AdaptiveFatAabbRegionHistory> _adaptiveRegionHistory;
-    private NativeReference<int> _adaptiveNextRegionId;
-    private NativeReference<AdaptiveFatAabbCacheFeedback> _adaptiveCacheFeedback;
     private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs;
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
     private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
     private Entity _incrementalDiagnosticsEntity;
-    private int2 _adaptiveCellDimensions;
-    private int _adaptiveCellSpan;
 
     protected override void OnCreate()
     {
@@ -68,15 +58,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeList<PredictiveContactScheduleEntry>(Allocator.Persistent);
         _incrementalContactCacheState =
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
-        _adaptiveCellHistory = new NativeList<AdaptiveFatAabbCellHistory>(Allocator.Persistent);
-        _adaptiveRegions = new NativeList<AdaptiveFatAabbRegion>(Allocator.Persistent);
-        _adaptiveDebugCells = new NativeList<AdaptiveFatAabbDebugCell>(Allocator.Persistent);
-        _adaptiveDebugRegions = new NativeList<AdaptiveFatAabbDebugRegion>(Allocator.Persistent);
-        _adaptiveDebugProxies = new NativeList<AdaptiveFatAabbDebugProxy>(Allocator.Persistent);
-        _adaptiveRegionHistory = new NativeList<AdaptiveFatAabbRegionHistory>(Allocator.Persistent);
-        _adaptiveNextRegionId = new NativeReference<int>(Allocator.Persistent);
-        _adaptiveNextRegionId.Value = 1;
-        _adaptiveCacheFeedback = new NativeReference<AdaptiveFatAabbCacheFeedback>(Allocator.Persistent);
         _simulationDebuggerSelectedPairs =
             new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
         _simulationDebuggerSelectedUnit =
@@ -106,22 +87,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _persistentDormantContactSchedule.Dispose();
         if (_incrementalContactCacheState.IsCreated)
             _incrementalContactCacheState.Dispose();
-        if (_adaptiveCellHistory.IsCreated)
-            _adaptiveCellHistory.Dispose();
-        if (_adaptiveRegions.IsCreated)
-            _adaptiveRegions.Dispose();
-        if (_adaptiveDebugCells.IsCreated)
-            _adaptiveDebugCells.Dispose();
-        if (_adaptiveDebugRegions.IsCreated)
-            _adaptiveDebugRegions.Dispose();
-        if (_adaptiveDebugProxies.IsCreated)
-            _adaptiveDebugProxies.Dispose();
-        if (_adaptiveRegionHistory.IsCreated)
-            _adaptiveRegionHistory.Dispose();
-        if (_adaptiveNextRegionId.IsCreated)
-            _adaptiveNextRegionId.Dispose();
-        if (_adaptiveCacheFeedback.IsCreated)
-            _adaptiveCacheFeedback.Dispose();
         if (_simulationDebuggerSelectedPairs.IsCreated)
             _simulationDebuggerSelectedPairs.Dispose();
         if (_simulationDebuggerSelectedUnit.IsCreated)
