@@ -561,7 +561,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkDirectory = Path.Combine(Application.dataPath, "..", "BenchmarkResults", "contact_benchmark_" + stamp);
         Directory.CreateDirectory(_benchmarkDirectory);
         _benchmarkRawWriter = new StreamWriter(Path.Combine(_benchmarkDirectory, "adaptive_tuning_raw.csv"));
-        _benchmarkRawWriter.WriteLine("Scenario,Mode,Profile,Repetition,SampleFrame,LegIndex,BaselineHash,SolverNs,IterationNs,SoftAvoidNs,ProxyValidationNs,LocalBroadPhaseNs,PairDiffNs,ClassificationNs,DirtyBodies,PersistentNeighborPairs,FullRebuilds,IncrementalRepairs,ContactPairs,ActivePairs,PredictivePairs");
+        _benchmarkRawWriter.WriteLine("Scenario,Mode,Profile,Repetition,SampleFrame,LegIndex,BaselineHash,SolverNs,PairGenerationNs,TimestepContactSetBuildNs,IterationNs,SoftAvoidNs,ProxyValidationNs,LocalBroadPhaseNs,PairDiffNs,ClassificationNs,ContactActivationNs,FallbackNs,DirtyBodies,PersistentNeighborPairs,FullRebuilds,IncrementalRepairs,ContactPairs,ActivePairs,PredictivePairs");
     }
 
     private void WriteBenchmarkRawSample(SimulationDebuggerFrameSnapshot snapshot)
@@ -572,8 +572,8 @@ public sealed partial class AdaptiveParameterTuner
         {
             CsvBenchmark(CurrentBenchmarkScenario.Label), CsvBenchmark(CurrentBenchmarkScenario.Mode.ToString()), CsvBenchmark(CurrentBenchmarkRun.Trial.Label),
             CurrentBenchmarkRun.Repetition.ToString(CultureInfo.InvariantCulture), _benchmarkMeasuredFrames.ToString(CultureInfo.InvariantCulture), _benchmarkLegIndex.ToString(CultureInfo.InvariantCulture), _benchmarkSnapshot.Hash.ToString("X16", CultureInfo.InvariantCulture),
-            snapshot.Overview.SolverNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.IterationNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.SoftAvoidanceNanoseconds.ToString(CultureInfo.InvariantCulture),
-            p.ProxyValidationNanoseconds.ToString(CultureInfo.InvariantCulture), p.LocalBroadPhaseNanoseconds.ToString(CultureInfo.InvariantCulture), p.PairDiffNanoseconds.ToString(CultureInfo.InvariantCulture), p.SweptClassificationNanoseconds.ToString(CultureInfo.InvariantCulture),
+            snapshot.Overview.SolverNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.PairGenerationNanoseconds.ToString(CultureInfo.InvariantCulture), IncrementalContactPipelineDiagnosticsRuntime.Latest.SolverStatistics.TimestepContactSetBuildNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.IterationNanoseconds.ToString(CultureInfo.InvariantCulture), snapshot.Overview.SoftAvoidanceNanoseconds.ToString(CultureInfo.InvariantCulture),
+            p.ProxyValidationNanoseconds.ToString(CultureInfo.InvariantCulture), p.LocalBroadPhaseNanoseconds.ToString(CultureInfo.InvariantCulture), p.PairDiffNanoseconds.ToString(CultureInfo.InvariantCulture), p.SweptClassificationNanoseconds.ToString(CultureInfo.InvariantCulture), p.ContactActivationNanoseconds.ToString(CultureInfo.InvariantCulture), p.FallbackNanoseconds.ToString(CultureInfo.InvariantCulture),
             p.TopologyDirtyBodyCount.ToString(CultureInfo.InvariantCulture), p.PersistentNeighborPairCount.ToString(CultureInfo.InvariantCulture), p.FullRebuildCount.ToString(CultureInfo.InvariantCulture), p.IncrementalRepairCount.ToString(CultureInfo.InvariantCulture),
             snapshot.ContactSet.ContactSetSize.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.ActiveContactCount.ToString(CultureInfo.InvariantCulture), snapshot.ContactSet.PredictiveContactCount.ToString(CultureInfo.InvariantCulture)
         }));
@@ -594,7 +594,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkRawWriter = null;
         string summaryPath = Path.Combine(_benchmarkDirectory, "adaptive_tuning_summary.csv");
         using var writer = new StreamWriter(summaryPath);
-        writer.WriteLine("Scenario,Mode,Profile,Repetition,UnitCount,FrameCount,BaselineHash,FinalHash,AvgSolverNs,AvgIterationNs,AvgSoftAvoidNs,AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs,AvgDirtyBodies,AvgPersistentPairs,AvgFullRebuilds,AvgIncrementalRepairs,AvgContactPairs,AvgActivePairs,AvgPredictivePairs,CrossFrameCache,CrossSubstepCache,Diagnostics,GuardMargin,Substeps,Iterations");
+        writer.WriteLine("Scenario,Mode,Profile,Repetition,UnitCount,FrameCount,BaselineHash,FinalHash,AvgSolverNs,AvgPairGenerationNs,AvgTimestepContactSetBuildNs,AvgIterationNs,AvgSoftAvoidNs,AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs,AvgContactActivationNs,AvgFallbackNs,AvgDirtyBodies,AvgPersistentPairs,AvgFullRebuilds,AvgIncrementalRepairs,AvgContactPairs,AvgActivePairs,AvgPredictivePairs,CrossFrameCache,CrossSubstepCache,Diagnostics,GuardMargin,Substeps,Iterations");
         foreach (BenchmarkResult result in _benchmarkResults)
             writer.WriteLine(result.ToCsv());
         File.WriteAllText(Path.Combine(_benchmarkDirectory, "adaptive_tuning_manifest.txt"),
@@ -654,13 +654,13 @@ public sealed partial class AdaptiveParameterTuner
     private sealed class BenchmarkAccumulator
     {
         private int _frames, _unitCount;
-        private long _solver, _iteration, _softAvoid, _proxyValidation, _localBroadPhase, _pairDiff, _classification;
+        private long _solver, _pairGeneration, _timestepContactSetBuild, _iteration, _softAvoid, _proxyValidation, _localBroadPhase, _pairDiff, _classification, _contactActivation, _fallback;
         private long _dirtyBodies, _persistentPairs, _fullRebuilds, _incrementalRepairs, _contactPairs, _activePairs, _predictivePairs;
 
         public void Reset()
         {
             _frames = _unitCount = 0;
-            _solver = _iteration = _softAvoid = _proxyValidation = _localBroadPhase = _pairDiff = _classification = 0;
+            _solver = _pairGeneration = _timestepContactSetBuild = _iteration = _softAvoid = _proxyValidation = _localBroadPhase = _pairDiff = _classification = _contactActivation = _fallback = 0;
             _dirtyBodies = _persistentPairs = _fullRebuilds = _incrementalRepairs = _contactPairs = _activePairs = _predictivePairs = 0;
         }
 
@@ -669,6 +669,8 @@ public sealed partial class AdaptiveParameterTuner
             _frames++;
             _unitCount = snapshot.Overview.UnitCount;
             _solver += snapshot.Overview.SolverNanoseconds;
+            _pairGeneration += snapshot.Overview.PairGenerationNanoseconds;
+            _timestepContactSetBuild += IncrementalContactPipelineDiagnosticsRuntime.Latest.SolverStatistics.TimestepContactSetBuildNanoseconds;
             _iteration += snapshot.Overview.IterationNanoseconds;
             _softAvoid += snapshot.Overview.SoftAvoidanceNanoseconds;
             _contactPairs += snapshot.ContactSet.ContactSetSize;
@@ -679,6 +681,8 @@ public sealed partial class AdaptiveParameterTuner
             _localBroadPhase += p.LocalBroadPhaseNanoseconds;
             _pairDiff += p.PairDiffNanoseconds;
             _classification += p.SweptClassificationNanoseconds;
+            _contactActivation += p.ContactActivationNanoseconds;
+            _fallback += p.FallbackNanoseconds;
             _dirtyBodies += p.TopologyDirtyBodyCount;
             _persistentPairs += p.PersistentNeighborPairCount;
             _fullRebuilds += p.FullRebuildCount;
@@ -692,8 +696,8 @@ public sealed partial class AdaptiveParameterTuner
             {
                 Scenario = scenario.Label, Mode = scenario.Mode, Profile = run.Trial.Label, Repetition = run.Repetition,
                 UnitCount = _unitCount, FrameCount = _frames, BaselineHash = baselineHash, FinalHash = finalHash,
-                AverageSolverNs = (long)(_solver * inv), AverageIterationNs = (long)(_iteration * inv), AverageSoftAvoidNs = (long)(_softAvoid * inv),
-                AverageProxyValidationNs = (long)(_proxyValidation * inv), AverageLocalBroadPhaseNs = (long)(_localBroadPhase * inv), AveragePairDiffNs = (long)(_pairDiff * inv), AverageClassificationNs = (long)(_classification * inv),
+                AverageSolverNs = (long)(_solver * inv), AveragePairGenerationNs = (long)(_pairGeneration * inv), AverageTimestepContactSetBuildNs = (long)(_timestepContactSetBuild * inv), AverageIterationNs = (long)(_iteration * inv), AverageSoftAvoidNs = (long)(_softAvoid * inv),
+                AverageProxyValidationNs = (long)(_proxyValidation * inv), AverageLocalBroadPhaseNs = (long)(_localBroadPhase * inv), AveragePairDiffNs = (long)(_pairDiff * inv), AverageClassificationNs = (long)(_classification * inv), AverageContactActivationNs = (long)(_contactActivation * inv), AverageFallbackNs = (long)(_fallback * inv),
                 AverageDirtyBodies = _dirtyBodies * inv, AveragePersistentPairs = _persistentPairs * inv, AverageFullRebuilds = _fullRebuilds * inv, AverageIncrementalRepairs = _incrementalRepairs * inv,
                 AverageContactPairs = _contactPairs * inv, AverageActivePairs = _activePairs * inv, AveragePredictivePairs = _predictivePairs * inv,
                 CrossFrameCache = run.Trial.EnableFatAabbCache, CrossSubstepCache = run.Trial.EnableTimestepContactSetCache,
@@ -708,7 +712,7 @@ public sealed partial class AdaptiveParameterTuner
         public BenchmarkScenarioMode Mode;
         public int Repetition, UnitCount, FrameCount, Substeps, Iterations;
         public ulong BaselineHash, FinalHash;
-        public long AverageSolverNs, AverageIterationNs, AverageSoftAvoidNs, AverageProxyValidationNs, AverageLocalBroadPhaseNs, AveragePairDiffNs, AverageClassificationNs;
+        public long AverageSolverNs, AveragePairGenerationNs, AverageTimestepContactSetBuildNs, AverageIterationNs, AverageSoftAvoidNs, AverageProxyValidationNs, AverageLocalBroadPhaseNs, AveragePairDiffNs, AverageClassificationNs, AverageContactActivationNs, AverageFallbackNs;
         public float AverageDirtyBodies, AveragePersistentPairs, AverageFullRebuilds, AverageIncrementalRepairs, AverageContactPairs, AverageActivePairs, AveragePredictivePairs, GuardMargin;
         public byte CrossFrameCache, CrossSubstepCache, Diagnostics;
 
@@ -716,7 +720,7 @@ public sealed partial class AdaptiveParameterTuner
         {
             CsvBenchmark(Scenario), CsvBenchmark(Mode.ToString()), CsvBenchmark(Profile), Repetition.ToString(CultureInfo.InvariantCulture), UnitCount.ToString(CultureInfo.InvariantCulture), FrameCount.ToString(CultureInfo.InvariantCulture),
             BaselineHash.ToString("X16", CultureInfo.InvariantCulture), FinalHash.ToString("X16", CultureInfo.InvariantCulture),
-            AverageSolverNs.ToString(CultureInfo.InvariantCulture), AverageIterationNs.ToString(CultureInfo.InvariantCulture), AverageSoftAvoidNs.ToString(CultureInfo.InvariantCulture), AverageProxyValidationNs.ToString(CultureInfo.InvariantCulture), AverageLocalBroadPhaseNs.ToString(CultureInfo.InvariantCulture), AveragePairDiffNs.ToString(CultureInfo.InvariantCulture), AverageClassificationNs.ToString(CultureInfo.InvariantCulture),
+            AverageSolverNs.ToString(CultureInfo.InvariantCulture), AveragePairGenerationNs.ToString(CultureInfo.InvariantCulture), AverageTimestepContactSetBuildNs.ToString(CultureInfo.InvariantCulture), AverageIterationNs.ToString(CultureInfo.InvariantCulture), AverageSoftAvoidNs.ToString(CultureInfo.InvariantCulture), AverageProxyValidationNs.ToString(CultureInfo.InvariantCulture), AverageLocalBroadPhaseNs.ToString(CultureInfo.InvariantCulture), AveragePairDiffNs.ToString(CultureInfo.InvariantCulture), AverageClassificationNs.ToString(CultureInfo.InvariantCulture), AverageContactActivationNs.ToString(CultureInfo.InvariantCulture), AverageFallbackNs.ToString(CultureInfo.InvariantCulture),
             NumberBenchmark(AverageDirtyBodies), NumberBenchmark(AveragePersistentPairs), NumberBenchmark(AverageFullRebuilds), NumberBenchmark(AverageIncrementalRepairs), NumberBenchmark(AverageContactPairs), NumberBenchmark(AverageActivePairs), NumberBenchmark(AveragePredictivePairs),
             CrossFrameCache.ToString(CultureInfo.InvariantCulture), CrossSubstepCache.ToString(CultureInfo.InvariantCulture), Diagnostics.ToString(CultureInfo.InvariantCulture), NumberBenchmark(GuardMargin), Substeps.ToString(CultureInfo.InvariantCulture), Iterations.ToString(CultureInfo.InvariantCulture)
         });
