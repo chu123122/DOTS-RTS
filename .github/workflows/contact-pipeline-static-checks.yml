@@ -21,31 +21,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate module contracts
+
+      - name: Reject legacy execution and data paths
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import re
 
           flow = Path('Entities/Unit/Systems/FlowField')
-          pipeline = flow / 'Jobs/ContactPipeline'
-          production = '\n'.join(p.read_text(encoding='utf-8') for p in pipeline.rglob('*.cs'))
-          all_flow = '\n'.join(p.read_text(encoding='utf-8') for p in flow.rglob('*.cs'))
+          all_flow = '\n'.join(
+              path.read_text(encoding='utf-8')
+              for path in flow.rglob('*.cs'))
 
           forbidden_execution = [
-              'BuildAdaptiveFatAabbHotspots', 'BuildAdaptiveHybridContactPairs',
-              'BuildContactPairsFromFatAabbCache', 'EnsureFatAabbRawCandidates',
-              'UpdateAdaptiveFatAabbHistoryAfterSolve', 'AreCorrectedDiscsInsideFatCache'
+              'BuildAdaptiveFatAabbHotspots',
+              'BuildAdaptiveHybridContactPairs',
+              'BuildContactPairsFromFatAabbCache',
+              'EnsureFatAabbRawCandidates',
+              'UpdateAdaptiveFatAabbHistoryAfterSolve',
+              'AreCorrectedDiscsInsideFatCache'
           ]
           found = [name for name in forbidden_execution if name in all_flow]
           if found:
               raise SystemExit('Legacy execution symbols returned: ' + ', '.join(found))
 
           forbidden_data = [
-              'ShadowStatistics', 'LegacyBroadPhaseStatistics',
-              'LegacyBroadPhaseSource', 'MappedFatCachePairs'
+              'ShadowStatistics',
+              'LegacyBroadPhaseStatistics',
+              'LegacyBroadPhaseSource',
+              'MappedFatCachePairs'
           ]
           found = [name for name in forbidden_data if name in all_flow]
           if found:
@@ -53,6 +58,20 @@ jobs:
 
           if Path('Entities/Unit/Systems/FlowField/Jobs/Legacy').exists():
               raise SystemExit('Jobs/Legacy must not be recreated')
+          PY
+
+      - name: Validate compatibility boundary and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
+          production = '\n'.join(
+              path.read_text(encoding='utf-8')
+              for path in pipeline.rglob('*.cs'))
 
           occurrences = [
               str(path) for path in pipeline.rglob('*.cs')
@@ -64,12 +83,26 @@ jobs:
                   'Serialized FatAabb margin escaped compatibility boundary: ' +
                   repr(occurrences))
 
-          if re.search(r'\b(?:SleepingBody|SleepingIsland|ContactIslandSleeping)\b', production):
-              raise SystemExit('Sleeping policy introduced without a dedicated design stage')
+          if re.search(
+                  r'\b(?:SleepingBody|SleepingIsland|ContactIslandSleeping)\b',
+                  production):
+              raise SystemExit(
+                  'Sleeping policy introduced without a dedicated design stage')
+          PY
 
+      - name: Validate type ownership and temporary artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
           ownership = {
-              'public struct UnitCollisionPair': pipeline / 'Core/ContactPairTypes.cs',
-              'public struct SweptDiscCellEntry': pipeline / 'BroadPhase/SweptDiscTypes.cs'
+              'public struct UnitCollisionPair':
+                  pipeline / 'Core/ContactPairTypes.cs',
+              'public struct SweptDiscCellEntry':
+                  pipeline / 'BroadPhase/SweptDiscTypes.cs'
           }
           for symbol, expected_path in ownership.items():
               paths = [
@@ -79,17 +112,39 @@ jobs:
               if paths != [expected_path]:
                   raise SystemExit(f'{symbol} ownership mismatch: {paths}')
 
-          temp_workflows = list(Path('.github/workflows').glob('refactor-contact-pipeline-phase*.yml'))
-          temp_workflows += list(Path('.github/workflows').glob('audit-*.yml'))
-          if temp_workflows:
-              raise SystemExit('Temporary workflows remain: ' + repr(temp_workflows))
+          temp = list(Path('.github/workflows').glob(
+              'refactor-contact-pipeline-phase*.yml'))
+          temp += list(Path('.github/workflows').glob('audit-*.yml'))
+          if temp:
+              raise SystemExit('Temporary workflows remain: ' + repr(temp))
+          PY
 
-          csv_text = (flow / 'Diagnostics/IncrementalContactPipelineCsvRecorder.cs').read_text(encoding='utf-8')
+      - name: Validate diagnostics schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          csv_path = Path(
+              'Entities/Unit/Systems/FlowField/Diagnostics/'
+              'IncrementalContactPipelineCsvRecorder.cs')
+          csv_text = csv_path.read_text(encoding='utf-8')
           if 'CsvSchemaVersion = 6' not in csv_text:
               raise SystemExit('Unexpected contact CSV schema')
-          if 'LegacyCacheUseCount' in csv_text or 'LegacyBroadPhaseStatistics' in csv_text:
+          if ('LegacyCacheUseCount' in csv_text or
+                  'LegacyBroadPhaseStatistics' in csv_text):
               raise SystemExit('Legacy CSV columns returned')
+          PY
 
+      - name: Validate simple source structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
           for path in pipeline.rglob('*.cs'):
               text = path.read_text(encoding='utf-8')
               if text.count('{') != text.count('}'):
