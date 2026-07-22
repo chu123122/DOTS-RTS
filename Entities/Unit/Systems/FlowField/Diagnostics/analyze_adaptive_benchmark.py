@@ -9,8 +9,10 @@ from collections import defaultdict
 from pathlib import Path
 
 METRICS = [
-    "AvgSolverNs", "AvgIterationNs", "AvgSoftAvoidNs", "AvgProxyValidationNs",
+    "AvgSolverNs", "AvgPairGenerationNs", "AvgTimestepContactSetBuildNs",
+    "AvgIterationNs", "AvgSoftAvoidNs", "AvgProxyValidationNs",
     "AvgLocalBroadPhaseNs", "AvgPairDiffNs", "AvgClassificationNs",
+    "AvgContactActivationNs", "AvgFallbackNs",
     "AvgDirtyBodies", "AvgPersistentPairs", "AvgFullRebuilds",
     "AvgIncrementalRepairs", "AvgContactPairs", "AvgActivePairs", "AvgPredictivePairs",
 ]
@@ -53,6 +55,7 @@ def main():
     if not rows:
         print("summary contains no completed trials", file=sys.stderr)
         return 2
+    has_pair_generation = "AvgPairGenerationNs" in rows[0]
 
     issues = []
     by_scenario = defaultdict(list)
@@ -103,6 +106,12 @@ def main():
             "CandidateSolverNsMean": candidate_mean,
             "SolverDeltaNs": candidate_mean - base_mean,
             "SolverDeltaPercent": 0.0 if base_mean == 0 else (candidate_mean - base_mean) * 100.0 / base_mean,
+            "PairGenerationAvailable": int(has_pair_generation),
+            "BaselinePairGenerationNsMean": statistics.fmean(number(base_by_repeat[r], "AvgPairGenerationNs") for r in common),
+            "CandidatePairGenerationNsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgPairGenerationNs") for r in common),
+            "PairGenerationDeltaNs": statistics.fmean(number(candidate_by_repeat[r], "AvgPairGenerationNs") - number(base_by_repeat[r], "AvgPairGenerationNs") for r in common),
+            "CandidateClassificationNsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgClassificationNs") for r in common),
+            "CandidateFallbackNsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgFallbackNs") for r in common),
             "BaselineDirtyBodiesMean": statistics.fmean(number(base_by_repeat[r], "AvgDirtyBodies") for r in common),
             "CandidateDirtyBodiesMean": statistics.fmean(number(candidate_by_repeat[r], "AvgDirtyBodies") for r in common),
             "CandidatePersistentPairsMean": statistics.fmean(number(candidate_by_repeat[r], "AvgPersistentPairs") for r in common),
@@ -116,7 +125,7 @@ def main():
 
     comparison_path = output_dir / "analysis_comparison.csv"
     with comparison_path.open("w", newline="", encoding="utf-8") as handle:
-        fields = ["Scenario", "Pairs", "BaselineProfile", "CandidateProfile", "BaselineSolverNsMean", "CandidateSolverNsMean", "SolverDeltaNs", "SolverDeltaPercent", "BaselineDirtyBodiesMean", "CandidateDirtyBodiesMean", "CandidatePersistentPairsMean"]
+        fields = ["Scenario", "Pairs", "BaselineProfile", "CandidateProfile", "BaselineSolverNsMean", "CandidateSolverNsMean", "SolverDeltaNs", "SolverDeltaPercent", "PairGenerationAvailable", "BaselinePairGenerationNsMean", "CandidatePairGenerationNsMean", "PairGenerationDeltaNs", "CandidateClassificationNsMean", "CandidateFallbackNsMean", "BaselineDirtyBodiesMean", "CandidateDirtyBodiesMean", "CandidatePersistentPairsMean"]
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader(); writer.writerows(comparison_rows)
 
@@ -129,11 +138,16 @@ def main():
             handle.write("## 数据有效性\n- PASS：同一场景内所有 trial 使用同一 BaselineHash。\n\n")
         handle.write("## A0_B1 vs A1_B1\n")
         for row in comparison_rows:
+            pair_generation = (
+                f"PairGen Δ={row['PairGenerationDeltaNs'] / 1000:+.1f}us，"
+                if row["PairGenerationAvailable"] else "PairGen=旧数据未记录，")
             handle.write(f"- **{row['Scenario']}**：{row['SolverDeltaPercent']:+.2f}% "
                          f"({row['BaselineSolverNsMean'] / 1000:.1f}us → {row['CandidateSolverNsMean'] / 1000:.1f}us)，"
+                         f"{pair_generation}"
+                         f"classification={row['CandidateClassificationNsMean'] / 1000:.1f}us，"
                          f"A1 persistent pairs={row['CandidatePersistentPairsMean']:.1f}，"
                          f"dirty={row['CandidateDirtyBodiesMean']:.2f}。\n")
-        handle.write("\n静止场景应同时满足 dirty 接近 0、重建接近 0 且 Solver 下降；否则缓存维护开销或测量边界仍需复查。\n")
+        handle.write("\nPairDiff 包含部分 LocalBroadPhase，因此两者不能相加为维护总耗时；PairGeneration 才是 A0/A1 可直接比较的完整生成阶段计时。\n")
 
     print(f"wrote {aggregate_path}")
     print(f"wrote {comparison_path}")
