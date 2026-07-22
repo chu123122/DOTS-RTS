@@ -176,3 +176,22 @@ Fallback is a normal mode, not an error. The pipeline tracks its frequency and c
 6. Add dormant scheduling and substep contact activation.
 7. Publish incremental pipeline diagnostics and oracle counters.
 8. Remove the legacy Fat/Adaptive execution path and finalize migration notes.
+
+## Implemented migration status
+
+The feature branch now routes the timestep cache through the incremental
+pipeline:
+
+1. stable entity pair keys and persistent containers;
+2. persistent guard proxies and neighbor-pair set;
+3. per-body topology/motion dirty classification and pair deltas;
+4. cross-timestep predictive contact lifecycle;
+5. incident-pair repair after substep envelope escape;
+6. dormant pair scheduling instead of per-iteration scanning;
+7. ECS diagnostics snapshot and O(N^2) false-negative oracle;
+8. legacy Adaptive/Global Fat AABB execution paths retired from the solver;
+   persistent neighbor pairs also feed soft avoidance.
+
+`EnableTimestepContactSetCache` is now the execution gate for the incremental
+pipeline. `EnableFatAabbCache` remains as a serialized compatibility field while
+existing scenes/settings are migrated, but no longer selects the runtime path.

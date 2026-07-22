@@ -56,6 +56,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<ShadowEntityPair> ShadowCurrentPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
     public NativeList<UnitCollisionPair> MappedFatCachePairs;
+    public NativeList<UnitCollisionPair> MappedPersistentNeighborPairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
@@ -64,7 +65,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
-    public NativeList<PersistentPredictiveContact> CurrentPredictiveContacts;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
     public NativeList<PersistentPredictiveContact> PredictiveContactScratch;
     public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
@@ -118,31 +118,16 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             return;
         }
 
-        if (!AdaptiveFatAabbRequested)
-        {
-            ShadowPreviousProxies.Clear();
-            ShadowPreviousPairs.Clear();
-            ShadowCurrentProxies.Clear();
-            ShadowCurrentPairs.Clear();
-            FatAabbCacheState.Value = default;
-        }
-        else
-        {
-            shadowStatistics.CacheEnabled = 1;
-            PrepareCurrentBodyLookup();
-            FatAabbCacheState cacheState = FatAabbCacheState.Value;
-            shadowStatistics.PreviousFrameCacheAvailable =
-                (byte)(cacheState.IsValid != 0 ? 1 : 0);
-            shadowStatistics.CacheValidAtFrameStart = cacheState.IsValid;
-            shadowStatistics.PreviousFrameCacheBodyCount = ShadowPreviousProxies.Length;
-            shadowStatistics.PreviousFrameCachePairCount = ShadowPreviousPairs.Length;
-        }
+        // Legacy global/adaptive Fat AABB state is no longer an execution
+        // source. Keep the containers cleared during the migration window so
+        // existing debugger UI cannot report stale cache hits.
+        ShadowPreviousProxies.Clear();
+        ShadowPreviousPairs.Clear();
+        ShadowCurrentProxies.Clear();
+        ShadowCurrentPairs.Clear();
+        FatAabbCacheState.Value = default;
 
         InitializeSolverState();
-        BuildAdaptiveFatAabbHotspots();
-        if (AdaptiveFatAabbRequested)
-            ResetAdaptiveFatAabbCacheWhenInactive();
-
         if (EnableTimestepContactSetCache)
         {
             PrepareTimestepContactPrediction(DeltaTime, false);
@@ -162,10 +147,11 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         {
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
-            // Global Fat AABB 路径已移除，软避让统一使用 swept spatial hash。
-            bool useFatCandidatesForSoftAvoidance = false;
+            bool usePersistentCandidatesForSoftAvoidance =
+                EnableTimestepContactSetCache &&
+                IncrementalCacheState.Value.IsValid != 0;
             CalculateSoftAvoidanceForSubstep(
-                useFatCandidatesForSoftAvoidance,
+                usePersistentCandidatesForSoftAvoidance,
                 substepDeltaTime,
                 ref statistics);
             statistics.SoftAvoidanceEvaluationCount++;
@@ -226,13 +212,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         ref fatCachePairsMappedThisFrame,
                         ref incrementalStatistics);
                     ResetTimestepContactSetForSubstep();
-                }
-                else if (AdaptiveFatAabbRequested &&
-                         FatAabbCacheState.Value.IsValid != 0 &&
-                         !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
-                {
-                    InvalidateFatAabbCache(ref shadowStatistics, true);
-                    fatCachePairsMappedThisFrame = false;
                 }
 
                 SolveContactIteration(
@@ -297,13 +276,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                             recoveryMaxCorrection);
                     }
                 }
-                else if (AdaptiveFatAabbRequested &&
-                         FatAabbCacheState.Value.IsValid != 0 &&
-                         !AreCorrectedDiscsInsideFatCache(ref shadowStatistics))
-                {
-                    InvalidateFatAabbCache(ref shadowStatistics, true);
-                    fatCachePairsMappedThisFrame = false;
-                }
             }
             statistics.IterationNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - iterationStart);
@@ -317,18 +289,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             CaptureSelectedBodyAndPairs(substepCount - 1);
         BuildContactHeatSamples();
 
-        if (AdaptiveFatAabbRequested)
-        {
-            FatAabbCacheState cacheState = FatAabbCacheState.Value;
-            if (cacheState.IsValid != 0 && shadowStatistics.CacheRebuildCount == 0)
-                cacheState.AgeFrames++;
-            shadowStatistics.CacheValidAtFrameEnd = cacheState.IsValid;
-            shadowStatistics.CacheAgeFrames = cacheState.AgeFrames;
-            shadowStatistics.CurrentFrameCacheBodyCount = ShadowPreviousProxies.Length;
-            shadowStatistics.CurrentFrameCachePairCount = ShadowPreviousPairs.Length;
-            shadowStatistics.CachedCandidatePairCount = ShadowPreviousPairs.Length;
-            FatAabbCacheState.Value = cacheState;
-        }
 
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
             ? penetrationSum / statistics.PenetratingPairCount
@@ -343,9 +303,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.PredictiveUnactivatedRatio = statistics.PredictivePairCount > 0
             ? (float)statistics.PredictiveUnactivatedCount / statistics.PredictivePairCount
             : 0f;
-        UpdateAdaptiveFatAabbHistoryAfterSolve(
-            ref shadowStatistics,
-            ref statistics);
         statistics.AverageIterationNanoseconds =
             statistics.IterationNanoseconds / math.max(1, substepCount * iterationCount);
         statistics.AverageSoftAvoidanceNanoseconds =
