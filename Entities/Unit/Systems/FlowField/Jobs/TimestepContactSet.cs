@@ -38,6 +38,10 @@ public partial struct SolveXpbdUnitContactsJob
             state.BasePredictedVelocity = velocity;
             state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
             state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            CalculateIncrementalTightSweptBounds(
+                state,
+                out state.TimestepInteractionEnvelopeMin,
+                out state.TimestepInteractionEnvelopeMax);
             if (!fromSolvedPosition)
                 state.TimestepEscaped = 0;
             States[bodyIndex] = state;
@@ -62,6 +66,10 @@ public partial struct SolveXpbdUnitContactsJob
             state.TimestepPredictedPosition = end;
             state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
             state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            CalculateIncrementalTightSweptBounds(
+                state,
+                out state.TimestepInteractionEnvelopeMin,
+                out state.TimestepInteractionEnvelopeMax);
             state.TimestepEscaped = 0;
             States[bodyIndex] = state;
         }
@@ -73,6 +81,7 @@ public partial struct SolveXpbdUnitContactsJob
     {
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
         BuildSweptInteractionPairs(ref statistics);
+        BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
         long elapsed = TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
         incrementalStatistics.FullSweepSourceNanoseconds += elapsed;
@@ -111,12 +120,15 @@ public partial struct SolveXpbdUnitContactsJob
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
 
         bool sourcedFromIncrementalCache = false;
+        bool persistentViewReady = false;
         if (EnablePersistentContactCache)
         {
             sourcedFromIncrementalCache = BuildContactPairsFromPersistentNeighborSet(
                 ref statistics,
                 ref incrementalStatistics,
-                forceFullBroadPhase);
+                forceFullBroadPhase,
+                scheduleStartSubstep,
+                out persistentViewReady);
         }
         else
         {
@@ -126,14 +138,28 @@ public partial struct SolveXpbdUnitContactsJob
                 ProfilerUnsafeUtility.Timestamp - fullSweepStart);
         }
 
-        incrementalStatistics.CurrentInteractionPairCount =
-            TimestepInteractionPairs.Length;
-
-        FinalizeTimestepContactView(
-            ref statistics,
-            ref incrementalStatistics,
-            fallback,
-            scheduleStartSubstep);
+        if (persistentViewReady)
+        {
+            incrementalStatistics.CurrentInteractionPairCount =
+                PersistentNeighborPairs.Length;
+            ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
+                ref incrementalStatistics);
+            CommitFinalizedTimestepContactView(
+                ref statistics,
+                ref incrementalStatistics,
+                fallback);
+        }
+        else
+        {
+            incrementalStatistics.CurrentInteractionPairCount =
+                TimestepInteractionPairs.Length;
+            BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
+            FinalizeTimestepContactView(
+                ref statistics,
+                ref incrementalStatistics,
+                fallback,
+                scheduleStartSubstep);
+        }
 
         long elapsed = TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
@@ -172,6 +198,17 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - scheduleStart);
 
+        CommitFinalizedTimestepContactView(
+            ref statistics,
+            ref incrementalStatistics,
+            fallback);
+    }
+
+    private void CommitFinalizedTimestepContactView(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        bool fallback)
+    {
         TimestepContactPairs.Clear();
         TimestepContactPairs.AddRange(Pairs.AsArray());
         statistics.TimestepContactSetBuildCount++;
@@ -224,7 +261,7 @@ public partial struct SolveXpbdUnitContactsJob
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         bool allInside = true;
-        IncrementalDirtyBodies.Clear();
+        ClearIncrementalDirtyBodySet();
         float skin = math.max(0f, PredictiveSkin);
         for (int correctedIndex = 0; correctedIndex < CorrectedBodyIndices.Length; correctedIndex++)
         {
@@ -241,12 +278,10 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             allInside = false;
-            IncrementalDirtyBodies.Add(new IncrementalDirtyBody
-            {
-                BodyIndex = bodyIndex,
-                Flags = IncrementalBodyDirtyFlags.Topology |
-                        IncrementalBodyDirtyFlags.CorrectedEscape
-            });
+            SetIncrementalDirtyFlags(
+                bodyIndex,
+                IncrementalBodyDirtyFlags.Topology |
+                IncrementalBodyDirtyFlags.CorrectedEscape);
             if (state.TimestepEscaped == 0)
             {
                 state.TimestepEscaped = 1;
@@ -260,6 +295,89 @@ public partial struct SolveXpbdUnitContactsJob
         return allInside;
     }
 
+    private bool ArePredictedDiscsInsideTimestepEnvelope(
+        int substepIndex,
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        ClearIncrementalDirtyBodySet();
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+            float extent = math.max(0f, state.Radius) +
+                           math.max(0f, PredictiveSkin);
+            float2 currentMin = state.PredictedPosition.xz - extent;
+            float2 currentMax = state.PredictedPosition.xz + extent;
+            if (AabbContains(
+                    state.TimestepEnvelopeMin,
+                    state.TimestepEnvelopeMax,
+                    currentMin,
+                    currentMax))
+                continue;
+            MarkTimestepEnvelopeEscape(
+                bodyIndex,
+                substepIndex,
+                IncrementalBodyDirtyFlags.Motion,
+                ref statistics);
+        }
+        incrementalStatistics.CorrectedEscapeBodyCount +=
+            IncrementalDirtyBodies.Length;
+        return IncrementalDirtyBodies.Length == 0;
+    }
+
+    private bool AreSoftAvoidanceTrajectoriesInsideInteractionEnvelope(
+        int substepIndex,
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        ClearIncrementalDirtyBodySet();
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                continue;
+            CalculateIncrementalValidationBounds(
+                state,
+                out float2 currentMin,
+                out float2 currentMax);
+            if (AabbContains(
+                    state.TimestepInteractionEnvelopeMin,
+                    state.TimestepInteractionEnvelopeMax,
+                    currentMin,
+                    currentMax))
+                continue;
+            MarkTimestepEnvelopeEscape(
+                bodyIndex,
+                substepIndex,
+                IncrementalBodyDirtyFlags.Motion,
+                ref statistics);
+        }
+        incrementalStatistics.InteractionEnvelopeEscapeCount +=
+            IncrementalDirtyBodies.Length;
+        return IncrementalDirtyBodies.Length == 0;
+    }
+
+    private void MarkTimestepEnvelopeEscape(
+        int bodyIndex,
+        int substepIndex,
+        IncrementalBodyDirtyFlags source,
+        ref PredictiveDiscContactStatistics statistics)
+    {
+        SetIncrementalDirtyFlags(
+            bodyIndex,
+            IncrementalBodyDirtyFlags.Topology | source);
+        FlowMovementFrameState state = States[bodyIndex];
+        if (state.TimestepEscaped != 0)
+            return;
+        state.TimestepEscaped = 1;
+        statistics.TimestepContactSetEscapeBodyCount++;
+        if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
+            statistics.TimestepContactSetFirstEscapeSubstep = substepIndex;
+        States[bodyIndex] = state;
+    }
+
     private void RebuildTimestepContactSetForRemainingTime(
         int substepIndex,
         int substepCount,
@@ -268,7 +386,8 @@ public partial struct SolveXpbdUnitContactsJob
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
         ref bool fatCachePairsMappedThisFrame,
-        ref IncrementalContactPipelineStatistics incrementalStatistics)
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        bool activationAlreadyPassed = true)
     {
         float remainingDuration = persistAcrossSubsteps
             ? math.max(
@@ -276,9 +395,12 @@ public partial struct SolveXpbdUnitContactsJob
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
         PrepareTimestepContactPrediction(remainingDuration, true);
+        int scheduleStartSubstep = substepIndex +
+                                   (activationAlreadyPassed ? 1 : 0);
         if (EnablePersistentContactCache &&
             TryIncrementallyRepairEscapedContactSet(
                 substepIndex,
+                scheduleStartSubstep,
                 ref statistics,
                 ref incrementalStatistics))
         {
@@ -292,7 +414,7 @@ public partial struct SolveXpbdUnitContactsJob
             ref incrementalStatistics,
             true,
             true,
-            substepIndex + 1);
+            scheduleStartSubstep);
         shadowStatistics.FullBroadPhaseFallbackCount++;
     }
 

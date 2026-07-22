@@ -176,8 +176,14 @@ Fallback is a normal mode, not an error. The pipeline tracks its frequency and c
 6. Add dormant scheduling and substep contact activation.
 7. Publish incremental pipeline diagnostics and oracle counters.
 8. Remove the legacy Fat/Adaptive execution path and finalize migration notes.
-9. Align gauge, unique-pair and evaluation-counter semantics in one v2 snapshot.
+9. Align gauge, unique-pair and evaluation-counter semantics in one v4 snapshot.
 10. Migrate the default/detail debugger panels, CSV recorder and benchmark tuner.
+11. Validate RVO/soft-avoidance trajectories before consuming cached views.
+12. Reuse exact pair classifications and dense derived contact views.
+13. Process dormant contacts with a sorted schedule cursor.
+14. Build a dedicated soft-avoidance pair view from the same InteractionSet.
+15. Use dense body dirty flags and patch only dirty incident pairs after escape.
+16. Parallelize conflict-free solver-state initialization.
 
 ## Implemented migration status
 
@@ -195,9 +201,24 @@ pipeline:
    persistent neighbor pairs also feed soft avoidance;
 9. diagnostics counters separated into current gauges, unique timestep events and
    accumulated evaluation work, preventing ratios above 100% after repair;
-10. the debugger now defaults to general solver health and the contact funnel,
-    with detailed topology/lifecycle/timing views; CSV schema v2 records the same
-    unified snapshot and emits average/P50/P95/P99/max summaries.
+10. exact motion/configuration inputs gate classification reuse; hashes are not
+    used as the correctness proof;
+11. a clean static timestep maps only persistent active, soft-avoidance and
+    dormant-schedule views instead of remapping/reclassifying all neighbors;
+12. RVO horizon changes and post-avoidance predicted-position changes validate
+    their envelopes before Soft Avoidance or XPBD consumes the cached view;
+13. dormant contacts use a sorted cursor, while escape repair maps and
+    reclassifies only dirty incident pairs;
+14. dense per-body dirty flags make hot-path dirty queries O(1);
+15. conflict-free O(N) solver-state initialization runs as a Burst
+    `IJobParallelFor` before the serial Gauss-Seidel solve;
+16. debugger, CSV v5, AdaptiveParameterTuner output and its analysis script
+    expose classification skips, compact Soft view work, view reuse/rebuild and
+    envelope escapes.
+
+Conservative contact-island sleeping from the reference branch is deliberately
+not migrated yet. No sleeping state, wake rule, skip counter or sleeping strategy
+option is present in this version.
 
 `EnableTimestepContactSetCache` is now the execution gate for the incremental
 pipeline. `EnableFatAabbCache` remains as a serialized compatibility field while

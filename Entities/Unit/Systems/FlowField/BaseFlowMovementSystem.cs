@@ -25,6 +25,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<PersistentSweptProxy> _persistentSweptProxies;
     private NativeList<PersistentNeighborPair> _persistentNeighborPairs;
     private NativeList<PersistentPredictiveContact> _persistentPredictiveContacts;
+    private NativeList<StableEntityPairKey> _persistentActiveContactKeys;
+    private NativeList<StableEntityPairKey> _persistentSoftAvoidancePairKeys;
+    private NativeList<PredictiveContactScheduleEntry> _persistentDormantContactSchedule;
     private NativeReference<IncrementalContactCacheState> _incrementalContactCacheState;
     private NativeList<AdaptiveFatAabbCellHistory> _adaptiveCellHistory;
     private NativeList<AdaptiveFatAabbRegion> _adaptiveRegions;
@@ -64,6 +67,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _persistentNeighborPairs = new NativeList<PersistentNeighborPair>(Allocator.Persistent);
         _persistentPredictiveContacts =
             new NativeList<PersistentPredictiveContact>(Allocator.Persistent);
+        _persistentActiveContactKeys =
+            new NativeList<StableEntityPairKey>(Allocator.Persistent);
+        _persistentSoftAvoidancePairKeys =
+            new NativeList<StableEntityPairKey>(Allocator.Persistent);
+        _persistentDormantContactSchedule =
+            new NativeList<PredictiveContactScheduleEntry>(Allocator.Persistent);
         _incrementalContactCacheState =
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
         _adaptiveCellHistory = new NativeList<AdaptiveFatAabbCellHistory>(Allocator.Persistent);
@@ -102,6 +111,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _persistentNeighborPairs.Dispose();
         if (_persistentPredictiveContacts.IsCreated)
             _persistentPredictiveContacts.Dispose();
+        if (_persistentActiveContactKeys.IsCreated)
+            _persistentActiveContactKeys.Dispose();
+        if (_persistentSoftAvoidancePairKeys.IsCreated)
+            _persistentSoftAvoidancePairKeys.Dispose();
+        if (_persistentDormantContactSchedule.IsCreated)
+            _persistentDormantContactSchedule.Dispose();
         if (_incrementalContactCacheState.IsCreated)
             _incrementalContactCacheState.Dispose();
         if (_adaptiveCellHistory.IsCreated)
@@ -216,6 +231,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle independentForceHandle =
             independentForceJob.ScheduleParallel(_movementQuery, footprintHandle);
+        var initializeSolverStateJob = new InitializeFlowMovementSolverStateJob
+        {
+            States = states
+        };
+        JobHandle initializeSolverStateHandle = initializeSolverStateJob.Schedule(
+            unitCount,
+            64,
+            independentForceHandle);
 
         // 阶段 2：A0 全量 Sweep 或 A1 跨帧拓扑先生产统一 InteractionSet；
         // B1 在 timestep 内复用，B0 则每个 substep 重建。Soft 与 XPBD 只消费其派生视图。
@@ -246,6 +269,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var timestepInteractionPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
+        var softAvoidancePairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
         var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
@@ -255,6 +281,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var incrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        var incrementalDirtyFlagsByBody = new NativeArray<byte>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
         var predictiveContactScratch = new NativeList<PersistentPredictiveContact>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
@@ -267,6 +297,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var predictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(
             math.max(unitCount * 2, 1),
             Allocator.TempJob);
+        var predictiveContactScheduleScratch =
+            new NativeList<PredictiveContactScheduleEntry>(
+                math.max(unitCount, 1),
+                Allocator.TempJob);
+        var predictiveContactScheduleCursor =
+            new NativeReference<int>(Allocator.TempJob);
         var correctedBodyFlags = new NativeArray<byte>(
             unitCount,
             Allocator.TempJob,
@@ -341,6 +377,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             CurrentBodyIndexByEntity = currentBodyIndexByEntity,
             MappedFatCachePairs = mappedFatCachePairs,
             TimestepInteractionPairs = timestepInteractionPairs,
+            SoftAvoidancePairs = softAvoidancePairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
             ShadowPreviousProxies = _shadowPreviousProxies,
@@ -350,11 +387,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
             PersistentPredictiveContacts = _persistentPredictiveContacts,
+            PersistentActiveContactKeys = _persistentActiveContactKeys,
+            PersistentSoftAvoidancePairKeys = _persistentSoftAvoidancePairKeys,
+            PersistentDormantContactSchedule = _persistentDormantContactSchedule,
             PredictiveContactScratch = predictiveContactScratch,
             IncrementalDirtyBodies = incrementalDirtyBodies,
+            IncrementalDirtyFlagsByBody = incrementalDirtyFlagsByBody,
             IncrementalNeighborPairScratch = incrementalNeighborPairScratch,
             IncrementalOracleContactPairs = incrementalOracleContactPairs,
             PredictiveContactSchedule = predictiveContactSchedule,
+            PredictiveContactScheduleScratch = predictiveContactScheduleScratch,
+            PredictiveContactScheduleCursor = predictiveContactScheduleCursor,
             IncrementalCacheState = _incrementalContactCacheState,
             IncrementalStatistics = incrementalStatistics,
             AdaptiveCellHistory = _adaptiveCellHistory.AsArray(),
@@ -383,7 +426,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SelectedBodyDiagnostic = selectedBodyDiagnostic,
             HeatSamples = heatSamples
         };
-        JobHandle solveContactHandle = solveContactJob.Schedule(independentForceHandle);
+        JobHandle solveContactHandle = solveContactJob.Schedule(initializeSolverStateHandle);
 
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
@@ -447,10 +490,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             mappedFatCachePairs.Dispose(applyMovementHandle);
         JobHandle timestepInteractionPairDisposeHandle =
             timestepInteractionPairs.Dispose(applyMovementHandle);
+        JobHandle softAvoidancePairDisposeHandle =
+            softAvoidancePairs.Dispose(applyMovementHandle);
         JobHandle currentIncrementalProxyDisposeHandle =
             currentIncrementalProxies.Dispose(applyMovementHandle);
         JobHandle incrementalDirtyBodyDisposeHandle =
             incrementalDirtyBodies.Dispose(applyMovementHandle);
+        JobHandle incrementalDirtyFlagDisposeHandle =
+            incrementalDirtyFlagsByBody.Dispose(applyMovementHandle);
         JobHandle predictiveContactScratchDisposeHandle =
             predictiveContactScratch.Dispose(applyMovementHandle);
         JobHandle incrementalNeighborPairScratchDisposeHandle =
@@ -459,6 +506,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             incrementalOracleContactPairs.Dispose(applyMovementHandle);
         JobHandle predictiveContactScheduleDisposeHandle =
             predictiveContactSchedule.Dispose(applyMovementHandle);
+        JobHandle predictiveContactScheduleScratchDisposeHandle =
+            predictiveContactScheduleScratch.Dispose(applyMovementHandle);
+        JobHandle predictiveContactScheduleCursorDisposeHandle =
+            predictiveContactScheduleCursor.Dispose(applyMovementHandle);
         JobHandle correctedBodyFlagDisposeHandle =
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
@@ -514,6 +565,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             currentBodyIndexDisposeHandle,
             mappedFatCachePairDisposeHandle,
             timestepInteractionPairDisposeHandle);
+        mappingScratchDisposeHandle = JobHandle.CombineDependencies(
+            mappingScratchDisposeHandle,
+            softAvoidancePairDisposeHandle);
         JobHandle correctionScratchDisposeHandle = JobHandle.CombineDependencies(
             correctedBodyFlagDisposeHandle,
             correctedBodyIndexDisposeHandle);
@@ -533,13 +587,20 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             predictiveContactScratchDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
+            incrementalDirtyFlagDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
             incrementalNeighborPairScratchDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
             incrementalOracleContactPairDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
-            predictiveContactScheduleDisposeHandle);
+            predictiveContactScheduleDisposeHandle,
+            predictiveContactScheduleScratchDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
+            predictiveContactScheduleCursorDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
             incrementalStatisticsDisposeHandle);
@@ -575,6 +636,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _persistentSweptProxies.Clear();
         _persistentNeighborPairs.Clear();
         _persistentPredictiveContacts.Clear();
+        _persistentActiveContactKeys.Clear();
+        _persistentSoftAvoidancePairKeys.Clear();
+        _persistentDormantContactSchedule.Clear();
         _incrementalContactCacheState.Value = default;
     }
 }

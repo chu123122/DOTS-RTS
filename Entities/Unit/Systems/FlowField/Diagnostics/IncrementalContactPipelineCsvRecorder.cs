@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public static class IncrementalContactPipelineCsvRecorderRuntime
 {
-    public const int CsvSchemaVersion = 4;
+    public const int CsvSchemaVersion = 5;
 
     private static readonly List<IncrementalContactPipelineSnapshot> Samples =
         new List<IncrementalContactPipelineSnapshot>(1024);
@@ -126,8 +126,10 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             "NeighborPairAddedCount", "NeighborPairRemovedCount", "NeighborPairRetainedCount",
             "FullRebuildCount", "IncrementalRepairCount", "UsedIncrementalTopology", "UsedFullRebuild",
 
-            "ReclassifiedPairEvaluationCount", "SweptClassificationEvaluationCount",
-            "ActiveConstraintEvaluationCount", "CurrentInteractionPairCount", "CurrentSweptContactCount", "CurrentDormantPairCount",
+            "ReclassifiedPairEvaluationCount", "ClassificationReuseCount", "ClassificationSkippedCount",
+            "SweptClassificationEvaluationCount", "SoftAvoidancePairEvaluationCount",
+            "ActiveConstraintEvaluationCount", "CurrentInteractionPairCount", "CurrentSoftAvoidancePairCount",
+            "CurrentSweptContactCount", "CurrentDormantPairCount",
             "CurrentApproachingPairCount", "CurrentPredictivePairCount", "CurrentActualPairCount",
             "CurrentActiveConstraintCount", "PeakActiveConstraintCount", "ScheduledWakeupCount",
             "UniqueActivatedPairCount", "UniqueCorrectedPairCount", "ExpiredPairCount",
@@ -139,7 +141,9 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             "ProxyValidationNanoseconds", "LocalBroadPhaseNanoseconds", "PairDiffNanoseconds",
             "SweptClassificationNanoseconds", "ContactActivationNanoseconds", "FallbackNanoseconds",
 
+            "PersistentViewReuseCount", "PersistentViewRebuildCount", "InteractionEnvelopeEscapeCount",
             "OraclePairCount", "OracleMissingPairCount", "OracleExtraPairCount", "OracleMismatch",
+            "SoftAvoidanceOraclePairCount", "SoftAvoidanceOracleMissingPairCount",
             "LegacyCacheUseCount", "LegacyCacheReuseCount", "LegacyCacheRebuildCount",
             "LegacyFullBroadPhaseFallbackCount"
         });
@@ -211,9 +215,13 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             statistics.UsedFullRebuild.ToString(CultureInfo.InvariantCulture),
 
             statistics.ReclassifiedPairEvaluationCount.ToString(CultureInfo.InvariantCulture),
+            statistics.ClassificationReuseCount.ToString(CultureInfo.InvariantCulture),
+            statistics.ClassificationSkippedCount.ToString(CultureInfo.InvariantCulture),
             statistics.SweptClassificationEvaluationCount.ToString(CultureInfo.InvariantCulture),
+            statistics.SoftAvoidancePairEvaluationCount.ToString(CultureInfo.InvariantCulture),
             statistics.ActiveConstraintEvaluationCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentInteractionPairCount.ToString(CultureInfo.InvariantCulture),
+            statistics.CurrentSoftAvoidancePairCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentSweptContactCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentDormantPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentApproachingPairCount.ToString(CultureInfo.InvariantCulture),
@@ -239,10 +247,15 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             statistics.ContactActivationNanoseconds.ToString(CultureInfo.InvariantCulture),
             statistics.FallbackNanoseconds.ToString(CultureInfo.InvariantCulture),
 
+            statistics.PersistentViewReuseCount.ToString(CultureInfo.InvariantCulture),
+            statistics.PersistentViewRebuildCount.ToString(CultureInfo.InvariantCulture),
+            statistics.InteractionEnvelopeEscapeCount.ToString(CultureInfo.InvariantCulture),
             statistics.OraclePairCount.ToString(CultureInfo.InvariantCulture),
             statistics.OracleMissingPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.OracleExtraPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.OracleMismatch.ToString(CultureInfo.InvariantCulture),
+            statistics.SoftAvoidanceOraclePairCount.ToString(CultureInfo.InvariantCulture),
+            statistics.SoftAvoidanceOracleMissingPairCount.ToString(CultureInfo.InvariantCulture),
             legacy.CacheUseCount.ToString(CultureInfo.InvariantCulture),
             legacy.CacheReuseCount.ToString(CultureInfo.InvariantCulture),
             legacy.CacheRebuildCount.ToString(CultureInfo.InvariantCulture),
@@ -285,6 +298,14 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
                 samples.Select(s => (long)s.Statistics.CurrentActiveConstraintCount).ToArray(), "count");
             WriteSummaryMetric(writer, last, samples.Count, "TimestepInteractionPairs",
                 samples.Select(s => (long)s.Statistics.CurrentInteractionPairCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "SoftAvoidancePairs",
+                samples.Select(s => (long)s.Statistics.CurrentSoftAvoidancePairCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "ClassificationEvaluations",
+                samples.Select(s => (long)s.Statistics.SweptClassificationEvaluationCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "ClassificationSkipped",
+                samples.Select(s => (long)s.Statistics.ClassificationSkippedCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "PersistentViewReuse",
+                samples.Select(s => (long)s.Statistics.PersistentViewReuseCount).ToArray(), "count");
             WriteSummaryMetric(writer, last, samples.Count, "SoftCandidateEvaluations",
                 samples.Select(s => (long)s.SolverStatistics.SoftAvoidanceCandidatePairCount).ToArray(), "count");
             WriteSummaryMetric(writer, last, samples.Count, "ConstraintEvaluations",

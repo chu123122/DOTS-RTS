@@ -30,16 +30,31 @@ public static class IncrementalPredictiveContactValidation
             $"active={statistics.CurrentActiveConstraintCount} " +
             $"activated={statistics.UniqueActivatedPairCount} " +
             $"corrected={statistics.UniqueCorrectedPairCount} " +
+            $"classify={statistics.SweptClassificationEvaluationCount} " +
+            $"classifySkipped={statistics.ClassificationSkippedCount} " +
+            $"viewReuse={statistics.PersistentViewReuseCount} " +
             $"rebuild={statistics.FullRebuildCount} " +
             $"repair={statistics.IncrementalRepairCount} " +
             $"oracleMissing={statistics.OracleMissingPairCount}";
 
-        if (statistics.OracleMismatch != 0 ||
-            statistics.OracleMissingPairCount != 0)
+        if (statistics.CurrentActiveConstraintCount >
+                statistics.CurrentSweptContactCount ||
+            statistics.CurrentSoftAvoidancePairCount >
+                statistics.CurrentInteractionPairCount)
         {
             Debug.LogError(summary +
-                "\nIncremental contact validation failed: the O(N^2) oracle found " +
-                "a swept contact missing from the active/scheduled pipeline.");
+                "\nIncremental contact validation failed: a derived view " +
+                "exceeded its parent InteractionSet/contact-set bound.");
+            return;
+        }
+
+        if (statistics.OracleMismatch != 0 ||
+            statistics.OracleMissingPairCount != 0 ||
+            statistics.SoftAvoidanceOracleMissingPairCount != 0)
+        {
+            Debug.LogError(summary +
+                "\nIncremental contact validation failed: an O(N^2) oracle found " +
+                "a contact or soft-avoidance candidate missing from its derived view.");
             return;
         }
 

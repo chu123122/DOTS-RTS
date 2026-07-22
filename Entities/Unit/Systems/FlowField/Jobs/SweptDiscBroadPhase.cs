@@ -27,10 +27,8 @@ public partial struct SolveXpbdUnitContactsJob
 
             // A0 与 A1 必须生产同一种中层 InteractionSet：包络同时覆盖
             // XPBD swept contact、Soft Avoidance shell 与 RVO horizon。
-            CalculateIncrementalTightSweptBounds(
-                state,
-                out float2 sweptMin,
-                out float2 sweptMax);
+            float2 sweptMin = state.TimestepInteractionEnvelopeMin;
+            float2 sweptMax = state.TimestepInteractionEnvelopeMax;
             int2 minCell = (int2)math.floor((sweptMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((sweptMax - GridOrigin.xz) / cellSize);
 

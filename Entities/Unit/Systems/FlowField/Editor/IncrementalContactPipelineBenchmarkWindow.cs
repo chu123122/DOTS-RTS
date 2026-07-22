@@ -20,7 +20,7 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     }
 
     private TrialPreset _preset = TrialPreset.TimestepSweptNoFrameReuse;
-    private string _experimentId = "incremental_contact_v2";
+    private string _experimentId = "incremental_contact_v5";
     private string _scenario = "static_dense_pack";
     private string _configurationLabel = "incremental_default";
     private string _outputDirectory = "Diagnostics/IncrementalContact";

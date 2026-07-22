@@ -81,6 +81,12 @@ public struct PersistentSweptProxy
     public float2 TightMax;
     public float2 GuardMin;
     public float2 GuardMax;
+    // 精确分类输入。MotionVersion 由这些字段的逐位相等比较推进，
+    // 不再把 32-bit hash 当作正确性依据。
+    public float2 TrajectoryStart;
+    public float2 TrajectoryEnd;
+    public float2 AvoidanceHorizonEnd;
+    public float Radius;
     public uint MotionVersion;
     public byte IsValid;
 }
@@ -126,12 +132,16 @@ public struct PersistentPredictiveContact
     public StableEntityPairKey Key;
     public float3 StableNormal;
     public PersistentContactLifecycle Lifecycle;
+    public UnitContactMode ContactMode;
     public sbyte FixedSide;
+    public byte SoftAvoidanceCandidate;
     public ushort FirstPossibleSubstep;
     public ushort NextCheckSubstep;
+    public float ClosestTime;
     public uint LastSeenTimestep;
     public uint MotionVersionA;
     public uint MotionVersionB;
+    public uint ClassificationEpoch;
 }
 
 public struct PersistentPredictiveContactComparer : IComparer<PersistentPredictiveContact>
@@ -179,15 +189,29 @@ public struct IncrementalContactCacheState
 {
     public byte IsValid;
     public byte LastUpdateWasFullRebuild;
-    public ushort Reserved;
+    public byte ContactViewsValid;
+    public byte Reserved;
     public uint Timestep;
     public uint TopologyEpoch;
+    public uint ClassificationEpoch;
     public int BodyCount;
     public int NeighborPairCount;
+    public int DormantContactCount;
+    public int ApproachingContactCount;
+    public int PredictiveContactCount;
+    public int ActualContactCount;
+    public int ExpiredContactCount;
     public float GuardMargin;
     public float PredictiveSkin;
     public float TimestepContactMargin;
     public float SoftAvoidanceShell;
+    public float SoftAvoidanceResponseRate;
+    public float RvoTimeHorizon;
+    public int SubstepCount;
+    public byte PredictivePairGenerationEnabled;
+    public byte PredictiveContactsEnabled;
+    public byte SoftAvoidanceVelocitySolver;
+    public byte ConfigurationReserved;
 }
 
 /// <summary>
@@ -196,7 +220,7 @@ public struct IncrementalContactCacheState
 /// </summary>
 public struct IncrementalContactPipelineStatistics
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public uint Timestep;
 
@@ -216,12 +240,16 @@ public struct IncrementalContactPipelineStatistics
 
     // Work counters: these count evaluations, not final-state pairs.
     public int ReclassifiedPairEvaluationCount;
+    public int ClassificationReuseCount;
+    public int ClassificationSkippedCount;
     public int SweptClassificationEvaluationCount;
+    public int SoftAvoidancePairEvaluationCount;
     public int ActiveConstraintEvaluationCount;
 
     // Current-state gauges. They are recomputed from the persistent contact
     // cache / active set and therefore remain bounded by their parent stage.
     public int CurrentInteractionPairCount;
+    public int CurrentSoftAvoidancePairCount;
     public int CurrentSweptContactCount;
     public int CurrentDormantPairCount;
     public int CurrentApproachingPairCount;
@@ -255,6 +283,12 @@ public struct IncrementalContactPipelineStatistics
     public long SweptClassificationNanoseconds;
     public long ContactActivationNanoseconds;
     public long FallbackNanoseconds;
+
+    public int PersistentViewReuseCount;
+    public int PersistentViewRebuildCount;
+    public int InteractionEnvelopeEscapeCount;
+    public int SoftAvoidanceOraclePairCount;
+    public int SoftAvoidanceOracleMissingPairCount;
 
     public byte UsedIncrementalTopology;
     public byte UsedFullRebuild;
