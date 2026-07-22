@@ -349,10 +349,11 @@ public sealed partial class AdaptiveParameterTuner
     private void IssueBenchmarkMoveOrder(float3 target)
     {
         _benchmarkEntityManager.CompleteAllTrackedJobs();
-        using var orderQuery = _benchmarkEntityManager.CreateEntityQuery(typeof(FlowFieldGlobalTarget), typeof(MoveOrder));
+        // MoveOrder 是 IEnableableComponent，不能和普通组件混在同一个 GetSingletonEntity 查询里。
+        using var orderQuery = _benchmarkEntityManager.CreateEntityQuery(typeof(FlowFieldGlobalTarget));
         if (orderQuery.IsEmptyIgnoreFilter)
         {
-            FailBenchmark("缺少 FlowFieldGlobalTarget 或 MoveOrder。");
+            FailBenchmark("缺少 FlowFieldGlobalTarget。");
             return;
         }
         Entity gridEntity = orderQuery.GetSingletonEntity();
