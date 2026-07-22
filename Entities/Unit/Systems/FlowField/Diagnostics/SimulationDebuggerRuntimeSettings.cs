@@ -44,6 +44,7 @@ public abstract partial class BaseFlowMovementSystem
 
         SystemAPI.SetSingleton(flowSettings);
         SystemAPI.SetSingleton(solverSettings);
+    }
 
     private static SimulationDebuggerEffectiveSettings BuildEffectiveSettings(
         FlowFieldSettings flowSettings,

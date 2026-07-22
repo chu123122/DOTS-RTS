@@ -377,7 +377,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             timestepContactPairs.Dispose(applyMovementHandle);
         JobHandle currentBodyIndexDisposeHandle =
             currentBodyIndexByEntity.Dispose(applyMovementHandle);
-        JobHandle mappedFatCachePairDisposeHandle =
+        JobHandle previousTimestepContactPairDisposeHandle =
             previousTimestepContactPairs.Dispose(applyMovementHandle);
         JobHandle timestepInteractionPairDisposeHandle =
             timestepInteractionPairs.Dispose(applyMovementHandle);
