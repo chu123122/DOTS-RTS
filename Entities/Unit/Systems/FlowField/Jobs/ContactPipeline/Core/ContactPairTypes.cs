@@ -1,12 +1,13 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
-using RTS.Unit.Components;
-using RTS.Unit.FlowField;
-using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-
+/// <summary>
+/// Solver-facing contact semantics for the current timestep view.
+/// Persistent lifecycle state lives in ContactPipeline/Persistent and must not
+/// be added to this frame-local constraint type.
+/// </summary>
 public enum UnitContactMode : byte
 {
     Regular,
@@ -14,8 +15,8 @@ public enum UnitContactMode : byte
 }
 
 /// <summary>
-/// 单个 timestep 内复用的轻量单位接触约束。
-/// PredictiveNormal 在 timestep 分类时固定；lambda 仍在每个 substep 开始时清零。
+/// Frame-local XPBD contact constraint. Body indices and lambda are never
+/// persisted across frames. PredictiveNormal is oriented once per timestep.
 /// </summary>
 public struct UnitCollisionPair
 {
@@ -32,26 +33,6 @@ public struct UnitCollisionPair
     public byte WasAddedByFallback;
     public int FirstActivatedSubstep;
     public int ActivatedSubstepCount;
-}
-
-/// <summary>
-/// 一个单位的 swept disc AABB 覆盖到的 Spatial Cell。
-/// </summary>
-public struct SweptDiscCellEntry
-{
-    public int CellIndex;
-    public int BodyIndex;
-}
-
-public struct SweptDiscCellEntryComparer : IComparer<SweptDiscCellEntry>
-{
-    public int Compare(SweptDiscCellEntry x, SweptDiscCellEntry y)
-    {
-        int cellComparison = x.CellIndex.CompareTo(y.CellIndex);
-        return cellComparison != 0
-            ? cellComparison
-            : x.BodyIndex.CompareTo(y.BodyIndex);
-    }
 }
 
 public struct UnitCollisionPairComparer : IComparer<UnitCollisionPair>
