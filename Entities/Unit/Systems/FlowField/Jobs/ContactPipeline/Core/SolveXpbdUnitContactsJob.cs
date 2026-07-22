@@ -145,14 +145,14 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                     ProfilerUnsafeUtility.Timestamp - substepInteractionStart);
             }
-            else if (!AreSoftAvoidanceTrajectoriesInsideInteractionEnvelope(
+            else if (!ValidateBaseMotionInteractionEnvelope(
                          substepIndex,
                          ref statistics,
                          ref incrementalStatistics))
             {
                 // RVO/base-velocity changes occur before position prediction.
                 // Rebuild now so Soft Avoidance never consumes a stale view.
-                RebuildTimestepContactSetForRemainingTime(
+                RepairOrRebuildContactViewForRemainingTime(
                     substepIndex,
                     substepCount,
                     substepDeltaTime,
@@ -167,7 +167,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 substepDeltaTime,
                 ref statistics,
                 ref incrementalStatistics);
-            ClampSoftAvoidanceToInteractionEnvelope(
+            ClampSoftOutputToInteractionEnvelope(
                 substepDeltaTime,
                 ref incrementalStatistics);
             statistics.SoftAvoidanceEvaluationCount++;
@@ -176,12 +176,12 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
             PredictUnconstrainedPositions(substepDeltaTime);
             bool rebuiltPredictedContactView = false;
-            if (!ArePredictedDiscsInsideTimestepEnvelope(
+            if (!ValidatePredictedContactEnvelope(
                     substepIndex,
                     ref statistics,
                     ref incrementalStatistics))
             {
-                RebuildTimestepContactSetForRemainingTime(
+                RepairOrRebuildContactViewForRemainingTime(
                     substepIndex,
                     substepCount,
                     substepDeltaTime,
@@ -225,12 +225,12 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     out float totalWallPositionCorrection,
                     out float maxWallPositionCorrection);
 
-                if (!AreCorrectedDiscsInsideTimestepEnvelope(
+                if (!ValidateSolverCorrectionContactEnvelope(
                         substepIndex,
                         ref statistics,
                         ref incrementalStatistics))
                 {
-                    RebuildTimestepContactSetForRemainingTime(
+                    RepairOrRebuildContactViewForRemainingTime(
                         substepIndex,
                         substepCount,
                         substepDeltaTime,
@@ -271,12 +271,12 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         maxWallPositionCorrection);
                 }
 
-                if (!AreCorrectedDiscsInsideTimestepEnvelope(
+                if (!ValidateSolverCorrectionContactEnvelope(
                         substepIndex,
                         ref statistics,
                         ref incrementalStatistics))
                 {
-                    RebuildTimestepContactSetForRemainingTime(
+                    RepairOrRebuildContactViewForRemainingTime(
                         substepIndex,
                         substepCount,
                         substepDeltaTime,
@@ -387,85 +387,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         IncrementalStatistics.Value = incrementalStatistics;
     }
 
-    private void ClampSoftAvoidanceToInteractionEnvelope(
-        float substepDeltaTime,
-        ref IncrementalContactPipelineStatistics incrementalStatistics)
-    {
-        if (!EnableTimestepContactSetCache || substepDeltaTime <= 0f)
-            return;
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
-        {
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid ||
-                IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
-                    state,
-                    state.SoftAvoidanceVelocity,
-                    substepDeltaTime))
-                continue;
 
-            float3 requestedAvoidance = state.SoftAvoidanceVelocity;
-            float lowerScale = 0f;
-            float upperScale = 1f;
-            if (IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
-                    state,
-                    float3.zero,
-                    substepDeltaTime))
-            {
-                // Preserve as much of the avoidance response as the
-                // already-proven InteractionSet envelope can contain.
-                for (int iteration = 0; iteration < 8; iteration++)
-                {
-                    float middleScale = (lowerScale + upperScale) * 0.5f;
-                    if (IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
-                            state,
-                            requestedAvoidance * middleScale,
-                            substepDeltaTime))
-                        lowerScale = middleScale;
-                    else
-                        upperScale = middleScale;
-                }
-            }
 
-            state.SoftAvoidanceVelocity = requestedAvoidance * lowerScale;
-            States[bodyIndex] = state;
-            incrementalStatistics.InteractionEnvelopeEscapeCount++;
-        }
-    }
-
-    private bool IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
-        FlowMovementFrameState state,
-        float3 avoidanceVelocity,
-        float substepDeltaTime)
-    {
-        float responseRate = math.max(0f, SoftAvoidanceResponseRate);
-        if (state.IsSettled)
-            responseRate *= math.max(0f, SettledSoftAvoidanceMultiplier);
-
-        float3 velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
-            state.BasePredictedVelocity,
-            avoidanceVelocity,
-            responseRate,
-            substepDeltaTime,
-            state.MoveSpeed);
-        if (state.IsSettled)
-            velocity *= math.pow(0.8f, substepDeltaTime * 60f);
-        if (math.lengthsq(velocity) > state.MoveSpeed * state.MoveSpeed)
-            velocity = math.normalizesafe(velocity) * state.MoveSpeed;
-
-        float3 predictedEnd = state.PredictedPosition +
-                              velocity * substepDeltaTime;
-        float contactPadding = math.max(0f, PredictiveSkin) +
-                               math.max(0f, TimestepContactMargin);
-        float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
-        float extent = math.max(0f, state.Radius) +
-                       math.max(contactPadding, avoidancePadding);
-        return AabbContains(
-            state.TimestepInteractionEnvelopeMin,
-            state.TimestepInteractionEnvelopeMax,
-            predictedEnd.xz - extent,
-            predictedEnd.xz + extent);
-    }
 
     private void PredictUnconstrainedPositions(float substepDeltaTime)
     {
