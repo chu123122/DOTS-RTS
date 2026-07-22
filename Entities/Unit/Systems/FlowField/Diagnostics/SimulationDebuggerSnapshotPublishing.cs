@@ -230,81 +230,6 @@ public abstract partial class BaseFlowMovementSystem
         return result;
     }
 
-    private void CopySimulationDebuggerCells(
-        SimulationDebuggerFrameSnapshot snapshot,
-        FlowFieldGrid grid)
-    {
-        for (int i = 0; i < _adaptiveDebugCells.Length; i++)
-        {
-            AdaptiveFatAabbDebugCell cell = _adaptiveDebugCells[i];
-            snapshot.Cells.Add(new SimulationDebuggerCellSample
-            {
-                Coordinate = CellCoordinateFromBounds(cell.Min, grid),
-                Min = cell.Min,
-                Max = cell.Max,
-                UnitCount = cell.UnitCount,
-                ActiveRegion = cell.Active,
-                OverallPressure = math.saturate(math.max(
-                    cell.DensityScore,
-                    math.max(cell.PressureScore, math.max(cell.AverageCorrection, cell.ContactLoad)))),
-                Density = cell.DensityScore,
-                SolverCorrection = math.saturate(cell.PressureScore),
-                // Legacy enum fields are retained for snapshot compatibility. They now
-                // describe persistent-contact topology instead of Fat AABB reuse.
-                AabbBenefit = cell.PersistenceScore,
-                AabbSlack = math.saturate(1f - cell.EscapeRiskScore),
-                CandidateExpansion = cell.ContactLoad,
-                EscapeRisk = math.saturate(math.max(
-                    cell.EscapeRiskScore,
-                    cell.CachePenalty)),
-                ContactActivation = math.saturate(cell.ContactActivation),
-                ContactWaste = math.saturate(
-                    cell.ContactLoad * (1f - cell.ContactActivation)),
-                ContactSupplementRisk = math.saturate(math.max(
-                    cell.ContactSupplementRisk,
-                    cell.ContactLoad * cell.EscapeRiskScore))
-            });
-        }
-    }
-
-    private void CopySimulationDebuggerRegions(SimulationDebuggerFrameSnapshot snapshot)
-    {
-        for (int i = 0; i < _adaptiveDebugRegions.Length; i++)
-        {
-            AdaptiveFatAabbDebugRegion region = _adaptiveDebugRegions[i];
-            snapshot.Regions.Add(new SimulationDebuggerRegionSample
-            {
-                StableId = region.StableId,
-                CoreMin = region.CoreMin,
-                CoreMax = region.CoreMax,
-                HaloMin = region.HaloMin,
-                HaloMax = region.HaloMax,
-                UnitCount = region.UnitCount,
-                Score = region.Score,
-                Active = region.Active
-            });
-        }
-    }
-
-    private void CopySimulationDebuggerProxies(SimulationDebuggerFrameSnapshot snapshot)
-    {
-        for (int i = 0; i < _adaptiveDebugProxies.Length; i++)
-        {
-            AdaptiveFatAabbDebugProxy proxy = _adaptiveDebugProxies[i];
-            snapshot.Proxies.Add(new SimulationDebuggerProxySample
-            {
-                Entity = proxy.Entity,
-                SweptMin = proxy.CoreMin,
-                SweptMax = proxy.CoreMax,
-                FatMin = proxy.FatMin,
-                FatMax = proxy.FatMax,
-                RegionId = proxy.RegionIndex,
-                MinimumSlack = proxy.MinimumSlack,
-                Escaped = proxy.Escaped
-            });
-        }
-    }
-
     private void CaptureSelectedEntityDetails(SimulationDebuggerFrameSnapshot snapshot)
     {
         Entity selected = SimulationDebuggerRuntime.SelectedEntity;
@@ -337,51 +262,6 @@ public abstract partial class BaseFlowMovementSystem
         if (snapshot.HasSelectedUnit || selected == Entity.Null)
             return;
 
-        for (int i = 0; i < snapshot.Proxies.Count; i++)
-        {
-            SimulationDebuggerProxySample proxy = snapshot.Proxies[i];
-            if (proxy.Entity != selected)
-                continue;
-            snapshot.SelectedUnit = new SimulationDebuggerUnitSample
-            {
-                Entity = selected,
-                SweptMin = proxy.SweptMin,
-                SweptMax = proxy.SweptMax,
-                FatMin = proxy.FatMin,
-                FatMax = proxy.FatMax,
-                HasFatBounds = 1
-            };
-            snapshot.HasSelectedUnit = true;
-            return;
-        }
-    }
-
-    private float NormalizeCellSlack(float2 cellMin, float2 cellMax)
-    {
-        float minimumSlack = float.MaxValue;
-        bool found = false;
-        for (int i = 0; i < _adaptiveDebugProxies.Length; i++)
-        {
-            AdaptiveFatAabbDebugProxy proxy = _adaptiveDebugProxies[i];
-            float2 proxyCenter = (proxy.CoreMin + proxy.CoreMax) * 0.5f;
-            if (proxyCenter.x < cellMin.x || proxyCenter.x > cellMax.x ||
-                proxyCenter.y < cellMin.y || proxyCenter.y > cellMax.y)
-                continue;
-            minimumSlack = math.min(minimumSlack, proxy.MinimumSlack);
-            found = true;
-        }
-        if (!found)
-            return 0f;
-        float referenceSize = math.max(0.0001f, math.cmax(cellMax - cellMin));
-        return math.saturate(minimumSlack / referenceSize);
-    }
-
-    private int2 CellCoordinateFromBounds(float2 min, FlowFieldGrid grid)
-    {
-        float worldCellSize = math.max(
-            0.0001f,
-            grid.CellRadius * 2f * math.max(1, _adaptiveCellSpan));
-        return (int2)math.floor((min - grid.GridOrigin.xz) / worldCellSize);
     }
 }
 }
