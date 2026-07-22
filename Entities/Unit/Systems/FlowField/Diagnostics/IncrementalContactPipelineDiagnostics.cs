@@ -50,7 +50,6 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
     public int SchemaVersion;
     public IncrementalContactPipelineConfiguration Configuration;
     public PredictiveDiscContactStatistics SolverStatistics;
-    public ShadowNeighborCacheStatistics LegacyBroadPhaseStatistics;
     public IncrementalContactPipelineStatistics Statistics;
     public IncrementalContactPipelineMode Mode;
 
@@ -68,7 +67,6 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
     public static IncrementalContactPipelineSnapshot From(
         IncrementalContactPipelineConfiguration configuration,
         PredictiveDiscContactStatistics solverStatistics,
-        ShadowNeighborCacheStatistics legacyBroadPhaseStatistics,
         IncrementalContactPipelineStatistics statistics)
     {
         IncrementalContactPipelineMode mode = IncrementalContactPipelineMode.Disabled;
@@ -84,7 +82,6 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
             SchemaVersion = IncrementalContactPipelineStatistics.CurrentSchemaVersion,
             Configuration = configuration,
             SolverStatistics = solverStatistics,
-            LegacyBroadPhaseStatistics = legacyBroadPhaseStatistics,
             Statistics = statistics,
             Mode = mode,
             TopologyDirtyRatio = statistics.ProxyCount > 0
@@ -105,7 +102,6 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
 {
     public IncrementalContactPipelineConfiguration Configuration;
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> SolverSource;
-    [ReadOnly] public NativeReference<ShadowNeighborCacheStatistics> LegacyBroadPhaseSource;
     [ReadOnly] public NativeReference<IncrementalContactPipelineStatistics> Source;
     public Entity Target;
     public ComponentLookup<IncrementalContactPipelineSnapshot> SnapshotLookup;
@@ -117,7 +113,6 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
         SnapshotLookup[Target] = IncrementalContactPipelineSnapshot.From(
             Configuration,
             SolverSource.Value,
-            LegacyBroadPhaseSource.Value,
             Source.Value);
     }
 }

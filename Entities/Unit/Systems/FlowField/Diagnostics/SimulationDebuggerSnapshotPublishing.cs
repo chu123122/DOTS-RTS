@@ -75,7 +75,7 @@ public abstract partial class BaseFlowMovementSystem
             hasContactStatistics,
             contactStatistics,
             snapshot.SubstepCount,
-            hasShadowStatistics ? shadowStatistics.FullBroadPhaseFallbackCount : 0,
+            0,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
 

@@ -82,7 +82,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeReference<ShadowNeighborCacheStatistics> ShadowStatistics;
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
@@ -96,7 +95,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         float substepDeltaTime = DeltaTime / substepCount;
         var statistics = new PredictiveDiscContactStatistics();
         statistics.TimestepContactSetFirstEscapeSubstep = -1;
-        var shadowStatistics = new ShadowNeighborCacheStatistics();
         var incrementalStatistics = new IncrementalContactPipelineStatistics();
         float penetrationSum = 0f;
         IterationDiagnostics.Clear();
@@ -107,7 +105,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         if (substepDeltaTime <= 0f)
         {
             Statistics.Value = statistics;
-            ShadowStatistics.Value = shadowStatistics;
             IncrementalStatistics.Value = incrementalStatistics;
             return;
         }
@@ -386,7 +383,6 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         // 记录本时间步的接触/修正结果，供下一帧热力图快照读取。
         CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
-        ShadowStatistics.Value = shadowStatistics;
         IncrementalStatistics.Value = incrementalStatistics;
     }
 

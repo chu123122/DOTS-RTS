@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public static class IncrementalContactPipelineCsvRecorderRuntime
 {
-    public const int CsvSchemaVersion = 5;
+    public const int CsvSchemaVersion = 6;
 
     private static readonly List<IncrementalContactPipelineSnapshot> Samples =
         new List<IncrementalContactPipelineSnapshot>(1024);
@@ -143,9 +143,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
 
             "PersistentViewReuseCount", "PersistentViewRebuildCount", "InteractionEnvelopeEscapeCount",
             "OraclePairCount", "OracleMissingPairCount", "OracleExtraPairCount", "OracleMismatch",
-            "SoftAvoidanceOraclePairCount", "SoftAvoidanceOracleMissingPairCount",
-            "LegacyCacheUseCount", "LegacyCacheReuseCount", "LegacyCacheRebuildCount",
-            "LegacyFullBroadPhaseFallbackCount"
+            "SoftAvoidanceOraclePairCount", "SoftAvoidanceOracleMissingPairCount"
         });
     }
 
@@ -154,7 +152,6 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
         IncrementalContactPipelineConfiguration configuration = snapshot.Configuration;
         var solver = snapshot.SolverStatistics;
         var statistics = snapshot.Statistics;
-        var legacy = snapshot.LegacyBroadPhaseStatistics;
         var values = new List<string>(100)
         {
             CsvSchemaVersion.ToString(CultureInfo.InvariantCulture),
@@ -255,11 +252,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             statistics.OracleExtraPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.OracleMismatch.ToString(CultureInfo.InvariantCulture),
             statistics.SoftAvoidanceOraclePairCount.ToString(CultureInfo.InvariantCulture),
-            statistics.SoftAvoidanceOracleMissingPairCount.ToString(CultureInfo.InvariantCulture),
-            legacy.CacheUseCount.ToString(CultureInfo.InvariantCulture),
-            legacy.CacheReuseCount.ToString(CultureInfo.InvariantCulture),
-            legacy.CacheRebuildCount.ToString(CultureInfo.InvariantCulture),
-            legacy.FullBroadPhaseFallbackCount.ToString(CultureInfo.InvariantCulture)
+            statistics.SoftAvoidanceOracleMissingPairCount.ToString(CultureInfo.InvariantCulture)
         };
         return string.Join(",", values);
     }
