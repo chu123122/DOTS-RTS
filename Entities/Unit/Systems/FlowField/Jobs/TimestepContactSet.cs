@@ -104,7 +104,8 @@ public partial struct SolveXpbdUnitContactsJob
         statistics.TimestepContactSetBuildCount++;
         statistics.TimestepContactSetClassificationPassCount++;
         statistics.TimestepContactSetUniquePairCount = TimestepContactPairs.Length;
-        statistics.TimestepContactSetDormantPairCount = 0;
+        statistics.TimestepContactSetDormantPairCount =
+            incrementalStatistics.DormantPairCount;
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
@@ -209,25 +210,28 @@ public partial struct SolveXpbdUnitContactsJob
                 substepDeltaTime,
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
-        int escapedBodyCount = IncrementalDirtyBodies.Length;
-        float escapedRatio = States.Length > 0
-            ? (float)escapedBodyCount / States.Length
-            : 1f;
-        bool forceFullBroadPhase = !EnableFatAabbCache ||
-                                   escapedRatio > IncrementalDirtyBodyRatioThreshold;
-
         PrepareTimestepContactPrediction(remainingDuration, true);
-        if (forceFullBroadPhase && AdaptiveFatAabbRequested)
+        if (EnableFatAabbCache &&
+            TryIncrementallyRepairEscapedContactSet(
+                ref statistics,
+                ref incrementalStatistics))
+        {
+            statistics.TimestepContactSetBuildCount++;
+            statistics.TimestepContactSetClassificationPassCount++;
+            statistics.TimestepContactSetUniquePairCount = TimestepContactPairs.Length;
+            return;
+        }
+
+        if (AdaptiveFatAabbRequested)
             InvalidateFatAabbCache(ref shadowStatistics, true);
         BuildTimestepContactSet(
             ref statistics,
             ref shadowStatistics,
             ref fatCachePairsMappedThisFrame,
             ref incrementalStatistics,
-            forceFullBroadPhase,
+            true,
             true);
-        if (forceFullBroadPhase)
-            shadowStatistics.FullBroadPhaseFallbackCount++;
+        shadowStatistics.FullBroadPhaseFallbackCount++;
     }
 
     private static int FindPairIndex(

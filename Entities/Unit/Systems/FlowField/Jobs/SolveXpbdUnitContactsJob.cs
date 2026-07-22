@@ -173,6 +173,10 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
 
             PredictUnconstrainedPositions(substepDeltaTime);
+            ActivateScheduledPredictiveContactsForSubstep(
+                substepIndex,
+                substepCount,
+                ref incrementalStatistics);
             if (!EnableTimestepContactSetCache)
             {
                 PrepareSubstepContactPrediction();
