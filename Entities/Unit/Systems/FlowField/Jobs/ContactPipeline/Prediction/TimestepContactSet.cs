@@ -95,7 +95,7 @@ public partial struct SolveXpbdUnitContactsJob
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
-        MappedFatCachePairs.Clear();
+        PreviousTimestepContactPairs.Clear();
         FinalizeTimestepContactView(
             ref statistics,
             ref incrementalStatistics,
@@ -107,17 +107,15 @@ public partial struct SolveXpbdUnitContactsJob
 
     private bool BuildTimestepContactSet(
         ref PredictiveDiscContactStatistics statistics,
-        ref ShadowNeighborCacheStatistics shadowStatistics,
-        ref bool fatCachePairsMappedThisFrame,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullBroadPhase,
         bool fallback,
         int scheduleStartSubstep = 0)
     {
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
-        MappedFatCachePairs.Clear();
+        PreviousTimestepContactPairs.Clear();
         if (fallback)
-            MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
+            PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
 
         bool sourcedFromIncrementalCache = false;
         bool persistentViewReady = false;
@@ -222,10 +220,10 @@ public partial struct SolveXpbdUnitContactsJob
             if (!fallback)
                 continue;
 
-            int previousIndex = FindPairIndex(MappedFatCachePairs, pair.BodyA, pair.BodyB);
+            int previousIndex = FindPairIndex(PreviousTimestepContactPairs, pair.BodyA, pair.BodyB);
             if (previousIndex >= 0)
             {
-                UnitCollisionPair previous = MappedFatCachePairs[previousIndex];
+                UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
                 pair.WasActivatedThisTimestep = previous.WasActivatedThisTimestep;
                 pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;
@@ -384,8 +382,6 @@ public partial struct SolveXpbdUnitContactsJob
         float substepDeltaTime,
         bool persistAcrossSubsteps,
         ref PredictiveDiscContactStatistics statistics,
-        ref ShadowNeighborCacheStatistics shadowStatistics,
-        ref bool fatCachePairsMappedThisFrame,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool activationAlreadyPassed = true)
     {
@@ -409,13 +405,10 @@ public partial struct SolveXpbdUnitContactsJob
 
         BuildTimestepContactSet(
             ref statistics,
-            ref shadowStatistics,
-            ref fatCachePairsMappedThisFrame,
             ref incrementalStatistics,
             true,
             true,
             scheduleStartSubstep);
-        shadowStatistics.FullBroadPhaseFallbackCount++;
     }
 
     private static int FindPairIndex(

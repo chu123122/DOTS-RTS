@@ -1348,8 +1348,8 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.PairDiffNanoseconds +=
             pairDiffExclusive > 0L ? pairDiffExclusive : 0L;
 
-        MappedFatCachePairs.Clear();
-        MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
+        PreviousTimestepContactPairs.Clear();
+        PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
         long mappingStart = ProfilerUnsafeUtility.Timestamp;
         if (!MapDirtyIncidentNeighborPairsToCurrentBodies())
         {
@@ -1531,10 +1531,10 @@ public partial struct SolveXpbdUnitContactsJob
     {
         TimestepContactPairs.Clear();
         for (int previousIndex = 0;
-             previousIndex < MappedFatCachePairs.Length;
+             previousIndex < PreviousTimestepContactPairs.Length;
              previousIndex++)
         {
-            UnitCollisionPair previous = MappedFatCachePairs[previousIndex];
+            UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
             if (IsDirtyBodyIndex(previous.BodyA) ||
                 IsDirtyBodyIndex(previous.BodyB))
                 continue;
@@ -1545,12 +1545,12 @@ public partial struct SolveXpbdUnitContactsJob
         {
             UnitCollisionPair pair = Pairs[pairIndex];
             int previousIndex = FindPairIndex(
-                MappedFatCachePairs,
+                PreviousTimestepContactPairs,
                 pair.BodyA,
                 pair.BodyB);
             if (previousIndex >= 0)
             {
-                UnitCollisionPair previous = MappedFatCachePairs[previousIndex];
+                UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
                 pair.WasActivatedThisTimestep = previous.WasActivatedThisTimestep;
                 pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;

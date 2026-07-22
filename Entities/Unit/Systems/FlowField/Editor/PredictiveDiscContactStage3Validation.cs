@@ -890,7 +890,7 @@ public static class PredictiveDiscContactStage3Validation
         var currentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(
             math.max(preparedBodies.Length, 1),
             Allocator.TempJob);
-        var mappedFatCachePairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
+        var previousTimestepContactPairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
         var correctedBodyFlags = new NativeArray<byte>(
             preparedBodies.Length,
             Allocator.TempJob,
@@ -952,7 +952,7 @@ public static class PredictiveDiscContactStage3Validation
                 ShadowCurrentProxies = shadowCurrentProxies,
                 ShadowCurrentPairs = shadowCurrentPairs,
                 CurrentBodyIndexByEntity = currentBodyIndexByEntity,
-                MappedFatCachePairs = mappedFatCachePairs,
+                PreviousTimestepContactPairs = previousTimestepContactPairs,
                 CorrectedBodyFlags = correctedBodyFlags,
                 CorrectedBodyIndices = correctedBodyIndices,
                 ShadowPreviousProxies = previousProxies,
@@ -991,7 +991,7 @@ public static class PredictiveDiscContactStage3Validation
             statistics.Dispose();
             correctedBodyIndices.Dispose();
             correctedBodyFlags.Dispose();
-            mappedFatCachePairs.Dispose();
+            previousTimestepContactPairs.Dispose();
             currentBodyIndexByEntity.Dispose();
             shadowCurrentPairs.Dispose();
             shadowCurrentProxies.Dispose();
