@@ -8,25 +8,65 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct SolveXpbdUnitContactsJob
 {
-    /// <summary>
-    /// Commit-stage adapter: rebuild the persistent neighbor topology from the
-    /// complete guard-envelope broad phase, then classify those stable pairs with
-    /// the existing swept-disc narrow phase. Later stages replace the full rebuild
-    /// with dirty-proxy deltas without changing this output contract.
-    /// </summary>
+    private const float IncrementalDirtyBodyRatioThreshold = 0.35f;
+
     private bool BuildContactPairsFromPersistentNeighborSet(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullRebuild)
     {
-        long buildStart = ProfilerUnsafeUtility.Timestamp;
+        long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
         BuildCurrentIncrementalSweptProxies();
-        FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
-        incrementalStatistics.FallbackNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - buildStart);
-        incrementalStatistics.FullRebuildCount++;
-        incrementalStatistics.UsedFullRebuild = 1;
+        bool cacheCanBePatched = !forceFullRebuild &&
+                                 ValidateAndClassifyIncrementalDirtyBodies(
+                                     ref incrementalStatistics);
+        incrementalStatistics.ProxyValidationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - validationStart);
+
+        int topologyDirtyCount = incrementalStatistics.TopologyDirtyBodyCount;
+        float dirtyRatio = States.Length > 0
+            ? (float)topologyDirtyCount / States.Length
+            : 1f;
+        bool useFullRebuild = !cacheCanBePatched ||
+                              dirtyRatio > IncrementalDirtyBodyRatioThreshold;
+
+        if (useFullRebuild)
+        {
+            long buildStart = ProfilerUnsafeUtility.Timestamp;
+            FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
+            incrementalStatistics.FallbackNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - buildStart);
+            incrementalStatistics.FullRebuildCount++;
+            incrementalStatistics.UsedFullRebuild = 1;
+        }
+        else
+        {
+            long repairStart = ProfilerUnsafeUtility.Timestamp;
+            UpdatePersistentProxyMetadata();
+            if (topologyDirtyCount > 0)
+            {
+                IncrementallyRepairPersistentNeighborTopology(
+                    ref incrementalStatistics);
+                incrementalStatistics.IncrementalRepairCount++;
+            }
+            else
+            {
+                IncrementalContactCacheState state = IncrementalCacheState.Value;
+                state.Timestep++;
+                state.LastUpdateWasFullRebuild = 0;
+                state.BodyCount = States.Length;
+                state.NeighborPairCount = PersistentNeighborPairs.Length;
+                IncrementalCacheState.Value = state;
+                incrementalStatistics.Timestep = state.Timestep;
+                incrementalStatistics.NeighborPairRetainedCount =
+                    PersistentNeighborPairs.Length;
+            }
+
+            incrementalStatistics.PairDiffNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - repairStart);
+            incrementalStatistics.UsedIncrementalTopology = 1;
+        }
 
         long classificationStart = ProfilerUnsafeUtility.Timestamp;
         bool mapped = MapPersistentNeighborPairsToCurrentBodies();
@@ -36,6 +76,7 @@ public partial struct SolveXpbdUnitContactsJob
             invalidState.IsValid = 0;
             IncrementalCacheState.Value = invalidState;
             BuildSweptContactPairs(ref statistics);
+            incrementalStatistics.UsedFullRebuild = 1;
             return false;
         }
 
@@ -47,6 +88,182 @@ public partial struct SolveXpbdUnitContactsJob
             ProfilerUnsafeUtility.Timestamp - classificationStart);
         incrementalStatistics.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
         return true;
+    }
+
+    private bool ValidateAndClassifyIncrementalDirtyBodies(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        IncrementalDirtyBodies.Clear();
+        IncrementalContactCacheState state = IncrementalCacheState.Value;
+        if (state.IsValid == 0 ||
+            state.BodyCount != States.Length ||
+            PersistentSweptProxies.Length != CurrentIncrementalProxies.Length ||
+            math.abs(state.GuardMargin - math.max(0f, FatAabbCacheMargin)) > 0.000001f ||
+            math.abs(state.PredictiveSkin - math.max(0f, PredictiveSkin)) > 0.000001f ||
+            math.abs(state.TimestepContactMargin - math.max(0f, TimestepContactMargin)) > 0.000001f)
+            return false;
+
+        int validProxyCount = 0;
+        for (int proxyIndex = 0; proxyIndex < CurrentIncrementalProxies.Length; proxyIndex++)
+        {
+            PersistentSweptProxy current = CurrentIncrementalProxies[proxyIndex];
+            PersistentSweptProxy previous = PersistentSweptProxies[proxyIndex];
+            if (current.Entity != previous.Entity || current.IsValid != previous.IsValid)
+                return false;
+
+            IncrementalBodyDirtyFlags flags = IncrementalBodyDirtyFlags.None;
+            if (current.IsValid != 0)
+            {
+                validProxyCount++;
+                if (!AabbContains(
+                        previous.GuardMin,
+                        previous.GuardMax,
+                        current.TightMin,
+                        current.TightMax))
+                {
+                    flags |= IncrementalBodyDirtyFlags.Topology;
+                    incrementalStatistics.TopologyDirtyBodyCount++;
+                }
+                else if (current.MotionVersion != previous.MotionVersion)
+                {
+                    flags |= IncrementalBodyDirtyFlags.Motion;
+                    incrementalStatistics.MotionDirtyBodyCount++;
+                }
+            }
+
+            if (flags != IncrementalBodyDirtyFlags.None)
+            {
+                IncrementalDirtyBodies.Add(new IncrementalDirtyBody
+                {
+                    BodyIndex = current.BodyIndex,
+                    Flags = flags
+                });
+            }
+        }
+
+        incrementalStatistics.ProxyCount = validProxyCount;
+        return true;
+    }
+
+    private void UpdatePersistentProxyMetadata()
+    {
+        for (int proxyIndex = 0; proxyIndex < CurrentIncrementalProxies.Length; proxyIndex++)
+        {
+            PersistentSweptProxy current = CurrentIncrementalProxies[proxyIndex];
+            PersistentSweptProxy previous = PersistentSweptProxies[proxyIndex];
+            IncrementalBodyDirtyFlags flags = GetDirtyFlags(current.BodyIndex);
+            if ((flags & IncrementalBodyDirtyFlags.Topology) != 0)
+            {
+                PersistentSweptProxies[proxyIndex] = current;
+                continue;
+            }
+
+            // Motion-only changes keep the old guard envelope. This is the proof
+            // that no new broad-phase neighbor can have appeared.
+            previous.BodyIndex = current.BodyIndex;
+            previous.TightMin = current.TightMin;
+            previous.TightMax = current.TightMax;
+            previous.MotionVersion = current.MotionVersion;
+            previous.IsValid = current.IsValid;
+            PersistentSweptProxies[proxyIndex] = previous;
+        }
+    }
+
+    private IncrementalBodyDirtyFlags GetDirtyFlags(int bodyIndex)
+    {
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        {
+            IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
+            if (dirty.BodyIndex == bodyIndex)
+                return dirty.Flags;
+        }
+        return IncrementalBodyDirtyFlags.None;
+    }
+
+    private bool IsTopologyDirtyEntity(Entity entity)
+    {
+        if (!TryFindCurrentBodyIndex(entity, out int bodyIndex))
+            return true;
+        return (GetDirtyFlags(bodyIndex) & IncrementalBodyDirtyFlags.Topology) != 0;
+    }
+
+    private void IncrementallyRepairPersistentNeighborTopology(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        long queryStart = ProfilerUnsafeUtility.Timestamp;
+        IncrementalNeighborPairScratch.Clear();
+        int previousPairCount = PersistentNeighborPairs.Length;
+
+        // Retain only edges whose endpoints both kept their guard envelope.
+        for (int pairIndex = 0; pairIndex < PersistentNeighborPairs.Length; pairIndex++)
+        {
+            PersistentNeighborPair pair = PersistentNeighborPairs[pairIndex];
+            if (IsTopologyDirtyEntity(pair.Key.EntityA) ||
+                IsTopologyDirtyEntity(pair.Key.EntityB))
+                continue;
+            IncrementalNeighborPairScratch.Add(pair);
+        }
+
+        int retainedPairCount = IncrementalNeighborPairScratch.Length;
+        uint nextTopologyEpoch = IncrementalCacheState.Value.TopologyEpoch + 1u;
+        uint nextTimestep = IncrementalCacheState.Value.Timestep + 1u;
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        {
+            IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
+            if ((dirty.Flags & IncrementalBodyDirtyFlags.Topology) == 0)
+                continue;
+
+            FlowMovementFrameState dirtyState = States[dirty.BodyIndex];
+            if (!TryFindPersistentProxy(
+                    dirtyState.Entity,
+                    out PersistentSweptProxy dirtyProxy) ||
+                dirtyProxy.IsValid == 0)
+                continue;
+
+            for (int proxyIndex = 0; proxyIndex < PersistentSweptProxies.Length; proxyIndex++)
+            {
+                PersistentSweptProxy other = PersistentSweptProxies[proxyIndex];
+                if (other.IsValid == 0 || other.Entity == dirtyProxy.Entity)
+                    continue;
+                incrementalStatistics.LocalProxyQueryCount++;
+                if (!AabbOverlaps(
+                        dirtyProxy.GuardMin,
+                        dirtyProxy.GuardMax,
+                        other.GuardMin,
+                        other.GuardMax))
+                    continue;
+
+                IncrementalNeighborPairScratch.Add(new PersistentNeighborPair
+                {
+                    Key = StableEntityPairKey.Create(dirtyProxy.Entity, other.Entity),
+                    TopologyEpoch = nextTopologyEpoch,
+                    LastValidatedTimestep = nextTimestep
+                });
+            }
+        }
+
+        SortAndDeduplicatePersistentNeighborPairs(IncrementalNeighborPairScratch);
+        PersistentNeighborPairs.Clear();
+        PersistentNeighborPairs.AddRange(IncrementalNeighborPairScratch.AsArray());
+
+        IncrementalContactCacheState state = IncrementalCacheState.Value;
+        state.IsValid = 1;
+        state.LastUpdateWasFullRebuild = 0;
+        state.Timestep = nextTimestep;
+        state.TopologyEpoch = nextTopologyEpoch;
+        state.BodyCount = States.Length;
+        state.NeighborPairCount = PersistentNeighborPairs.Length;
+        IncrementalCacheState.Value = state;
+
+        incrementalStatistics.Timestep = state.Timestep;
+        incrementalStatistics.NeighborPairRetainedCount = retainedPairCount;
+        incrementalStatistics.NeighborPairRemovedCount =
+            previousPairCount - retainedPairCount;
+        incrementalStatistics.NeighborPairAddedCount =
+            math.max(0, PersistentNeighborPairs.Length - retainedPairCount);
+        incrementalStatistics.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
+        incrementalStatistics.LocalBroadPhaseNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - queryStart);
     }
 
     private void BuildCurrentIncrementalSweptProxies()
@@ -243,6 +460,30 @@ public partial struct SolveXpbdUnitContactsJob
         return true;
     }
 
+    private bool TryFindPersistentProxy(Entity entity, out PersistentSweptProxy proxy)
+    {
+        int low = 0;
+        int high = PersistentSweptProxies.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            PersistentSweptProxy candidate = PersistentSweptProxies[middle];
+            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
+            if (comparison == 0)
+            {
+                proxy = candidate;
+                return true;
+            }
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        proxy = default;
+        return false;
+    }
+
     private bool TryFindIncrementalProxy(Entity entity, out PersistentSweptProxy proxy)
     {
         int low = 0;
@@ -269,21 +510,27 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void SortAndDeduplicatePersistentNeighborPairs()
     {
-        if (PersistentNeighborPairs.Length <= 1)
+        SortAndDeduplicatePersistentNeighborPairs(PersistentNeighborPairs);
+    }
+
+    private static void SortAndDeduplicatePersistentNeighborPairs(
+        NativeList<PersistentNeighborPair> pairs)
+    {
+        if (pairs.Length <= 1)
             return;
 
-        PersistentNeighborPairs.AsArray().Sort(new PersistentNeighborPairComparer());
+        pairs.AsArray().Sort(new PersistentNeighborPairComparer());
         int writeIndex = 1;
-        PersistentNeighborPair previous = PersistentNeighborPairs[0];
-        for (int readIndex = 1; readIndex < PersistentNeighborPairs.Length; readIndex++)
+        PersistentNeighborPair previous = pairs[0];
+        for (int readIndex = 1; readIndex < pairs.Length; readIndex++)
         {
-            PersistentNeighborPair current = PersistentNeighborPairs[readIndex];
+            PersistentNeighborPair current = pairs[readIndex];
             if (current.Key.Equals(previous.Key))
                 continue;
-            PersistentNeighborPairs[writeIndex++] = current;
+            pairs[writeIndex++] = current;
             previous = current;
         }
-        PersistentNeighborPairs.ResizeUninitialized(writeIndex);
+        pairs.ResizeUninitialized(writeIndex);
     }
 }
 }
