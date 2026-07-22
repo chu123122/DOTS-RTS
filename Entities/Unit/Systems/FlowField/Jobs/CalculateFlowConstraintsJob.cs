@@ -26,6 +26,7 @@ public struct UnitCollisionPair
     public UnitContactMode ContactMode;
     public byte WasActivated;
     public byte WasActivatedThisTimestep;
+    public byte WasCorrectedThisTimestep;
     public byte IsDormant;
     public byte WasAddedByFallback;
     public int FirstActivatedSubstep;

@@ -382,6 +382,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var publishIncrementalStatisticsJob =
             new PublishIncrementalContactPipelineStatisticsJob
             {
+                SolverSource = contactStatistics,
+                LegacyBroadPhaseSource = shadowStatistics,
                 Source = incrementalStatistics,
                 Target = _incrementalDiagnosticsEntity,
                 SnapshotLookup =
@@ -435,8 +437,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
-        JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
-        JobHandle shadowStatisticsDisposeHandle = shadowStatistics.Dispose(publishStatisticsHandle);
+        JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
+            publishStatisticsHandle,
+            publishIncrementalStatisticsHandle);
+        JobHandle statisticsDisposeHandle =
+            contactStatistics.Dispose(allStatisticsPublishedHandle);
+        JobHandle shadowStatisticsDisposeHandle =
+            shadowStatistics.Dispose(allStatisticsPublishedHandle);
         JobHandle incrementalStatisticsDisposeHandle =
             incrementalStatistics.Dispose(publishIncrementalStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle =
