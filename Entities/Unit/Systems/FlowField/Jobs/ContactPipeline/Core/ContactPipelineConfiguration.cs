@@ -34,25 +34,25 @@ public struct ContactPipelineConfiguration
     {
         return new ContactPipelineConfiguration
         {
-  DeltaTime = deltaTime,
-  SubstepCount = solverSettings.SubstepCount,
-  IterationCount = solverSettings.IterationCount,
-  Compliance = solverSettings.Compliance,
-  PredictiveSkin = solverSettings.PredictiveSkin,
-  SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
-  SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
-  SettledSoftAvoidanceMultiplier = flowSettings.SettledSoftAvoidanceMultiplier,
-  SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver,
-  RvoTimeHorizon = flowSettings.RvoTimeHorizon,
-  EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
-  EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
-  EnableDiagnostics = solverSettings.EnableDiagnostics,
-  EnablePersistentContactCache = enablePersistentContactCache,
-  EnableTimestepContactSetCache = enableTimestepContactSetCache,
-  // Compatibility translation: the serialized FatAabb margin now means
-  // the persistent guarded-proxy envelope margin.
-  GuardEnvelopeMargin = solverSettings.GuardEnvelopeMargin,
-  TimestepContactMargin = solverSettings.TimestepContactMargin
+            DeltaTime = deltaTime,
+            SubstepCount = solverSettings.SubstepCount,
+            IterationCount = solverSettings.IterationCount,
+            Compliance = solverSettings.Compliance,
+            PredictiveSkin = solverSettings.PredictiveSkin,
+            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
+            SettledSoftAvoidanceMultiplier = flowSettings.SettledSoftAvoidanceMultiplier,
+            SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver,
+            RvoTimeHorizon = flowSettings.RvoTimeHorizon,
+            EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
+            EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
+            EnableDiagnostics = solverSettings.EnableDiagnostics,
+            EnablePersistentContactCache = enablePersistentContactCache,
+            EnableTimestepContactSetCache = enableTimestepContactSetCache,
+            // Compatibility translation: the serialized FatAabb margin now means
+            // the persistent guarded-proxy envelope margin.
+            GuardEnvelopeMargin = solverSettings.FatAabbCacheMargin,
+            TimestepContactMargin = solverSettings.TimestepContactMargin
         };
     }
 }
