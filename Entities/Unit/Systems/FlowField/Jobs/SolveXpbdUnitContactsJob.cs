@@ -66,6 +66,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
     public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
+    public NativeList<PersistentNeighborPair> IncrementalNeighborPairScratch;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
     public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;

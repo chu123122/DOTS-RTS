@@ -233,6 +233,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var incrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        var incrementalNeighborPairScratch = new NativeList<PersistentNeighborPair>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
         var predictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(
             math.max(unitCount * 2, 1),
             Allocator.TempJob);
@@ -320,6 +323,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PersistentNeighborPairs = _persistentNeighborPairs,
             PersistentPredictiveContacts = _persistentPredictiveContacts,
             IncrementalDirtyBodies = incrementalDirtyBodies,
+            IncrementalNeighborPairScratch = incrementalNeighborPairScratch,
             PredictiveContactSchedule = predictiveContactSchedule,
             IncrementalCacheState = _incrementalContactCacheState,
             IncrementalStatistics = incrementalStatistics,
@@ -396,6 +400,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             currentIncrementalProxies.Dispose(applyMovementHandle);
         JobHandle incrementalDirtyBodyDisposeHandle =
             incrementalDirtyBodies.Dispose(applyMovementHandle);
+        JobHandle incrementalNeighborPairScratchDisposeHandle =
+            incrementalNeighborPairScratch.Dispose(applyMovementHandle);
         JobHandle predictiveContactScheduleDisposeHandle =
             predictiveContactSchedule.Dispose(applyMovementHandle);
         JobHandle correctedBodyFlagDisposeHandle =
@@ -463,6 +469,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             currentIncrementalProxyDisposeHandle,
             incrementalDirtyBodyDisposeHandle,
+            incrementalNeighborPairScratchDisposeHandle);
+        incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
+            incrementalScratchDisposeHandle,
             predictiveContactScheduleDisposeHandle);
         incrementalScratchDisposeHandle = JobHandle.CombineDependencies(
             incrementalScratchDisposeHandle,
