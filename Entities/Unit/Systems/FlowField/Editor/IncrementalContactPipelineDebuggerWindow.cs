@@ -17,7 +17,6 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
 
     private PanelPage _page;
     private Vector2 _scroll;
-    private bool _showLegacy;
 
     [MenuItem("RTS/Diagnostics/Incremental Contact Pipeline")]
     public static void Open()
@@ -229,21 +228,6 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Metric("Soft oracle pair / missing",
             $"{statistics.SoftAvoidanceOraclePairCount} / {statistics.SoftAvoidanceOracleMissingPairCount}");
 
-        _showLegacy = EditorGUILayout.Foldout(_showLegacy,
-            "Legacy Fat/Adaptive compatibility counters", true);
-        if (_showLegacy)
-        {
-            var legacy = snapshot.LegacyBroadPhaseStatistics;
-            EditorGUI.indentLevel++;
-            Metric("Cache use / reuse / rebuild",
-                $"{legacy.CacheUseCount} / {legacy.CacheReuseCount} / {legacy.CacheRebuildCount}");
-            Metric("Full broadphase fallback", legacy.FullBroadPhaseFallbackCount.ToString());
-            EditorGUILayout.HelpBox(
-                "These fields remain for serialized-scene and historical CSV compatibility. " +
-                "They no longer describe the primary incremental execution path.",
-                MessageType.Info);
-            EditorGUI.indentLevel--;
-        }
     }
 
     private static void DrawRecording()

@@ -10,7 +10,6 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 {
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> Source;
-    [ReadOnly] public NativeReference<ShadowNeighborCacheStatistics> ShadowSource;
     [ReadOnly] public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource;
     [ReadOnly] public NativeList<Stage3ContactIterationDiagnostic> IterationSource;
     [ReadOnly] public NativeList<Stage3ContactPairDiagnostic> PairSource;
