@@ -8,14 +8,12 @@ public abstract partial class BaseFlowMovementSystem
 {
     private void ApplySimulationDebuggerRuntimeOverrides(
         ref FlowFieldSettings flowSettings,
-        ref UnitContactSolverSettings solverSettings,
-        ref AdaptiveFatAabbSettings adaptiveSettings,
-        bool hasAdaptiveSettings)
+        ref UnitContactSolverSettings solverSettings)
     {
         SimulationDebuggerEffectiveSettings current = BuildEffectiveSettings(
             flowSettings,
             solverSettings,
-            adaptiveSettings);
+            AdaptiveFatAabbSettings.Default);
         SimulationDebuggerRuntime.CaptureBaselineSettings(current);
 
         if (!SimulationDebuggerRuntime.TryConsumeSettingsRequest(
@@ -44,32 +42,8 @@ public abstract partial class BaseFlowMovementSystem
             (SoftAvoidanceVelocitySolverMode)math.clamp(requested.SoftAvoidanceVelocitySolver, 0, 1);
         flowSettings.RvoTimeHorizon = math.max(0.01f, requested.RvoTimeHorizon);
 
-        adaptiveSettings.Enabled = requested.EnableAdaptiveFatAabb;
-        adaptiveSettings.DetectionCellSpan = math.max(1, requested.AdaptiveDetectionCellSpan);
-        adaptiveSettings.MinimumUnitsPerCell = math.max(1, requested.AdaptiveMinimumUnitsPerCell);
-        adaptiveSettings.MinimumUnitsPerRegion = math.max(1, requested.AdaptiveMinimumUnitsPerRegion);
-        adaptiveSettings.EnableScore = math.saturate(requested.AdaptiveEnableScore);
-        adaptiveSettings.DisableScore = math.clamp(
-            requested.AdaptiveDisableScore,
-            0f,
-            adaptiveSettings.EnableScore);
-        adaptiveSettings = adaptiveSettings.Sanitized();
-
         SystemAPI.SetSingleton(flowSettings);
         SystemAPI.SetSingleton(solverSettings);
-
-        if (hasAdaptiveSettings)
-        {
-            SystemAPI.SetSingleton(adaptiveSettings);
-        }
-        else
-        {
-            // 场景未挂 AdaptiveFatAabbAuthoring 时自动创建 singleton，
-            // 确保 runtime override 的 adaptive 阈值能持久化到 ECS。
-            Entity entity = EntityManager.CreateEntity();
-            EntityManager.AddComponentData(entity, adaptiveSettings);
-        }
-    }
 
     private static SimulationDebuggerEffectiveSettings BuildEffectiveSettings(
         FlowFieldSettings flowSettings,
