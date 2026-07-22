@@ -1,0 +1,97 @@
+name: Contact pipeline static checks
+
+on:
+  pull_request:
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/workflows/contact-pipeline-static-checks.yml'
+  push:
+    branches:
+      - Simulation
+      - 'codex/**'
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/workflows/contact-pipeline-static-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate module contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          flow = Path('Entities/Unit/Systems/FlowField')
+          pipeline = flow / 'Jobs/ContactPipeline'
+          production = '\n'.join(p.read_text(encoding='utf-8') for p in pipeline.rglob('*.cs'))
+          all_flow = '\n'.join(p.read_text(encoding='utf-8') for p in flow.rglob('*.cs'))
+
+          forbidden_execution = [
+              'BuildAdaptiveFatAabbHotspots', 'BuildAdaptiveHybridContactPairs',
+              'BuildContactPairsFromFatAabbCache', 'EnsureFatAabbRawCandidates',
+              'UpdateAdaptiveFatAabbHistoryAfterSolve', 'AreCorrectedDiscsInsideFatCache'
+          ]
+          found = [name for name in forbidden_execution if name in all_flow]
+          if found:
+              raise SystemExit('Legacy execution symbols returned: ' + ', '.join(found))
+
+          forbidden_data = [
+              'ShadowStatistics', 'LegacyBroadPhaseStatistics',
+              'LegacyBroadPhaseSource', 'MappedFatCachePairs'
+          ]
+          found = [name for name in forbidden_data if name in all_flow]
+          if found:
+              raise SystemExit('Legacy data flow returned: ' + ', '.join(found))
+
+          if Path('Entities/Unit/Systems/FlowField/Jobs/Legacy').exists():
+              raise SystemExit('Jobs/Legacy must not be recreated')
+
+          occurrences = [
+              str(path) for path in pipeline.rglob('*.cs')
+              if 'FatAabbCacheMargin' in path.read_text(encoding='utf-8')
+          ]
+          expected = str(pipeline / 'Core/ContactPipelineConfiguration.cs')
+          if occurrences != [expected]:
+              raise SystemExit(
+                  'Serialized FatAabb margin escaped compatibility boundary: ' +
+                  repr(occurrences))
+
+          if re.search(r'\b(?:SleepingBody|SleepingIsland|ContactIslandSleeping)\b', production):
+              raise SystemExit('Sleeping policy introduced without a dedicated design stage')
+
+          ownership = {
+              'public struct UnitCollisionPair': pipeline / 'Core/ContactPairTypes.cs',
+              'public struct SweptDiscCellEntry': pipeline / 'BroadPhase/SweptDiscTypes.cs'
+          }
+          for symbol, expected_path in ownership.items():
+              paths = [
+                  path for path in pipeline.rglob('*.cs')
+                  if symbol in path.read_text(encoding='utf-8')
+              ]
+              if paths != [expected_path]:
+                  raise SystemExit(f'{symbol} ownership mismatch: {paths}')
+
+          temp_workflows = list(Path('.github/workflows').glob('refactor-contact-pipeline-phase*.yml'))
+          temp_workflows += list(Path('.github/workflows').glob('audit-*.yml'))
+          if temp_workflows:
+              raise SystemExit('Temporary workflows remain: ' + repr(temp_workflows))
+
+          csv_text = (flow / 'Diagnostics/IncrementalContactPipelineCsvRecorder.cs').read_text(encoding='utf-8')
+          if 'CsvSchemaVersion = 6' not in csv_text:
+              raise SystemExit('Unexpected contact CSV schema')
+          if 'LegacyCacheUseCount' in csv_text or 'LegacyBroadPhaseStatistics' in csv_text:
+              raise SystemExit('Legacy CSV columns returned')
+
+          for path in pipeline.rglob('*.cs'):
+              text = path.read_text(encoding='utf-8')
+              if text.count('{') != text.count('}'):
+                  raise SystemExit(f'Brace mismatch: {path}')
+          PY
