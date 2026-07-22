@@ -219,6 +219,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     substepIndex,
                     true,
                     ref statistics,
+                    ref incrementalStatistics,
                     out float totalPositionCorrection,
                     out float maxPositionCorrection);
 
@@ -268,6 +269,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                             substepIndex,
                             true,
                             ref statistics,
+                            ref incrementalStatistics,
                             out float recoveryCorrection,
                             out float recoveryMaxCorrection);
                         statistics.TotalContactPositionCorrection += recoveryCorrection;
@@ -311,22 +313,42 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.AverageSpeedAfterContact /= substepCount;
         statistics.SolverNanoseconds =
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
-        incrementalStatistics.CorrectedPairCount =
+        incrementalStatistics.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;
+        incrementalStatistics.CurrentActiveConstraintCount =
+            TimestepContactPairs.Length;
+        incrementalStatistics.PeakActiveConstraintCount = math.max(
+            incrementalStatistics.PeakActiveConstraintCount,
+            incrementalStatistics.CurrentActiveConstraintCount);
+        incrementalStatistics.CleanProxyRatio =
+            incrementalStatistics.ProxyCount > 0
+                ? 1f - math.saturate(
+                    (float)incrementalStatistics.TopologyDirtyBodyCount /
+                    incrementalStatistics.ProxyCount)
+                : 0f;
+        incrementalStatistics.RetainedNeighborPairRatio =
+            incrementalStatistics.PersistentNeighborPairCount > 0
+                ? math.saturate(
+                    (float)incrementalStatistics.NeighborPairRetainedCount /
+                    incrementalStatistics.PersistentNeighborPairCount)
+                : 0f;
         incrementalStatistics.NeighborToSweptRatio =
             incrementalStatistics.PersistentNeighborPairCount > 0
-                ? (float)incrementalStatistics.SweptHitCount /
-                  incrementalStatistics.PersistentNeighborPairCount
+                ? math.saturate(
+                    (float)incrementalStatistics.CurrentSweptContactCount /
+                    incrementalStatistics.PersistentNeighborPairCount)
                 : 0f;
-        incrementalStatistics.SweptToActiveRatio =
-            incrementalStatistics.SweptHitCount > 0
-                ? (float)incrementalStatistics.ActiveConstraintCount /
-                  incrementalStatistics.SweptHitCount
+        incrementalStatistics.SweptToCurrentActiveRatio =
+            incrementalStatistics.CurrentSweptContactCount > 0
+                ? math.saturate(
+                    (float)incrementalStatistics.CurrentActiveConstraintCount /
+                    incrementalStatistics.CurrentSweptContactCount)
                 : 0f;
-        incrementalStatistics.ActiveToCorrectedRatio =
-            incrementalStatistics.ActiveConstraintCount > 0
-                ? (float)incrementalStatistics.CorrectedPairCount /
-                  incrementalStatistics.ActiveConstraintCount
+        incrementalStatistics.ActivatedToCorrectedRatio =
+            incrementalStatistics.UniqueActivatedPairCount > 0
+                ? math.saturate(
+                    (float)incrementalStatistics.UniqueCorrectedPairCount /
+                    incrementalStatistics.UniqueActivatedPairCount)
                 : 0f;
         CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
@@ -437,6 +459,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         int substepIndex,
         bool trackCorrectedBodies,
         ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
         out float totalPositionCorrection,
         out float maxPositionCorrection)
     {
@@ -446,6 +469,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         totalPositionCorrection = 0f;
         maxPositionCorrection = 0f;
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
+        incrementalStatistics.ActiveConstraintEvaluationCount +=
+            TimestepContactPairs.Length;
 
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
@@ -508,6 +533,13 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
             if (math.abs(appliedLambda) <= 0.0000001f)
                 continue;
+
+            if (pair.WasCorrectedThisTimestep == 0)
+            {
+                pair.WasCorrectedThisTimestep = 1;
+                incrementalStatistics.UniqueCorrectedPairCount++;
+                TimestepContactPairs[i] = pair;
+            }
 
             totalPositionCorrection += pairCorrection;
             maxPositionCorrection = math.max(maxPositionCorrection, pairCorrection);

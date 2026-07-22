@@ -192,6 +192,7 @@ public partial struct SolveXpbdUnitContactsJob
             pair.Lambda = 0f;
             pair.WasActivated = 0;
             pair.WasActivatedThisTimestep = 0;
+            pair.WasCorrectedThisTimestep = 0;
             pair.IsDormant = (byte)(isDormant ? 1 : 0);
             pair.WasAddedByFallback = 0;
             pair.FirstActivatedSubstep = -1;

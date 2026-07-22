@@ -81,10 +81,11 @@ public partial struct SolveXpbdUnitContactsJob
             return false;
         }
 
-        statistics.CandidatePairCount += Pairs.Length;
-        incrementalStatistics.ReclassifiedPairCount += Pairs.Length;
+        int classificationCandidateCount = Pairs.Length;
+        statistics.CandidatePairCount += classificationCandidateCount;
+        incrementalStatistics.ReclassifiedPairEvaluationCount += classificationCandidateCount;
+        incrementalStatistics.SweptClassificationEvaluationCount += classificationCandidateCount;
         FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
-        incrementalStatistics.SweptHitCount += Pairs.Length;
         SynchronizePersistentPredictiveContacts(ref incrementalStatistics);
         incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - classificationStart);
@@ -166,23 +167,13 @@ public partial struct SolveXpbdUnitContactsJob
             };
             PredictiveContactScratch.Add(contact);
 
-            switch (lifecycle)
+            if (lifecycle == PersistentContactLifecycle.Dormant)
             {
-                case PersistentContactLifecycle.Dormant:
-                    incrementalStatistics.DormantPairCount++;
-                    PredictiveContactSchedule.Add(new PredictiveContactScheduleEntry
-                    {
-                        Key = key,
-                        Substep = firstPossibleSubstep
-                    });
-                    break;
-                case PersistentContactLifecycle.Predictive:
-                case PersistentContactLifecycle.Approaching:
-                    incrementalStatistics.PredictivePairCount++;
-                    break;
-                case PersistentContactLifecycle.Actual:
-                    incrementalStatistics.ActualPairCount++;
-                    break;
+                PredictiveContactSchedule.Add(new PredictiveContactScheduleEntry
+                {
+                    Key = key,
+                    Substep = firstPossibleSubstep
+                });
             }
         }
 
@@ -204,7 +195,9 @@ public partial struct SolveXpbdUnitContactsJob
             Pairs[activeWriteIndex++] = pair;
         }
         Pairs.ResizeUninitialized(activeWriteIndex);
-        incrementalStatistics.ActiveConstraintCount = activeWriteIndex;
+        RefreshCurrentContactStateGauges(
+            ref incrementalStatistics,
+            activeWriteIndex);
     }
 
     private static float CalculatePairClosestTime(
@@ -260,7 +253,6 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     TimestepContactPairs.Add(pair);
                     addedPair = true;
-                    incrementalStatistics.ActiveConstraintCount++;
                 }
                 entry.Substep = ushort.MaxValue;
             }
@@ -277,6 +269,9 @@ public partial struct SolveXpbdUnitContactsJob
 
         if (addedPair)
             TimestepContactPairs.AsArray().Sort(new UnitCollisionPairComparer());
+        UpdateActiveConstraintGauges(
+            ref incrementalStatistics,
+            TimestepContactPairs.Length);
         incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - activationStart);
     }
@@ -435,23 +430,52 @@ public partial struct SolveXpbdUnitContactsJob
         };
     }
 
-    private static void AccumulatePersistentLifecycleStatistics(
-        PersistentContactLifecycle lifecycle,
-        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    private void RefreshCurrentContactStateGauges(
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        int currentActiveConstraintCount)
     {
-        switch (lifecycle)
+        incrementalStatistics.CurrentSweptContactCount =
+            PersistentPredictiveContacts.Length;
+        incrementalStatistics.CurrentDormantPairCount = 0;
+        incrementalStatistics.CurrentApproachingPairCount = 0;
+        incrementalStatistics.CurrentPredictivePairCount = 0;
+        incrementalStatistics.CurrentActualPairCount = 0;
+
+        for (int contactIndex = 0;
+             contactIndex < PersistentPredictiveContacts.Length;
+             contactIndex++)
         {
-            case PersistentContactLifecycle.Dormant:
-                incrementalStatistics.DormantPairCount++;
-                break;
-            case PersistentContactLifecycle.Predictive:
-            case PersistentContactLifecycle.Approaching:
-                incrementalStatistics.PredictivePairCount++;
-                break;
-            case PersistentContactLifecycle.Actual:
-                incrementalStatistics.ActualPairCount++;
-                break;
+            switch (PersistentPredictiveContacts[contactIndex].Lifecycle)
+            {
+                case PersistentContactLifecycle.Dormant:
+                    incrementalStatistics.CurrentDormantPairCount++;
+                    break;
+                case PersistentContactLifecycle.Approaching:
+                    incrementalStatistics.CurrentApproachingPairCount++;
+                    break;
+                case PersistentContactLifecycle.Predictive:
+                    incrementalStatistics.CurrentPredictivePairCount++;
+                    break;
+                case PersistentContactLifecycle.Actual:
+                    incrementalStatistics.CurrentActualPairCount++;
+                    break;
+            }
         }
+
+        UpdateActiveConstraintGauges(
+            ref incrementalStatistics,
+            currentActiveConstraintCount);
+    }
+
+    private static void UpdateActiveConstraintGauges(
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        int currentActiveConstraintCount)
+    {
+        incrementalStatistics.CurrentActiveConstraintCount =
+            math.max(0, currentActiveConstraintCount);
+        incrementalStatistics.PeakActiveConstraintCount = math.max(
+            incrementalStatistics.PeakActiveConstraintCount,
+            incrementalStatistics.CurrentActiveConstraintCount);
     }
 
     private bool ValidateAndClassifyIncrementalDirtyBodies(
@@ -702,11 +726,12 @@ public partial struct SolveXpbdUnitContactsJob
         if (!MapDirtyIncidentNeighborPairsToCurrentBodies())
             return false;
 
-        statistics.CandidatePairCount += Pairs.Length;
-        incrementalStatistics.ReclassifiedPairCount += Pairs.Length;
+        int classificationCandidateCount = Pairs.Length;
+        statistics.CandidatePairCount += classificationCandidateCount;
+        incrementalStatistics.ReclassifiedPairEvaluationCount += classificationCandidateCount;
+        incrementalStatistics.SweptClassificationEvaluationCount += classificationCandidateCount;
         long classificationStart = ProfilerUnsafeUtility.Timestamp;
         FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
-        incrementalStatistics.SweptHitCount += Pairs.Length;
         PatchPersistentPredictiveContactsForDirtyBodies(ref incrementalStatistics);
         RemoveDirtyPredictiveContactSchedules();
         incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
@@ -757,6 +782,7 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 UnitCollisionPair previous = MappedFatCachePairs[previousIndex];
                 pair.WasActivatedThisTimestep = previous.WasActivatedThisTimestep;
+                pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;
                 pair.ActivatedSubstepCount = previous.ActivatedSubstepCount;
             }
@@ -771,7 +797,9 @@ public partial struct SolveXpbdUnitContactsJob
         if (PredictiveContactSchedule.Length > 1)
             PredictiveContactSchedule.AsArray().Sort(
                 new PredictiveContactScheduleEntryComparer());
-        incrementalStatistics.ActiveConstraintCount = TimestepContactPairs.Length;
+        RefreshCurrentContactStateGauges(
+            ref incrementalStatistics,
+            TimestepContactPairs.Length);
         statistics.TimestepContactSetDormantPairCount = 0;
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
@@ -856,9 +884,7 @@ public partial struct SolveXpbdUnitContactsJob
                 bodyB,
                 lifecycle,
                 timestep));
-            AccumulatePersistentLifecycleStatistics(
-                lifecycle,
-                ref incrementalStatistics);
+
         }
 
         if (PredictiveContactScratch.Length > 1)

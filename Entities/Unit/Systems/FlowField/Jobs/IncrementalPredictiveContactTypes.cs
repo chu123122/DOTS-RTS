@@ -196,8 +196,11 @@ public struct IncrementalContactCacheState
 /// </summary>
 public struct IncrementalContactPipelineStatistics
 {
+    public const int CurrentSchemaVersion = 2;
+
     public uint Timestep;
 
+    // Proxy/topology gauges and per-timestep events.
     public int ProxyCount;
     public int TopologyDirtyBodyCount;
     public int MotionDirtyBodyCount;
@@ -211,21 +214,37 @@ public struct IncrementalContactPipelineStatistics
     public int FullRebuildCount;
     public int IncrementalRepairCount;
 
-    public int ReclassifiedPairCount;
-    public int SweptHitCount;
-    public int DormantPairCount;
-    public int PredictivePairCount;
-    public int ActualPairCount;
+    // Work counters: these count evaluations, not final-state pairs.
+    public int ReclassifiedPairEvaluationCount;
+    public int SweptClassificationEvaluationCount;
+    public int ActiveConstraintEvaluationCount;
+
+    // Current-state gauges. They are recomputed from the persistent contact
+    // cache / active set and therefore remain bounded by their parent stage.
+    public int CurrentSweptContactCount;
+    public int CurrentDormantPairCount;
+    public int CurrentApproachingPairCount;
+    public int CurrentPredictivePairCount;
+    public int CurrentActualPairCount;
+    public int CurrentActiveConstraintCount;
+    public int PeakActiveConstraintCount;
+
+    // Unique timestep events.
     public int ScheduledWakeupCount;
-    public int ActiveConstraintCount;
-    public int CorrectedPairCount;
+    public int UniqueActivatedPairCount;
+    public int UniqueCorrectedPairCount;
+    public int ExpiredPairCount;
 
     public int OraclePairCount;
     public int OracleMissingPairCount;
     public int OracleExtraPairCount;
+
+    // Ratios intentionally combine like-for-like gauges or unique event sets.
+    public float CleanProxyRatio;
+    public float RetainedNeighborPairRatio;
     public float NeighborToSweptRatio;
-    public float SweptToActiveRatio;
-    public float ActiveToCorrectedRatio;
+    public float SweptToCurrentActiveRatio;
+    public float ActivatedToCorrectedRatio;
 
     public long ProxyValidationNanoseconds;
     public long LocalBroadPhaseNanoseconds;

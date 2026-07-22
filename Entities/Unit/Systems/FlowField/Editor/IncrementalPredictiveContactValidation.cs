@@ -26,9 +26,10 @@ public static class IncrementalPredictiveContactValidation
             $"Incremental Contact t={statistics.Timestep} | " +
             $"dirty={statistics.TopologyDirtyBodyCount}/{statistics.ProxyCount} " +
             $"neighbors={statistics.PersistentNeighborPairCount} " +
-            $"swept={statistics.SweptHitCount} " +
-            $"active={statistics.ActiveConstraintCount} " +
-            $"corrected={statistics.CorrectedPairCount} " +
+            $"swept={statistics.CurrentSweptContactCount} " +
+            $"active={statistics.CurrentActiveConstraintCount} " +
+            $"activated={statistics.UniqueActivatedPairCount} " +
+            $"corrected={statistics.UniqueCorrectedPairCount} " +
             $"rebuild={statistics.FullRebuildCount} " +
             $"repair={statistics.IncrementalRepairCount} " +
             $"oracleMissing={statistics.OracleMissingPairCount}";
@@ -43,9 +44,12 @@ public static class IncrementalPredictiveContactValidation
         }
 
         Debug.Log(summary +
-            $"\nratios: neighbor->swept={snapshot.NeighborToSweptHitRatio:P1}, " +
-            $"swept->active={snapshot.SweptHitToActiveRatio:P1}, " +
-            $"active->corrected={snapshot.ActiveToCorrectedRatio:P1}");
+            $"\nmode={snapshot.Mode}, schema=v{snapshot.SchemaVersion}; " +
+            $"ratios: cleanProxy={snapshot.CleanProxyRatio:P1}, " +
+            $"retainedPair={snapshot.RetainedNeighborPairRatio:P1}, " +
+            $"neighbor->swept={snapshot.NeighborToSweptRatio:P1}, " +
+            $"swept->active={snapshot.SweptToCurrentActiveRatio:P1}, " +
+            $"activated->corrected={snapshot.ActivatedToCorrectedRatio:P1}");
     }
 }
 }
