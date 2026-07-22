@@ -1,0 +1,289 @@
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using Unity.Profiling.LowLevel.Unsafe;
+using RTS.Unit.FlowField.Diagnostics;
+
+namespace RTS.Unit.FlowField.Jobs
+{
+public partial struct SolveXpbdUnitContactsJob
+{
+    /// <summary>
+    /// Commit-stage adapter: rebuild the persistent neighbor topology from the
+    /// complete guard-envelope broad phase, then classify those stable pairs with
+    /// the existing swept-disc narrow phase. Later stages replace the full rebuild
+    /// with dirty-proxy deltas without changing this output contract.
+    /// </summary>
+    private bool BuildContactPairsFromPersistentNeighborSet(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        bool forceFullRebuild)
+    {
+        long buildStart = ProfilerUnsafeUtility.Timestamp;
+        PrepareCurrentBodyLookup();
+        BuildCurrentIncrementalSweptProxies();
+        FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
+        incrementalStatistics.FallbackNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - buildStart);
+        incrementalStatistics.FullRebuildCount++;
+        incrementalStatistics.UsedFullRebuild = 1;
+
+        long classificationStart = ProfilerUnsafeUtility.Timestamp;
+        bool mapped = MapPersistentNeighborPairsToCurrentBodies();
+        if (!mapped)
+        {
+            IncrementalContactCacheState invalidState = IncrementalCacheState.Value;
+            invalidState.IsValid = 0;
+            IncrementalCacheState.Value = invalidState;
+            BuildSweptContactPairs(ref statistics);
+            return false;
+        }
+
+        statistics.CandidatePairCount += Pairs.Length;
+        incrementalStatistics.ReclassifiedPairCount += Pairs.Length;
+        FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
+        incrementalStatistics.SweptHitCount += Pairs.Length;
+        incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - classificationStart);
+        incrementalStatistics.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
+        return true;
+    }
+
+    private void BuildCurrentIncrementalSweptProxies()
+    {
+        CurrentIncrementalProxies.Clear();
+        float guardMargin = math.max(0f, FatAabbCacheMargin);
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            PersistentSweptProxy proxy = new PersistentSweptProxy
+            {
+                Entity = state.Entity,
+                BodyIndex = bodyIndex,
+                IsValid = (byte)(state.IsInsideGrid ? 1 : 0)
+            };
+
+            if (state.IsInsideGrid)
+            {
+                CalculateIncrementalTightSweptBounds(
+                    state,
+                    out proxy.TightMin,
+                    out proxy.TightMax);
+                proxy.GuardMin = proxy.TightMin - guardMargin;
+                proxy.GuardMax = proxy.TightMax + guardMargin;
+                proxy.MotionVersion = CalculateMotionVersion(state);
+            }
+
+            CurrentIncrementalProxies.Add(proxy);
+        }
+
+        CurrentIncrementalProxies.AsArray().Sort(new PersistentSweptProxyComparer());
+    }
+
+    private void CalculateIncrementalTightSweptBounds(
+        FlowMovementFrameState state,
+        out float2 tightMin,
+        out float2 tightMax)
+    {
+        float retainedPadding = math.max(0f, PredictiveSkin) +
+                                math.max(0f, TimestepContactMargin) * 2f;
+        float extent = math.max(0f, state.Radius) + retainedPadding;
+        CalculateNeighborPathBounds(state, out float2 pathMin, out float2 pathMax);
+        tightMin = pathMin - extent;
+        tightMax = pathMax + extent;
+    }
+
+    private static uint CalculateMotionVersion(FlowMovementFrameState state)
+    {
+        // Deterministic, allocation-free trajectory fingerprint. It is only used
+        // to detect likely reclassification work; correctness never depends on a
+        // hash collision because topology remains guarded by AABB containment.
+        uint hash = math.hash(new float4(
+            state.TimestepStartPosition.x,
+            state.TimestepStartPosition.z,
+            state.TimestepPredictedPosition.x,
+            state.TimestepPredictedPosition.z));
+        hash = math.hash(new uint2(hash, math.asuint(state.Radius)));
+        return hash;
+    }
+
+    private void FullRebuildPersistentNeighborTopology(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        long broadPhaseStart = ProfilerUnsafeUtility.Timestamp;
+        ShadowCellEntries.Clear();
+        ShadowBodyPairs.Clear();
+        PersistentSweptProxies.Clear();
+        PersistentNeighborPairs.Clear();
+        PersistentSweptProxies.AddRange(CurrentIncrementalProxies.AsArray());
+
+        float cellSize = math.max(CellRadius * 2f, 0.0001f);
+        int validProxyCount = 0;
+        for (int proxyIndex = 0; proxyIndex < CurrentIncrementalProxies.Length; proxyIndex++)
+        {
+            PersistentSweptProxy proxy = CurrentIncrementalProxies[proxyIndex];
+            if (proxy.IsValid == 0)
+                continue;
+
+            validProxyCount++;
+            int2 minCell = (int2)math.floor((proxy.GuardMin - GridOrigin.xz) / cellSize);
+            int2 maxCell = (int2)math.floor((proxy.GuardMax - GridOrigin.xz) / cellSize);
+            if (maxCell.x < 0 || maxCell.y < 0 ||
+                minCell.x >= GridDimensions.x || minCell.y >= GridDimensions.y)
+                continue;
+
+            minCell = math.clamp(minCell, int2.zero, GridDimensions - 1);
+            maxCell = math.clamp(maxCell, int2.zero, GridDimensions - 1);
+            for (int x = minCell.x; x <= maxCell.x; x++)
+            {
+                for (int y = minCell.y; y <= maxCell.y; y++)
+                {
+                    ShadowCellEntries.Add(new SweptDiscCellEntry
+                    {
+                        CellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), GridDimensions),
+                        BodyIndex = proxy.BodyIndex
+                    });
+                }
+            }
+        }
+
+        ShadowCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
+        int cellStart = 0;
+        while (cellStart < ShadowCellEntries.Length)
+        {
+            int cellIndex = ShadowCellEntries[cellStart].CellIndex;
+            int cellEnd = cellStart + 1;
+            while (cellEnd < ShadowCellEntries.Length &&
+                   ShadowCellEntries[cellEnd].CellIndex == cellIndex)
+                cellEnd++;
+
+            for (int first = cellStart; first < cellEnd; first++)
+            {
+                int bodyA = ShadowCellEntries[first].BodyIndex;
+                for (int second = first + 1; second < cellEnd; second++)
+                {
+                    int bodyB = ShadowCellEntries[second].BodyIndex;
+                    if (bodyA == bodyB)
+                        continue;
+                    ShadowBodyPairs.Add(new UnitCollisionPair
+                    {
+                        BodyA = math.min(bodyA, bodyB),
+                        BodyB = math.max(bodyA, bodyB)
+                    });
+                }
+            }
+
+            cellStart = cellEnd;
+        }
+
+        SortAndDeduplicateBodyPairs(ShadowBodyPairs);
+        uint nextTopologyEpoch = IncrementalCacheState.Value.TopologyEpoch + 1u;
+        for (int pairIndex = 0; pairIndex < ShadowBodyPairs.Length; pairIndex++)
+        {
+            UnitCollisionPair bodyPair = ShadowBodyPairs[pairIndex];
+            FlowMovementFrameState stateA = States[bodyPair.BodyA];
+            FlowMovementFrameState stateB = States[bodyPair.BodyB];
+            if (!TryFindIncrementalProxy(stateA.Entity, out PersistentSweptProxy proxyA) ||
+                !TryFindIncrementalProxy(stateB.Entity, out PersistentSweptProxy proxyB) ||
+                proxyA.IsValid == 0 || proxyB.IsValid == 0 ||
+                !AabbOverlaps(proxyA.GuardMin, proxyA.GuardMax, proxyB.GuardMin, proxyB.GuardMax))
+                continue;
+
+            PersistentNeighborPairs.Add(new PersistentNeighborPair
+            {
+                Key = StableEntityPairKey.Create(stateA.Entity, stateB.Entity),
+                TopologyEpoch = nextTopologyEpoch,
+                LastValidatedTimestep = IncrementalCacheState.Value.Timestep + 1u
+            });
+        }
+
+        SortAndDeduplicatePersistentNeighborPairs();
+        IncrementalContactCacheState state = IncrementalCacheState.Value;
+        state.IsValid = 1;
+        state.LastUpdateWasFullRebuild = 1;
+        state.Timestep++;
+        state.TopologyEpoch = nextTopologyEpoch;
+        state.BodyCount = States.Length;
+        state.NeighborPairCount = PersistentNeighborPairs.Length;
+        state.GuardMargin = math.max(0f, FatAabbCacheMargin);
+        state.PredictiveSkin = math.max(0f, PredictiveSkin);
+        state.TimestepContactMargin = math.max(0f, TimestepContactMargin);
+        IncrementalCacheState.Value = state;
+
+        incrementalStatistics.Timestep = state.Timestep;
+        incrementalStatistics.ProxyCount = validProxyCount;
+        incrementalStatistics.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
+        incrementalStatistics.NeighborPairAddedCount = PersistentNeighborPairs.Length;
+        incrementalStatistics.LocalBroadPhaseNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - broadPhaseStart);
+    }
+
+    private bool MapPersistentNeighborPairsToCurrentBodies()
+    {
+        Pairs.Clear();
+        if (EnableDiagnostics)
+            PairDiagnostics.Clear();
+
+        for (int pairIndex = 0; pairIndex < PersistentNeighborPairs.Length; pairIndex++)
+        {
+            StableEntityPairKey key = PersistentNeighborPairs[pairIndex].Key;
+            if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
+                !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
+                return false;
+
+            Pairs.Add(new UnitCollisionPair
+            {
+                BodyA = math.min(bodyA, bodyB),
+                BodyB = math.max(bodyA, bodyB)
+            });
+        }
+
+        SortAndDeduplicatePairs();
+        return true;
+    }
+
+    private bool TryFindIncrementalProxy(Entity entity, out PersistentSweptProxy proxy)
+    {
+        int low = 0;
+        int high = CurrentIncrementalProxies.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            PersistentSweptProxy candidate = CurrentIncrementalProxies[middle];
+            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
+            if (comparison == 0)
+            {
+                proxy = candidate;
+                return true;
+            }
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        proxy = default;
+        return false;
+    }
+
+    private void SortAndDeduplicatePersistentNeighborPairs()
+    {
+        if (PersistentNeighborPairs.Length <= 1)
+            return;
+
+        PersistentNeighborPairs.AsArray().Sort(new PersistentNeighborPairComparer());
+        int writeIndex = 1;
+        PersistentNeighborPair previous = PersistentNeighborPairs[0];
+        for (int readIndex = 1; readIndex < PersistentNeighborPairs.Length; readIndex++)
+        {
+            PersistentNeighborPair current = PersistentNeighborPairs[readIndex];
+            if (current.Key.Equals(previous.Key))
+                continue;
+            PersistentNeighborPairs[writeIndex++] = current;
+            previous = current;
+        }
+        PersistentNeighborPairs.ResizeUninitialized(writeIndex);
+    }
+}
+}
