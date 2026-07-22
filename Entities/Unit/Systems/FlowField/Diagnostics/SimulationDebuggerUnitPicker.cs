@@ -96,25 +96,28 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
                 for (int i = 0; i < entities.Length; i++)
                 {
                     float3 position = transforms[i].Position;
-                    Vector3 screen = camera.WorldToScreenPoint(
+                    Vector3 viewport = camera.WorldToViewportPoint(
                         new Vector3(position.x, position.y, position.z));
-                    if (screen.z <= 0f)
+                    if (viewport.z <= 0f)
                         continue;
 
-                    // 过滤掉摄像机远处（视锥体外或极端远处）的单位，避免误选中。
-                    if (screen.z > MaxPickDepth)
+                    // 只选中屏幕视口内的单位，排除视锥外或背后的单位。
+                    if (viewport.x < 0f || viewport.x > 1f ||
+                        viewport.y < 0f || viewport.y > 1f)
                         continue;
 
-                    float distanceSq = (new Vector2(screen.x, screen.y) - screenPosition)
+                    float screenX = viewport.x * camera.pixelWidth;
+                    float screenY = viewport.y * camera.pixelHeight;
+                    float distanceSq = (new Vector2(screenX, screenY) - screenPosition)
                         .sqrMagnitude;
                     if (distanceSq > bestDistanceSq)
                         continue;
                     if (Mathf.Approximately(distanceSq, bestDistanceSq) &&
-                        screen.z >= bestDepth)
+                        viewport.z >= bestDepth)
                         continue;
 
                     bestDistanceSq = distanceSq;
-                    bestDepth = screen.z;
+                    bestDepth = viewport.z;
                     selected = entities[i];
                 }
             }
