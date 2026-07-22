@@ -55,30 +55,22 @@ public abstract partial class BaseFlowMovementSystem
             snapshot.EffectiveSettings);
 
         PredictiveDiscContactStatistics contactStatistics = default;
-        ShadowNeighborCacheStatistics shadowStatistics = default;
         bool hasContactStatistics =
             SystemAPI.TryGetSingleton(out contactStatistics);
-        bool hasShadowStatistics =
-            SystemAPI.TryGetSingleton(out shadowStatistics);
 
         int unitCount = _movementQuery.CalculateEntityCount();
         snapshot.Overview = BuildOverviewMetrics(
             unitCount,
             hasContactStatistics,
             contactStatistics);
-        snapshot.BroadPhase = BuildBroadPhaseMetrics(
-            false,
-            default,
-            hasContactStatistics ? contactStatistics.ContactPairCount : 0,
-            false);
+        snapshot.BroadPhase = BuildRetiredBroadPhaseMetrics(
+            hasContactStatistics ? contactStatistics.ContactPairCount : 0);
         snapshot.ContactSet = BuildContactSetMetrics(
             hasContactStatistics,
             contactStatistics,
             snapshot.SubstepCount,
             0,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
-
-
 
         CaptureSelectedEntityDetails(snapshot);
         SimulationDebuggerRuntime.Publish(snapshot);
@@ -126,53 +118,18 @@ public abstract partial class BaseFlowMovementSystem
         return result;
     }
 
-    private static PersistentBroadPhaseMetrics BuildBroadPhaseMetrics(
-        bool hasStatistics,
-        ShadowNeighborCacheStatistics statistics,
-        int finalContactPairCount,
-        bool enabled)
+    private static PersistentBroadPhaseMetrics BuildRetiredBroadPhaseMetrics(
+        int finalContactPairCount)
     {
-        var result = new PersistentBroadPhaseMetrics
+        // The old Fat/Adaptive broad-phase panel remains as a disabled compatibility
+        // placeholder. IncrementalContactPipelineSnapshot is the only authoritative
+        // topology and lifecycle diagnostic source.
+        return new PersistentBroadPhaseMetrics
         {
-            Enabled = (byte)(enabled ? 1 : 0),
-            Health = enabled
-                ? SimulationDebuggerHealth.Healthy
-                : SimulationDebuggerHealth.Disabled,
+            Enabled = 0,
+            Health = SimulationDebuggerHealth.Disabled,
             FinalContactPairCount = finalContactPairCount
         };
-        if (!enabled || !hasStatistics)
-            return result;
-
-        int attempts = statistics.CacheReuseCount + statistics.CacheRebuildCount;
-        result.Valid = statistics.CacheValidAtFrameEnd;
-        result.CacheAgeFrames = statistics.CacheAgeFrames;
-        result.ReuseCount = statistics.CacheReuseCount;
-        result.RebuildCount = statistics.CacheRebuildCount;
-        result.FallbackCount = statistics.FullBroadPhaseFallbackCount;
-        result.InvalidationCount = statistics.CacheInvalidationCount;
-        result.CachedCandidatePairCount = statistics.CachedCandidatePairCount;
-        result.CacheBuildNanoseconds = statistics.CacheBuildNanoseconds;
-        result.CacheValidationNanoseconds = statistics.ValidationNanoseconds;
-        result.CachePairMappingNanoseconds = statistics.CachePairMappingNanoseconds;
-        result.ReuseRatio = attempts > 0
-            ? statistics.CacheReuseCount / (float)attempts
-            : 0f;
-        result.CandidateExpansion = statistics.CachedCandidatePairCount /
-                                    (float)math.max(1, finalContactPairCount);
-
-        float expansionPenalty = math.saturate((result.CandidateExpansion - 2f) / 4f);
-        float rebuildPenalty = attempts > 0 ? 1f - result.ReuseRatio : 0f;
-        float fallbackPenalty = math.saturate(result.FallbackCount);
-        result.EstimatedBenefitScore = math.clamp(
-            result.ReuseRatio - expansionPenalty - rebuildPenalty * 0.5f - fallbackPenalty,
-            -1f,
-            1f);
-
-        if (result.FallbackCount > 0 || result.EstimatedBenefitScore < -0.1f)
-            result.Health = SimulationDebuggerHealth.Critical;
-        else if (result.RebuildCount > result.ReuseCount || result.CandidateExpansion > 4f)
-            result.Health = SimulationDebuggerHealth.Warning;
-        return result;
     }
 
     private static TimestepContactSetMetrics BuildContactSetMetrics(
@@ -261,7 +218,6 @@ public abstract partial class BaseFlowMovementSystem
 
         if (snapshot.HasSelectedUnit || selected == Entity.Null)
             return;
-
     }
 }
 }
