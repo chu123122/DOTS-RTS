@@ -27,8 +27,8 @@ public sealed partial class AdaptiveParameterTuner
     [Min(1)] public int BenchmarkRawSampleInterval = 10;
     [Min(1)] public int BenchmarkSettledFrames = 30;
     [Min(1)] public int BenchmarkMaxPreparationFrames = 3600;
-    [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.15f;
-    [Range(0.5f, 1f)] public float BenchmarkSettledUnitRatio = 0.95f;
+    [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.25f;
+    [Range(0.8f, 1f)] public float BenchmarkSettledUnitRatio = 0.99f;
 
     [Tooltip("三种模式均从 PointA 稳定后的同一 ECS 快照开始。ObstaclePingPong 直接使用场景障碍物。")]
     public List<BenchmarkScenario> BenchmarkScenarios = new()
@@ -397,10 +397,8 @@ public sealed partial class AdaptiveParameterTuner
         using NativeArray<Velocity> velocities = query.ToComponentDataArray<Velocity>(Allocator.Temp);
         if (velocities.Length == 0)
             return false;
-        // settled_hold 要求全部静止，ping_pong 允许少量单位有残余速度。
-        float requiredRatio = CurrentBenchmarkScenario.Mode == BenchmarkScenarioMode.MoveThenHold
-            ? 1f
-            : BenchmarkSettledUnitRatio;
+        // 所有场景统一用比例判定，避免单个单位 XPBD 残余抖动阻塞整个 benchmark。
+        float requiredRatio = BenchmarkSettledUnitRatio;
         int required = math.max(1, (int)(velocities.Length * requiredRatio));
         float thresholdSq = BenchmarkSettledSpeedThreshold * BenchmarkSettledSpeedThreshold;
         int settled = 0;
