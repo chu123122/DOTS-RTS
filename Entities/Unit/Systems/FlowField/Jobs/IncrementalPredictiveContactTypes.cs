@@ -187,6 +187,7 @@ public struct IncrementalContactCacheState
     public float GuardMargin;
     public float PredictiveSkin;
     public float TimestepContactMargin;
+    public float SoftAvoidanceShell;
 }
 
 /// <summary>

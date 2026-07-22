@@ -208,8 +208,10 @@ public partial struct SolveXpbdUnitContactsJob
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
         PrepareTimestepContactPrediction(remainingDuration, true);
-        if (EnableFatAabbCache &&
+        if (EnableTimestepContactSetCache &&
             TryIncrementallyRepairEscapedContactSet(
+                substepIndex,
+                substepCount,
                 ref statistics,
                 ref incrementalStatistics))
         {
@@ -221,8 +223,6 @@ public partial struct SolveXpbdUnitContactsJob
             return;
         }
 
-        if (AdaptiveFatAabbRequested)
-            InvalidateFatAabbCache(ref shadowStatistics, true);
         BuildTimestepContactSet(
             ref statistics,
             ref shadowStatistics,

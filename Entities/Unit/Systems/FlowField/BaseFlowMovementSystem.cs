@@ -229,14 +229,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var currentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        var mappedPersistentNeighborPairs = new NativeList<UnitCollisionPair>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
         var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
         var currentIncrementalProxies = new NativeList<PersistentSweptProxy>(
             math.max(unitCount, 1),
-            Allocator.TempJob);
-        var currentPredictiveContacts = new NativeList<PersistentPredictiveContact>(
-            math.max(unitCount * 2, 1),
             Allocator.TempJob);
         var incrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(
             math.max(unitCount, 1),
@@ -324,6 +324,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowCurrentPairs = shadowCurrentPairs,
             CurrentBodyIndexByEntity = currentBodyIndexByEntity,
             MappedFatCachePairs = mappedFatCachePairs,
+            MappedPersistentNeighborPairs = mappedPersistentNeighborPairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
             ShadowPreviousProxies = _shadowPreviousProxies,
@@ -332,7 +333,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
-            CurrentPredictiveContacts = currentPredictiveContacts,
             PersistentPredictiveContacts = _persistentPredictiveContacts,
             PredictiveContactScratch = predictiveContactScratch,
             IncrementalDirtyBodies = incrementalDirtyBodies,
@@ -419,10 +419,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             currentBodyIndexByEntity.Dispose(applyMovementHandle);
         JobHandle mappedFatCachePairDisposeHandle =
             mappedFatCachePairs.Dispose(applyMovementHandle);
+        JobHandle mappedPersistentNeighborPairDisposeHandle =
+            mappedPersistentNeighborPairs.Dispose(applyMovementHandle);
         JobHandle currentIncrementalProxyDisposeHandle =
             currentIncrementalProxies.Dispose(applyMovementHandle);
-        JobHandle currentPredictiveContactDisposeHandle =
-            currentPredictiveContacts.Dispose(applyMovementHandle);
         JobHandle incrementalDirtyBodyDisposeHandle =
             incrementalDirtyBodies.Dispose(applyMovementHandle);
         JobHandle predictiveContactScratchDisposeHandle =
@@ -479,7 +479,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             shadowPairDisposeHandle);
         JobHandle mappingScratchDisposeHandle = JobHandle.CombineDependencies(
             currentBodyIndexDisposeHandle,
-            mappedFatCachePairDisposeHandle);
+            mappedFatCachePairDisposeHandle,
+            mappedPersistentNeighborPairDisposeHandle);
         JobHandle correctionScratchDisposeHandle = JobHandle.CombineDependencies(
             correctedBodyFlagDisposeHandle,
             correctedBodyIndexDisposeHandle);

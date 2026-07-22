@@ -11,7 +11,7 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct SolveXpbdUnitContactsJob
 {
     private void CalculateSoftAvoidanceForSubstep(
-        bool useFatAabbCandidates,
+        bool usePersistentNeighborCandidates,
         float substepDeltaTime,
         ref PredictiveDiscContactStatistics statistics)
     {
@@ -45,7 +45,7 @@ public partial struct SolveXpbdUnitContactsJob
             States[bodyIndex] = state;
 
             if (softShell <= 0f || SoftAvoidanceResponseRate <= 0f ||
-                useFatAabbCandidates)
+                usePersistentNeighborCandidates)
                 continue;
 
             float softExtent = math.max(0f, state.Radius) + softShell * 0.5f;
@@ -80,13 +80,14 @@ public partial struct SolveXpbdUnitContactsJob
         }
 
         if (softShell > 0f && SoftAvoidanceResponseRate > 0f &&
-            useFatAabbCandidates)
+            usePersistentNeighborCandidates)
         {
             statistics.SoftAvoidanceFatAabbUseCount++;
-            statistics.SoftAvoidanceCandidatePairCount += MappedFatCachePairs.Length;
+            statistics.SoftAvoidanceCandidatePairCount +=
+                MappedPersistentNeighborPairs.Length;
             statistics.SoftAvoidanceActivatedPairCount +=
                 AccumulateUnitAvoidanceVelocities(
-                    MappedFatCachePairs.AsArray(),
+                    MappedPersistentNeighborPairs.AsArray(),
                     softShell,
                     substepDeltaTime);
         }
