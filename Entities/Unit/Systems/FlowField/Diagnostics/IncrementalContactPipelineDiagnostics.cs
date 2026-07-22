@@ -35,9 +35,9 @@ public struct IncrementalContactPipelineConfiguration
     public float SoftAvoidanceShell;
 
     public byte TimestepCacheEnabled;
+    public byte CrossFrameTopologyEnabled;
     public byte PredictiveContactsEnabled;
     public byte DiagnosticsEnabled;
-    public byte Reserved;
 }
 
 /// <summary>

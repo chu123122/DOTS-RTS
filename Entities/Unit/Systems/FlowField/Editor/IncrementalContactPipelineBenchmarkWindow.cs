@@ -12,13 +12,14 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private enum TrialPreset
     {
         FullSweptPerSubstep,
+        TimestepSweptNoFrameReuse,
         IncrementalTightGuard,
         IncrementalDefault,
         IncrementalWideGuard,
         Custom
     }
 
-    private TrialPreset _preset = TrialPreset.IncrementalDefault;
+    private TrialPreset _preset = TrialPreset.TimestepSweptNoFrameReuse;
     private string _experimentId = "incremental_contact_v2";
     private string _scenario = "static_dense_pack";
     private string _configurationLabel = "incremental_default";
@@ -27,8 +28,9 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private int _measuredFrames = 600;
 
     private bool _timestepCacheEnabled = true;
+    private bool _crossFrameTopologyEnabled;
     private bool _predictiveContactsEnabled = true;
-    private bool _diagnosticsEnabled = true;
+    private bool _diagnosticsEnabled;
     private int _substeps = 4;
     private int _iterations = 4;
     private float _guardMargin = 0.5f;
@@ -55,8 +57,8 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private void OnGUI()
     {
         EditorGUILayout.HelpBox(
-            "Each trial must start from the same entity state, destinations, random seed and cleared persistent cache. " +
-            "This tuner changes solver parameters and records v2 data, but scene reset remains the benchmark harness' responsibility.",
+            "Compare Timestep Swept (A off, B on) with Incremental (A on, B on). " +
+            "Keep the same settled unit state, destinations and random seed. Performance presets disable the O(N²) oracle; run correctness validation separately.",
             MessageType.Info);
 
         EditorGUI.BeginChangeCheck();
@@ -80,7 +82,13 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
         EditorGUILayout.LabelField("Effective overrides", EditorStyles.boldLabel);
         using (new EditorGUI.DisabledScope(_preset != TrialPreset.Custom))
         {
-            _timestepCacheEnabled = EditorGUILayout.Toggle("Timestep cache", _timestepCacheEnabled);
+            _timestepCacheEnabled = EditorGUILayout.Toggle("Cross-substep contact set (B)", _timestepCacheEnabled);
+            _crossFrameTopologyEnabled = EditorGUILayout.Toggle("Cross-frame topology (A)", _crossFrameTopologyEnabled);
+            if (_crossFrameTopologyEnabled && !_timestepCacheEnabled)
+            {
+                _timestepCacheEnabled = true;
+                EditorGUILayout.HelpBox("A requires B; B was enabled automatically.", MessageType.Info);
+            }
             _predictiveContactsEnabled = EditorGUILayout.Toggle("Predictive contacts", _predictiveContactsEnabled);
             _diagnosticsEnabled = EditorGUILayout.Toggle("Diagnostics / oracle", _diagnosticsEnabled);
             _substeps = Mathf.Max(1, EditorGUILayout.IntField("Substeps", _substeps));
@@ -162,6 +170,8 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
         IncrementalContactPipelineExperimentRuntime.OverrideEnabled = true;
         IncrementalContactPipelineExperimentRuntime.TimestepCacheEnabled =
             _timestepCacheEnabled;
+        IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabled =
+            _crossFrameTopologyEnabled && _timestepCacheEnabled;
         IncrementalContactPipelineExperimentRuntime.PredictiveContactsEnabled =
             _predictiveContactsEnabled;
         IncrementalContactPipelineExperimentRuntime.DiagnosticsEnabled =
@@ -180,7 +190,8 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private void ApplyPreset(TrialPreset preset)
     {
         _predictiveContactsEnabled = true;
-        _diagnosticsEnabled = true;
+        // Oracle is O(N²) and would mask exactly the broad-phase delta under test.
+        _diagnosticsEnabled = false;
         _substeps = 4;
         _iterations = 4;
         _predictiveSkin = 0.05f;
@@ -191,21 +202,31 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
             case TrialPreset.FullSweptPerSubstep:
                 _configurationLabel = "full_swept_per_substep";
                 _timestepCacheEnabled = false;
+                _crossFrameTopologyEnabled = false;
                 _guardMargin = 0f;
+                break;
+            case TrialPreset.TimestepSweptNoFrameReuse:
+                _configurationLabel = "timestep_swept_no_frame_reuse";
+                _timestepCacheEnabled = true;
+                _crossFrameTopologyEnabled = false;
+                _guardMargin = 0.5f;
                 break;
             case TrialPreset.IncrementalTightGuard:
                 _configurationLabel = "incremental_guard_0.05";
                 _timestepCacheEnabled = true;
+                _crossFrameTopologyEnabled = true;
                 _guardMargin = 0.05f;
                 break;
             case TrialPreset.IncrementalDefault:
                 _configurationLabel = "incremental_guard_0.5";
                 _timestepCacheEnabled = true;
+                _crossFrameTopologyEnabled = true;
                 _guardMargin = 0.5f;
                 break;
             case TrialPreset.IncrementalWideGuard:
                 _configurationLabel = "incremental_guard_2.0";
                 _timestepCacheEnabled = true;
+                _crossFrameTopologyEnabled = true;
                 _guardMargin = 2f;
                 break;
             case TrialPreset.Custom:
@@ -221,6 +242,9 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
         {
             case TrialPreset.FullSweptPerSubstep:
                 message = "Disables the timestep cache. This is the available full-swept baseline after the legacy Fat/Adaptive path was retired.";
+                break;
+            case TrialPreset.TimestepSweptNoFrameReuse:
+                message = "Primary A/B baseline: one swept contact-set build per timestep (B on), with cross-frame topology disabled (A off).";
                 break;
             case TrialPreset.IncrementalTightGuard:
                 message = "Tests low candidate inflation with more frequent topology dirtiness and repairs.";
