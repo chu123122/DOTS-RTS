@@ -151,7 +151,11 @@ public sealed partial class AdaptiveParameterTuner
             return;
         }
         if (!TryGetBenchmarkEntityManager(out _benchmarkEntityManager))
+        {
+            Debug.LogWarning("[Benchmark] TryGetBenchmarkEntityManager 失败，无法开始下一个场景。");
             return;
+        }
+        Debug.Log($"[Benchmark] 开始场景 {_benchmarkScenarioIndex}: {CurrentBenchmarkScenario.Label}，共 {BenchmarkScenarios.Count} 个场景。");
         if (CurrentBenchmarkScenario.Mode != BenchmarkScenarioMode.MoveThenHold && CurrentBenchmarkScenario.RoundTripCount < 1)
         {
             FailBenchmark($"{CurrentBenchmarkScenario.Label}: RoundTripCount 必须 >= 1。");
@@ -322,6 +326,8 @@ public sealed partial class AdaptiveParameterTuner
         BenchmarkResult result = _benchmarkResults[_benchmarkResults.Count - 1];
         Debug.Log($"[Benchmark] 完成 {result.Scenario}/{result.Profile}/r{result.Repetition}: solver={result.AverageSolverNs / 1000f:F1}us, dirty={result.AverageDirtyBodies:F1}, pairs={result.AveragePersistentPairs:F0}。");
         _benchmarkRunIndex++;
+        if (_benchmarkRunIndex >= _benchmarkRuns.Count)
+            Debug.Log($"[Benchmark] 场景 {CurrentBenchmarkScenario.Label} 全部 {_benchmarkRuns.Count} 次运行已完成，切换到下一个场景...");
         StartBenchmarkRun();
     }
 
