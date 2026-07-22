@@ -80,15 +80,32 @@ P50, P95, P99 and maximum rather than only the mean.
 
 ### Contact funnel
 
+Current-state gauges:
+
 - `PersistentNeighborPairCount`
-- `SweptHitCount`
-- `DormantPairCount`
-- `PredictivePairCount`
-- `ActualPairCount`
+- `CurrentSweptContactCount`
+- `CurrentDormantPairCount`
+- `CurrentApproachingPairCount`
+- `CurrentPredictivePairCount`
+- `CurrentActualPairCount`
+- `CurrentActiveConstraintCount`
+- `PeakActiveConstraintCount`
+
+Unique timestep events:
+
 - `ScheduledWakeupCount`
-- `ActiveConstraintCount`
-- `CorrectedPairCount`
-- neighbor-to-swept, swept-to-active and active-to-corrected ratios.
+- `UniqueActivatedPairCount`
+- `UniqueCorrectedPairCount`
+- `ExpiredPairCount`
+
+Accumulated work counters:
+
+- `ReclassifiedPairEvaluationCount`
+- `SweptClassificationEvaluationCount`
+- `ActiveConstraintEvaluationCount`
+
+Record neighbor-to-swept, swept-to-current-active and activated-to-corrected
+ratios. Never divide a cumulative evaluation count by a current-state gauge.
 
 ### Cost
 
@@ -118,3 +135,34 @@ The legacy execution path can be deleted after all five scenarios satisfy:
 - high-churn P99 is not materially worse due to the dirty-ratio fuse;
 - soft avoidance no longer performs a spatial-hash rebuild per substep when the
   incremental cache is valid.
+
+## Diagnostics schema v2
+
+The migrated recorder writes one row per completed timestep from
+`IncrementalContactPipelineSnapshot`; configuration, solver statistics, topology
+deltas, contact lifecycle, timings and oracle counters therefore share the same
+timestep. Existing `adaptive_tuning_result.csv` files are schema v1 legacy data
+and must not be concatenated with v2 results.
+
+The recorder skips the configured warmup interval, writes raw v2 CSV samples,
+and emits a sibling `_summary.csv` containing average, P50, P95, P99 and maximum
+for solver, soft avoidance, topology update, predictive contact and key count
+metrics. The benchmark tuner intentionally does not reset the scene; each trial
+must still be launched from the same controlled state and cleared persistent
+cache.
+
+## Legacy recorder migration
+
+| Schema v1 field | Schema v2 replacement |
+| --- | --- |
+| `EnableFatAabb` / `EnableAdaptive` | `PipelineMode`, `TimestepCacheEnabled`, configuration label |
+| `FatCacheMargin` | `GuardEnvelopeMargin` |
+| `CacheHitRate` | `CleanProxyRatio` and `RetainedNeighborPairRatio` |
+| `CacheReuse` | `UsedIncrementalTopology` plus retained-pair count |
+| `ContactPairs` | neighbor, swept, active and corrected funnel stages |
+| `CacheRebuild` | `FullRebuildCount` and `IncrementalRepairCount` |
+| `AdaptiveRegionCount` | legacy-only; removed from the default panel |
+| `PairUtilization` | neighbor-to-swept, swept-to-active and activated-to-corrected ratios |
+
+The default debugger page is deliberately implementation-neutral. Legacy Fat
+AABB counters are available only in the detailed compatibility foldout.
