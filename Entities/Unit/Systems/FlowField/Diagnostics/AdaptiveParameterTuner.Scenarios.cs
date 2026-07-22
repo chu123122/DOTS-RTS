@@ -173,8 +173,12 @@ public sealed partial class AdaptiveParameterTuner
 
     private void UpdateBenchmarkPreparation()
     {
+        // 每 300 帧输出一次稳定诊断，帮助定位未稳定的根因。
+        if (_benchmarkPreparationFrames > 0 && _benchmarkPreparationFrames % 300 == 0)
+            LogSettlementDiagnostics();
         if (++_benchmarkPreparationFrames > BenchmarkMaxPreparationFrames)
         {
+            LogSettlementDiagnostics();
             FailBenchmark($"{CurrentBenchmarkScenario.Label} 在 {BenchmarkMaxPreparationFrames} 帧内未稳定。");
             return;
         }
@@ -382,6 +386,44 @@ public sealed partial class AdaptiveParameterTuner
             if (!arrivals[i].IsSettled || math.lengthsq(velocities[i].Value) > thresholdSq)
                 return false;
         return true;
+    }
+
+    private void LogSettlementDiagnostics()
+    {
+        _benchmarkEntityManager.CompleteAllTrackedJobs();
+        using var query = _benchmarkEntityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<BasicUnitTag>(),
+            ComponentType.ReadOnly<UnitMoveDestination>(),
+            ComponentType.ReadOnly<FlowArrivalState>(),
+            ComponentType.ReadOnly<Velocity>(),
+            ComponentType.ReadOnly<LocalTransform>());
+        using NativeArray<UnitMoveDestination> destinations = query.ToComponentDataArray<UnitMoveDestination>(Allocator.Temp);
+        using NativeArray<FlowArrivalState> arrivals = query.ToComponentDataArray<FlowArrivalState>(Allocator.Temp);
+        using NativeArray<Velocity> velocities = query.ToComponentDataArray<Velocity>(Allocator.Temp);
+        using NativeArray<LocalTransform> transforms = query.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+        if (arrivals.Length == 0) { Debug.Log("[Benchmark] 稳定诊断：当前无单位。"); return; }
+        int notSettled = 0, tooFast = 0, noDest = 0;
+        float maxSpeed = 0f, avgSpeed = 0f, maxDist = 0f, avgDist = 0f;
+        float thresholdSq = BenchmarkSettledSpeedThreshold * BenchmarkSettledSpeedThreshold;
+        for (int i = 0; i < arrivals.Length; i++)
+        {
+            float speedSq = math.lengthsq(velocities[i].Value);
+            float speed = math.sqrt(speedSq);
+            maxSpeed = math.max(maxSpeed, speed);
+            avgSpeed += speed;
+            if (!destinations[i].IsActive) noDest++;
+            if (!arrivals[i].IsSettled) notSettled++;
+            if (speedSq > thresholdSq) tooFast++;
+            float dist = math.distance(transforms[i].Position, destinations[i].Position);
+            maxDist = math.max(maxDist, dist);
+            avgDist += dist;
+        }
+        avgSpeed /= arrivals.Length;
+        avgDist /= arrivals.Length;
+        Debug.Log($"[Benchmark] 帧 {_benchmarkPreparationFrames} 稳定诊断："
+                + $"总数={arrivals.Length} 无目标={noDest} 未到达={notSettled} 超速={tooFast}(>{BenchmarkSettledSpeedThreshold:0.00})"
+                + $" 最大速度={maxSpeed:0.000} 平均={avgSpeed:0.000}"
+                + $" 最大距离={maxDist:0.00} 平均={avgDist:0.00}");
     }
 
     private ScenarioSnapshot CaptureBenchmarkSnapshot()
