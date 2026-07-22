@@ -447,6 +447,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             $"{snapshot.SubstepCount} 子步  ·  {snapshot.IterationCount} 轮迭代",
             _mutedStyle);
         GUILayout.EndHorizontal();
+        DrawLocalRecordingStatus();
         if (snapshot.Experiment.IsWarmup != 0)
         {
             GUILayout.Label(
@@ -467,8 +468,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.BeginHorizontal();
         DrawMetric("求解耗时", $"{metrics.SolverMilliseconds:0.000} ms", "整套移动与碰撞每帧成本");
-        DrawMetric("单位数量", metrics.UnitCount.ToString(), "本帧参与求解的单位");
-        DrawMetric("最大接触修正", metrics.MaxContactCorrection.ToString("0.000"), "单轮最强的位置修正");
+        DrawMetric("Pair / Contact", Nanoseconds(metrics.PairGenerationNanoseconds), "Fat AABB 应直接降低的阶段");
+        DrawMetric("XPBD Iteration", Nanoseconds(metrics.IterationNanoseconds), "约束投影成本，不应因缓存直接下降");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
@@ -489,8 +490,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Label("阶段详情", _sectionStyle);
         DrawTimeBreakdown(metrics);
+        DrawDetailRow("单位数量", metrics.UnitCount.ToString("N0"));
         DrawDetailRow("Broad 候选", metrics.CandidatePairCount.ToString("N0"));
         DrawDetailRow("接触缓存", metrics.ContactPairCount.ToString("N0"));
+        DrawDetailRow("最大接触修正", metrics.MaxContactCorrection.ToString("0.000"));
         DrawDetailRow("最大墙体修正", metrics.MaxWallCorrection.ToString("0.000"));
         DrawDetailRow("最大速度变化", metrics.MaxVelocityChange.ToString("0.000"));
 
@@ -540,6 +543,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("最终 Contact", metrics.FinalContactPairCount.ToString("N0"));
         DrawDetailRow("失效次数", metrics.InvalidationCount.ToString("N0"));
         DrawDetailRow("估算收益评分", metrics.EstimatedBenefitScore.ToString("+0.00;-0.00;0.00"));
+        DrawDetailRow("缓存构建", Nanoseconds(metrics.CacheBuildNanoseconds));
+        DrawDetailRow("缓存校验", Nanoseconds(metrics.CacheValidationNanoseconds));
+        DrawDetailRow("Pair 映射", Nanoseconds(metrics.CachePairMappingNanoseconds));
 
         GUILayout.Space(6f);
         GUILayout.Label("60 帧趋势", _sectionStyle);
@@ -1368,6 +1374,21 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         }
     }
 
+    private void DrawLocalRecordingStatus()
+    {
+        SimulationDebuggerLocalRecorder recorder = SimulationDebuggerLocalRecorder.Instance;
+        if (recorder == null || !recorder.IsRecording)
+        {
+            GUILayout.Label("F6：手动开始/停止本地记录　F7：自动记录 10 秒", _mutedStyle);
+            return;
+        }
+
+        string mode = recorder.IsAutomaticRun ? "F7 自动 10 秒" : "F6 手动";
+        GUILayout.Label(
+            $"本地记录中：{mode} · {recorder.ElapsedSeconds:0.0}s · {recorder.SampleCount} 条 · {recorder.OutputDirectory}",
+            _mutedStyle);
+    }
+
     private void DrawDetailRow(string name, string value)
     {
         GUILayout.BeginHorizontal();
@@ -1622,7 +1643,10 @@ internal static class SimulationDebuggerPanelBootstrap
         {
             gameObject.AddComponent<SimulationDebuggerCameraFollow>();
         }
+        if (gameObject.GetComponent<SimulationDebuggerLocalRecorder>() == null)
+            gameObject.AddComponent<SimulationDebuggerLocalRecorder>();
     }
 #endif
 }
 }
+

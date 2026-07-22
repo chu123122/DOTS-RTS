@@ -147,6 +147,9 @@ public struct PersistentBroadPhaseMetrics
     public float ReuseRatio;
     public float CandidateExpansion;
     public float EstimatedBenefitScore;
+    public long CacheBuildNanoseconds;
+    public long CacheValidationNanoseconds;
+    public long CachePairMappingNanoseconds;
 }
 
 [Serializable]

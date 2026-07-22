@@ -60,7 +60,6 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
 
     private void LateUpdate()
     {
-        // 每帧重试查找，避免初始化时序问题
         if (CameraController == null)
         {
             CameraController = FindFirstObjectByType<CameraController>();
@@ -109,7 +108,6 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
         if (EnableTimeSlow)
             Time.timeScale = SimulationDebuggerRuntime.SlowTimeScale;
 
-        // 接管摄像机控制
         if (CameraController != null)
             CameraController.enabled = false;
 
@@ -163,10 +161,6 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
             deltaTime);
     }
 
-    /// <summary>
-    /// 计算使单位出现在画面中心的摄像机位置。
-    /// 摄像机倾斜向下看，XZ 需要根据视角反向偏移。
-    /// </summary>
     private Vector3 CalculateCameraTarget(Vector3 unitPos, float height)
     {
         Camera camera = ControlledCamera;
@@ -178,10 +172,6 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
         if (Mathf.Abs(fy) < 0.001f)
             return unitPos + Vector3.up * height;
 
-        // 摄像机射线与 y=unitPos.y 平面的交点就是单位所在位置
-        // ray: P + forward * t, 解 P.y + fy * t = unitPos.y → t = (unitPos.y - P.y) / fy
-        // 我们设 P.y = unitPos.y + height, 则 t = -height / fy
-        // P.xz = unitPos.xz - forward.xz * t = unitPos.xz + forward.xz * height / fy
         float t = height / fy;
 
         return new Vector3(

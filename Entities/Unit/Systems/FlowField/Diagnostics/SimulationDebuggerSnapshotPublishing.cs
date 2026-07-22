@@ -73,7 +73,7 @@ public abstract partial class BaseFlowMovementSystem
             hasShadowStatistics,
             shadowStatistics,
             hasContactStatistics ? contactStatistics.ContactPairCount : 0,
-            solverSettings.EnableFatAabbCache);
+            snapshot.EffectiveSettings.EnableAdaptiveFatAabb != 0);
         snapshot.ContactSet = BuildContactSetMetrics(
             hasContactStatistics,
             contactStatistics,
@@ -166,6 +166,9 @@ public abstract partial class BaseFlowMovementSystem
         result.FallbackCount = statistics.FullBroadPhaseFallbackCount;
         result.InvalidationCount = statistics.CacheInvalidationCount;
         result.CachedCandidatePairCount = statistics.CachedCandidatePairCount;
+        result.CacheBuildNanoseconds = statistics.CacheBuildNanoseconds;
+        result.CacheValidationNanoseconds = statistics.ValidationNanoseconds;
+        result.CachePairMappingNanoseconds = statistics.CachePairMappingNanoseconds;
         result.ReuseRatio = attempts > 0
             ? statistics.CacheReuseCount / (float)attempts
             : 0f;

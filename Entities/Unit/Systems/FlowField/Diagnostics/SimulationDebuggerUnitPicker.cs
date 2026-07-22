@@ -21,6 +21,7 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
     [Min(0.05f)] public float MaximumClickDuration = 0.35f;
     [Min(0f)] public float MaximumDragPixels = 9f;
     [Min(1f)] public float PixelPickRadius = 24f;
+    [Min(1f)] public float MaxPickDepth = 150f;
     public bool ClearSelectionWhenNothingHit;
     public bool LogSelectionChanges;
     public Camera SelectionCamera;
@@ -98,6 +99,10 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
                     Vector3 screen = camera.WorldToScreenPoint(
                         new Vector3(position.x, position.y, position.z));
                     if (screen.z <= 0f)
+                        continue;
+
+                    // 过滤掉摄像机远处（视锥体外或极端远处）的单位，避免误选中。
+                    if (screen.z > MaxPickDepth)
                         continue;
 
                     float distanceSq = (new Vector2(screen.x, screen.y) - screenPosition)
