@@ -266,6 +266,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkNoSnapshotFrames = 0;
         _benchmarkLegIndex = 0;
         _benchmarkLastSnapshotVersion = SimulationDebuggerRuntime.PublishedVersion;
+        SimulationDebuggerRuntime.SetLocalRecordingCapture(true);
         _benchmarkPhase = BenchmarkPhase.Priming;
         Debug.Log($"[Benchmark] {CurrentBenchmarkScenario.Label}/{CurrentBenchmarkRun.Trial.Label}/r{CurrentBenchmarkRun.Repetition}: 已恢复基线且清空跨帧缓存。");
     }
@@ -288,6 +289,7 @@ public sealed partial class AdaptiveParameterTuner
             return;
         if (CurrentBenchmarkScenario.Mode != BenchmarkScenarioMode.MoveThenHold)
             IssueBenchmarkMoveOrder(CurrentBenchmarkScenario.PointB);
+        SimulationDebuggerRuntime.SetLocalRecordingCapture(true);
         _benchmarkPhase = BenchmarkPhase.Measuring;
     }
 
@@ -584,6 +586,7 @@ public sealed partial class AdaptiveParameterTuner
         if (_benchmarkFinalized)
             return;
         _benchmarkFinalized = true;
+        SimulationDebuggerRuntime.SetLocalRecordingCapture(false);
         _benchmarkRawWriter?.Dispose();
         _benchmarkRawWriter = null;
         if (_benchmarkResults.Count == 0)
