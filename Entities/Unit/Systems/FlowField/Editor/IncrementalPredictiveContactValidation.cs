@@ -37,14 +37,20 @@ public static class IncrementalPredictiveContactValidation
             $"repair={statistics.IncrementalRepairCount} " +
             $"oracleMissing={statistics.OracleMissingPairCount}";
 
+        int lifecycleSweptCount =
+            statistics.CurrentDormantPairCount +
+            statistics.CurrentApproachingPairCount +
+            statistics.CurrentPredictivePairCount +
+            statistics.CurrentActualPairCount;
         if (statistics.CurrentActiveConstraintCount >
                 statistics.CurrentSweptContactCount ||
             statistics.CurrentSoftAvoidancePairCount >
-                statistics.CurrentInteractionPairCount)
+                statistics.CurrentInteractionPairCount ||
+            statistics.CurrentSweptContactCount != lifecycleSweptCount)
         {
             Debug.LogError(summary +
                 "\nIncremental contact validation failed: a derived view " +
-                "exceeded its parent InteractionSet/contact-set bound.");
+                "exceeded its parent or the swept lifecycle gauge is inconsistent.");
             return;
         }
 
