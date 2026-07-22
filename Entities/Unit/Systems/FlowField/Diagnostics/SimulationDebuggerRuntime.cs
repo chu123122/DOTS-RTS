@@ -16,6 +16,7 @@ public static class SimulationDebuggerRuntime
     private static SimulationDebuggerEffectiveSettings _pendingSettings;
     private static bool _hasPendingSettings;
     private static bool _resetSettingsRequested;
+    private static bool _resetContactCachesRequested;
     private static byte _timestepContactSetCacheEnabled = 1;
     private static uint _experimentConfigurationId;
     private static int _experimentFramesSinceChanged;
@@ -196,6 +197,26 @@ public static class SimulationDebuggerRuntime
         }
     }
 
+    /// <summary>
+    /// 仅用于基准测试：在下一次移动系统更新前清空跨帧接触缓存，
+    /// 保证每个 A/B trial 都从同一空缓存开始。
+    /// </summary>
+    public static void RequestContactCacheReset()
+    {
+        lock (Gate)
+            _resetContactCachesRequested = true;
+    }
+
+    public static bool TryConsumeContactCacheReset()
+    {
+        lock (Gate)
+        {
+            bool requested = _resetContactCachesRequested;
+            _resetContactCachesRequested = false;
+            return requested;
+        }
+    }
+
     private const int HistorySize = 300;
     private static readonly SimulationDebuggerHistory _solverHistory = new(HistorySize);
     private static readonly SimulationDebuggerHistory _correctionHistory = new(HistorySize);
@@ -284,6 +305,7 @@ public static class SimulationDebuggerRuntime
             _pendingSettings = default;
             _hasPendingSettings = false;
             _resetSettingsRequested = false;
+            _resetContactCachesRequested = false;
             _timestepContactSetCacheEnabled = 1;
             _experimentConfigurationId = 0;
             _experimentFramesSinceChanged = 0;
