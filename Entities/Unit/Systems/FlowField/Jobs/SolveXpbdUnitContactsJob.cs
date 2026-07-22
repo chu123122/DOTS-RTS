@@ -205,6 +205,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 substepDeltaTime,
                 ref statistics,
                 ref incrementalStatistics);
+            ClampSoftAvoidanceToInteractionEnvelope(
+                substepDeltaTime,
+                ref incrementalStatistics);
             statistics.SoftAvoidanceEvaluationCount++;
             statistics.SoftAvoidanceNanoseconds +=
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
@@ -380,6 +383,13 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
         incrementalStatistics.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;
+        // Keep the gauge independent from the path that produced the current
+        // views. Expired persistent neighbors are not swept contacts.
+        incrementalStatistics.CurrentSweptContactCount =
+            incrementalStatistics.CurrentDormantPairCount +
+            incrementalStatistics.CurrentApproachingPairCount +
+            incrementalStatistics.CurrentPredictivePairCount +
+            incrementalStatistics.CurrentActualPairCount;
         incrementalStatistics.CurrentActiveConstraintCount =
             TimestepContactPairs.Length;
         incrementalStatistics.PeakActiveConstraintCount = math.max(
@@ -421,6 +431,86 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;
         IncrementalStatistics.Value = incrementalStatistics;
+    }
+
+    private void ClampSoftAvoidanceToInteractionEnvelope(
+        float substepDeltaTime,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        if (!EnableTimestepContactSetCache || substepDeltaTime <= 0f)
+            return;
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid ||
+                IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
+                    state,
+                    state.SoftAvoidanceVelocity,
+                    substepDeltaTime))
+                continue;
+
+            float3 requestedAvoidance = state.SoftAvoidanceVelocity;
+            float lowerScale = 0f;
+            float upperScale = 1f;
+            if (IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
+                    state,
+                    float3.zero,
+                    substepDeltaTime))
+            {
+                // Preserve as much of the avoidance response as the
+                // already-proven InteractionSet envelope can contain.
+                for (int iteration = 0; iteration < 8; iteration++)
+                {
+                    float middleScale = (lowerScale + upperScale) * 0.5f;
+                    if (IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
+                            state,
+                            requestedAvoidance * middleScale,
+                            substepDeltaTime))
+                        lowerScale = middleScale;
+                    else
+                        upperScale = middleScale;
+                }
+            }
+
+            state.SoftAvoidanceVelocity = requestedAvoidance * lowerScale;
+            States[bodyIndex] = state;
+            incrementalStatistics.InteractionEnvelopeEscapeCount++;
+        }
+    }
+
+    private bool IsSoftAvoidanceTrajectoryInsideInteractionEnvelope(
+        FlowMovementFrameState state,
+        float3 avoidanceVelocity,
+        float substepDeltaTime)
+    {
+        float responseRate = math.max(0f, SoftAvoidanceResponseRate);
+        if (state.IsSettled)
+            responseRate *= math.max(0f, SettledSoftAvoidanceMultiplier);
+
+        float3 velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
+            state.BasePredictedVelocity,
+            avoidanceVelocity,
+            responseRate,
+            substepDeltaTime,
+            state.MoveSpeed);
+        if (state.IsSettled)
+            velocity *= math.pow(0.8f, substepDeltaTime * 60f);
+        if (math.lengthsq(velocity) > state.MoveSpeed * state.MoveSpeed)
+            velocity = math.normalizesafe(velocity) * state.MoveSpeed;
+
+        float3 predictedEnd = state.PredictedPosition +
+                              velocity * substepDeltaTime;
+        float contactPadding = math.max(0f, PredictiveSkin) +
+                               math.max(0f, TimestepContactMargin);
+        float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
+        float extent = math.max(0f, state.Radius) +
+                       math.max(contactPadding, avoidancePadding);
+        return AabbContains(
+            state.TimestepInteractionEnvelopeMin,
+            state.TimestepInteractionEnvelopeMax,
+            predictedEnd.xz - extent,
+            predictedEnd.xz + extent);
     }
 
     private void PredictUnconstrainedPositions(float substepDeltaTime)
@@ -536,7 +626,15 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
             if (pair.ContactMode == UnitContactMode.Predictive)
             {
+                // Persistent contacts are keyed by Entity while BodyIndex is
+                // frame-local. Reorient the cached normal to the current
+                // BodyA-BodyB ordering before evaluating the constraint.
                 normal = pair.PredictiveNormal;
+                if (math.dot(currentDelta, normal) < 0f)
+                    normal = -normal;
+                normal = math.normalizesafe(
+                    normal,
+                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
                 constraintValue = math.dot(currentDelta, normal) - radiusSum;
             }
             else
