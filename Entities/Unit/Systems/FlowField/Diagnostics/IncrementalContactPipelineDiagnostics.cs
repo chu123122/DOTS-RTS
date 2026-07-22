@@ -15,13 +15,40 @@ public enum IncrementalContactPipelineMode : byte
 }
 
 /// <summary>
-/// Unified ECS-visible diagnostics snapshot. Solver, legacy compatibility and
+/// Effective configuration attached to the same completed timestep as the
+/// diagnostics counters. Strings are fixed-size so the snapshot remains an
+/// unmanaged ECS component and can be written by a job.
+/// </summary>
+public struct IncrementalContactPipelineConfiguration
+{
+    public FixedString64Bytes ExperimentId;
+    public FixedString64Bytes Scenario;
+    public FixedString64Bytes ConfigurationLabel;
+
+    public int UnitCount;
+    public int SubstepCount;
+    public int IterationCount;
+    public float DeltaTime;
+    public float GuardEnvelopeMargin;
+    public float PredictiveSkin;
+    public float TimestepContactMargin;
+    public float SoftAvoidanceShell;
+
+    public byte TimestepCacheEnabled;
+    public byte PredictiveContactsEnabled;
+    public byte DiagnosticsEnabled;
+    public byte Reserved;
+}
+
+/// <summary>
+/// Unified ECS-visible diagnostics snapshot. Solver, compatibility and
 /// incremental-pipeline statistics are published from the same completed job,
 /// so the UI/CSV layer never joins counters from different timesteps.
 /// </summary>
 public struct IncrementalContactPipelineSnapshot : IComponentData
 {
     public int SchemaVersion;
+    public IncrementalContactPipelineConfiguration Configuration;
     public PredictiveDiscContactStatistics SolverStatistics;
     public ShadowNeighborCacheStatistics LegacyBroadPhaseStatistics;
     public IncrementalContactPipelineStatistics Statistics;
@@ -39,6 +66,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
     public ushort Reserved1;
 
     public static IncrementalContactPipelineSnapshot From(
+        IncrementalContactPipelineConfiguration configuration,
         PredictiveDiscContactStatistics solverStatistics,
         ShadowNeighborCacheStatistics legacyBroadPhaseStatistics,
         IncrementalContactPipelineStatistics statistics)
@@ -54,6 +82,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
         return new IncrementalContactPipelineSnapshot
         {
             SchemaVersion = IncrementalContactPipelineStatistics.CurrentSchemaVersion,
+            Configuration = configuration,
             SolverStatistics = solverStatistics,
             LegacyBroadPhaseStatistics = legacyBroadPhaseStatistics,
             Statistics = statistics,
@@ -74,6 +103,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
 [BurstCompile]
 public struct PublishIncrementalContactPipelineStatisticsJob : IJob
 {
+    public IncrementalContactPipelineConfiguration Configuration;
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> SolverSource;
     [ReadOnly] public NativeReference<ShadowNeighborCacheStatistics> LegacyBroadPhaseSource;
     [ReadOnly] public NativeReference<IncrementalContactPipelineStatistics> Source;
@@ -85,6 +115,7 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
         if (!SnapshotLookup.HasComponent(Target))
             return;
         SnapshotLookup[Target] = IncrementalContactPipelineSnapshot.From(
+            Configuration,
             SolverSource.Value,
             LegacyBroadPhaseSource.Value,
             Source.Value);
@@ -113,6 +144,7 @@ public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
             latestTimestep = value.Statistics.Timestep;
         }
         IncrementalContactPipelineDiagnosticsRuntime.Latest = latest;
+        IncrementalContactPipelineCsvRecorderRuntime.TryRecord(latest);
     }
 }
 }

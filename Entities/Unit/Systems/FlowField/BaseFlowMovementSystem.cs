@@ -149,6 +149,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ref contactSolverSettings,
             ref adaptiveSettings,
             hasAdaptiveSettings);
+        IncrementalContactPipelineExperimentRuntime.Apply(ref contactSolverSettings);
+        bool effectiveTimestepContactSetCache =
+            IncrementalContactPipelineExperimentRuntime.OverrideEnabled
+                ? IncrementalContactPipelineExperimentRuntime.TimestepCacheEnabled
+                : SimulationDebuggerRuntime.TimestepContactSetCacheEnabled;
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
@@ -304,8 +309,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
             EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
-            EnableTimestepContactSetCache =
-                SimulationDebuggerRuntime.TimestepContactSetCacheEnabled,
+            EnableTimestepContactSetCache = effectiveTimestepContactSetCache,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
             AdaptiveSettings = adaptiveSettings,
             AdaptiveCellDimensions = _adaptiveCellDimensions,
@@ -382,6 +386,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var publishIncrementalStatisticsJob =
             new PublishIncrementalContactPipelineStatisticsJob
             {
+                Configuration = IncrementalContactPipelineExperimentRuntime.CaptureConfiguration(
+                    unitCount,
+                    SystemAPI.Time.DeltaTime,
+                    flowFieldSettings.SoftAvoidanceShell,
+                    contactSolverSettings,
+                    effectiveTimestepContactSetCache),
                 SolverSource = contactStatistics,
                 LegacyBroadPhaseSource = shadowStatistics,
                 Source = incrementalStatistics,

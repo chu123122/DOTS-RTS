@@ -176,6 +176,8 @@ Fallback is a normal mode, not an error. The pipeline tracks its frequency and c
 6. Add dormant scheduling and substep contact activation.
 7. Publish incremental pipeline diagnostics and oracle counters.
 8. Remove the legacy Fat/Adaptive execution path and finalize migration notes.
+9. Align gauge, unique-pair and evaluation-counter semantics in one v2 snapshot.
+10. Migrate the default/detail debugger panels, CSV recorder and benchmark tuner.
 
 ## Implemented migration status
 
@@ -190,7 +192,12 @@ pipeline:
 6. dormant pair scheduling instead of per-iteration scanning;
 7. ECS diagnostics snapshot and O(N^2) false-negative oracle;
 8. legacy Adaptive/Global Fat AABB execution paths retired from the solver;
-   persistent neighbor pairs also feed soft avoidance.
+   persistent neighbor pairs also feed soft avoidance;
+9. diagnostics counters separated into current gauges, unique timestep events and
+   accumulated evaluation work, preventing ratios above 100% after repair;
+10. the debugger now defaults to general solver health and the contact funnel,
+    with detailed topology/lifecycle/timing views; CSV schema v2 records the same
+    unified snapshot and emits average/P50/P95/P99/max summaries.
 
 `EnableTimestepContactSetCache` is now the execution gate for the incremental
 pipeline. `EnableFatAabbCache` remains as a serialized compatibility field while
