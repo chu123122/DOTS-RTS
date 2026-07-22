@@ -24,6 +24,7 @@ public struct UnitCollisionPair
     public float Lambda;
     public float3 PredictiveNormal;
     public UnitContactMode ContactMode;
+    public byte PredictiveNormalOriented;
     public byte WasActivated;
     public byte WasActivatedThisTimestep;
     public byte WasCorrectedThisTimestep;
