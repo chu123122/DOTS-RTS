@@ -219,6 +219,13 @@ public struct IncrementalContactPipelineStatistics
     public int ActiveConstraintCount;
     public int CorrectedPairCount;
 
+    public int OraclePairCount;
+    public int OracleMissingPairCount;
+    public int OracleExtraPairCount;
+    public float NeighborToSweptRatio;
+    public float SweptToActiveRatio;
+    public float ActiveToCorrectedRatio;
+
     public long ProxyValidationNanoseconds;
     public long LocalBroadPhaseNanoseconds;
     public long PairDiffNanoseconds;
