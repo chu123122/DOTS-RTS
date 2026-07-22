@@ -196,7 +196,7 @@ public struct IncrementalContactCacheState
 /// </summary>
 public struct IncrementalContactPipelineStatistics
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public uint Timestep;
 
@@ -221,6 +221,7 @@ public struct IncrementalContactPipelineStatistics
 
     // Current-state gauges. They are recomputed from the persistent contact
     // cache / active set and therefore remain bounded by their parent stage.
+    public int CurrentInteractionPairCount;
     public int CurrentSweptContactCount;
     public int CurrentDormantPairCount;
     public int CurrentApproachingPairCount;
@@ -247,6 +248,8 @@ public struct IncrementalContactPipelineStatistics
     public float ActivatedToCorrectedRatio;
 
     public long ProxyValidationNanoseconds;
+    public long FullSweepSourceNanoseconds;
+    public long PersistentPairMappingNanoseconds;
     public long LocalBroadPhaseNanoseconds;
     public long PairDiffNanoseconds;
     public long SweptClassificationNanoseconds;

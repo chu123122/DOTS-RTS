@@ -21,7 +21,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref cacheStatistics,
                 ref fatCachePairsMappedThisFrame))
         {
-            BuildSweptContactPairs(ref statistics);
+            BuildSweptInteractionPairs(ref statistics);
             cacheStatistics.FullBroadPhaseFallbackCount++;
             return false;
         }

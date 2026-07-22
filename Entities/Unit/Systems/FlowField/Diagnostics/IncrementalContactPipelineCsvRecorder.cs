@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public static class IncrementalContactPipelineCsvRecorderRuntime
 {
-    public const int CsvSchemaVersion = 3;
+    public const int CsvSchemaVersion = 4;
 
     private static readonly List<IncrementalContactPipelineSnapshot> Samples =
         new List<IncrementalContactPipelineSnapshot>(1024);
@@ -127,7 +127,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             "FullRebuildCount", "IncrementalRepairCount", "UsedIncrementalTopology", "UsedFullRebuild",
 
             "ReclassifiedPairEvaluationCount", "SweptClassificationEvaluationCount",
-            "ActiveConstraintEvaluationCount", "CurrentSweptContactCount", "CurrentDormantPairCount",
+            "ActiveConstraintEvaluationCount", "CurrentInteractionPairCount", "CurrentSweptContactCount", "CurrentDormantPairCount",
             "CurrentApproachingPairCount", "CurrentPredictivePairCount", "CurrentActualPairCount",
             "CurrentActiveConstraintCount", "PeakActiveConstraintCount", "ScheduledWakeupCount",
             "UniqueActivatedPairCount", "UniqueCorrectedPairCount", "ExpiredPairCount",
@@ -135,6 +135,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             "TopologyDirtyRatio", "CleanProxyRatio", "RetainedNeighborPairRatio",
             "NeighborToSweptRatio", "SweptToCurrentActiveRatio", "ActivatedToCorrectedRatio",
 
+            "FullSweepSourceNanoseconds", "PersistentPairMappingNanoseconds",
             "ProxyValidationNanoseconds", "LocalBroadPhaseNanoseconds", "PairDiffNanoseconds",
             "SweptClassificationNanoseconds", "ContactActivationNanoseconds", "FallbackNanoseconds",
 
@@ -212,6 +213,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             statistics.ReclassifiedPairEvaluationCount.ToString(CultureInfo.InvariantCulture),
             statistics.SweptClassificationEvaluationCount.ToString(CultureInfo.InvariantCulture),
             statistics.ActiveConstraintEvaluationCount.ToString(CultureInfo.InvariantCulture),
+            statistics.CurrentInteractionPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentSweptContactCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentDormantPairCount.ToString(CultureInfo.InvariantCulture),
             statistics.CurrentApproachingPairCount.ToString(CultureInfo.InvariantCulture),
@@ -228,6 +230,8 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             F(snapshot.RetainedNeighborPairRatio), F(snapshot.NeighborToSweptRatio),
             F(snapshot.SweptToCurrentActiveRatio), F(snapshot.ActivatedToCorrectedRatio),
 
+            statistics.FullSweepSourceNanoseconds.ToString(CultureInfo.InvariantCulture),
+            statistics.PersistentPairMappingNanoseconds.ToString(CultureInfo.InvariantCulture),
             statistics.ProxyValidationNanoseconds.ToString(CultureInfo.InvariantCulture),
             statistics.LocalBroadPhaseNanoseconds.ToString(CultureInfo.InvariantCulture),
             statistics.PairDiffNanoseconds.ToString(CultureInfo.InvariantCulture),
@@ -256,8 +260,10 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
         var softNs = samples.Select(s => s.SolverStatistics.SoftAvoidanceNanoseconds).ToArray();
         var topologyNs = samples.Select(s =>
             s.Statistics.ProxyValidationNanoseconds +
+            s.Statistics.PersistentPairMappingNanoseconds +
             s.Statistics.LocalBroadPhaseNanoseconds +
-            s.Statistics.PairDiffNanoseconds).ToArray();
+            s.Statistics.PairDiffNanoseconds +
+            s.Statistics.FallbackNanoseconds).ToArray();
         var predictiveNs = samples.Select(s =>
             s.Statistics.SweptClassificationNanoseconds +
             s.Statistics.ContactActivationNanoseconds).ToArray();
@@ -269,12 +275,20 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
                 "Metric,Average,P50,P95,P99,Maximum,Unit");
             WriteSummaryMetric(writer, last, samples.Count, "Solver", solverNs, "ns");
             WriteSummaryMetric(writer, last, samples.Count, "SoftAvoidance", softNs, "ns");
+            WriteSummaryMetric(writer, last, samples.Count, "A0FullSweepSource",
+                samples.Select(s => s.Statistics.FullSweepSourceNanoseconds).ToArray(), "ns");
             WriteSummaryMetric(writer, last, samples.Count, "TopologyUpdate", topologyNs, "ns");
             WriteSummaryMetric(writer, last, samples.Count, "PredictiveContact", predictiveNs, "ns");
             WriteSummaryMetric(writer, last, samples.Count, "PersistentNeighborPairs",
                 samples.Select(s => (long)s.Statistics.PersistentNeighborPairCount).ToArray(), "count");
             WriteSummaryMetric(writer, last, samples.Count, "CurrentActiveConstraints",
                 samples.Select(s => (long)s.Statistics.CurrentActiveConstraintCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "TimestepInteractionPairs",
+                samples.Select(s => (long)s.Statistics.CurrentInteractionPairCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "SoftCandidateEvaluations",
+                samples.Select(s => (long)s.SolverStatistics.SoftAvoidanceCandidatePairCount).ToArray(), "count");
+            WriteSummaryMetric(writer, last, samples.Count, "ConstraintEvaluations",
+                samples.Select(s => (long)s.Statistics.ActiveConstraintEvaluationCount).ToArray(), "count");
             WriteSummaryMetric(writer, last, samples.Count, "TopologyDirtyRatioPpm",
                 samples.Select(s => (long)Math.Round(s.TopologyDirtyRatio * 1_000_000d)).ToArray(), "ppm");
             WriteSummaryMetric(writer, last, samples.Count, "OracleMissingPairs",

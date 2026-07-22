@@ -35,6 +35,7 @@ public partial struct SolveXpbdUnitContactsJob
             float extent = math.max(0f, state.Radius) + skin + margin;
             state.TimestepStartPosition = start;
             state.TimestepPredictedPosition = end;
+            state.BasePredictedVelocity = velocity;
             state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
             state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
             if (!fromSolvedPosition)
@@ -66,16 +67,45 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+    private void BuildSubstepInteractionSet(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        long startTimestamp = ProfilerUnsafeUtility.Timestamp;
+        BuildSweptInteractionPairs(ref statistics);
+        long elapsed = TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - startTimestamp);
+        incrementalStatistics.FullSweepSourceNanoseconds += elapsed;
+        incrementalStatistics.CurrentInteractionPairCount =
+            TimestepInteractionPairs.Length;
+        statistics.TimestepContactSetBuildNanoseconds += elapsed;
+    }
+
+    private void BuildSubstepContactView(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        long startTimestamp = ProfilerUnsafeUtility.Timestamp;
+        MappedFatCachePairs.Clear();
+        FinalizeTimestepContactView(
+            ref statistics,
+            ref incrementalStatistics,
+            false,
+            0);
+        statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - startTimestamp);
+    }
+
     private bool BuildTimestepContactSet(
         ref PredictiveDiscContactStatistics statistics,
         ref ShadowNeighborCacheStatistics shadowStatistics,
         ref bool fatCachePairsMappedThisFrame,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullBroadPhase,
-        bool fallback)
+        bool fallback,
+        int scheduleStartSubstep = 0)
     {
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
-        int candidateEvaluationStart = statistics.CandidatePairCount;
         MappedFatCachePairs.Clear();
         if (fallback)
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
@@ -90,21 +120,57 @@ public partial struct SolveXpbdUnitContactsJob
         }
         else
         {
-            BuildSweptContactPairs(ref statistics);
-            MappedPersistentNeighborPairs.Clear();
+            long fullSweepStart = ProfilerUnsafeUtility.Timestamp;
+            BuildSweptInteractionPairs(ref statistics);
+            incrementalStatistics.FullSweepSourceNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - fullSweepStart);
         }
 
-        if (!sourcedFromIncrementalCache)
+        incrementalStatistics.CurrentInteractionPairCount =
+            TimestepInteractionPairs.Length;
+
+        FinalizeTimestepContactView(
+            ref statistics,
+            ref incrementalStatistics,
+            fallback,
+            scheduleStartSubstep);
+
+        long elapsed = TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - startTimestamp);
+        statistics.TimestepContactSetBuildNanoseconds += elapsed;
+        if (fallback)
         {
-            int evaluatedPairCount = math.max(
-                0,
-                statistics.CandidatePairCount - candidateEvaluationStart);
-            incrementalStatistics.ReclassifiedPairEvaluationCount +=
-                evaluatedPairCount;
-            incrementalStatistics.SweptClassificationEvaluationCount +=
-                evaluatedPairCount;
-            CaptureFullSweptFallbackGauges(ref incrementalStatistics);
+            statistics.TimestepContactSetFullRebuildCount++;
+            statistics.TimestepContactSetFallbackNanoseconds += elapsed;
         }
+        return sourcedFromIncrementalCache;
+    }
+
+    private void FinalizeTimestepContactView(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        bool fallback,
+        int scheduleStartSubstep)
+    {
+        Pairs.Clear();
+        Pairs.AddRange(TimestepInteractionPairs.AsArray());
+        int classificationCandidateCount = Pairs.Length;
+        statistics.CandidatePairCount += classificationCandidateCount;
+        incrementalStatistics.ReclassifiedPairEvaluationCount +=
+            classificationCandidateCount;
+        incrementalStatistics.SweptClassificationEvaluationCount +=
+            classificationCandidateCount;
+        long classificationStart = ProfilerUnsafeUtility.Timestamp;
+        FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
+        incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - classificationStart);
+
+        long scheduleStart = ProfilerUnsafeUtility.Timestamp;
+        BuildTimestepPredictiveSchedule(
+            ref incrementalStatistics,
+            scheduleStartSubstep);
+        incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - scheduleStart);
 
         TimestepContactPairs.Clear();
         TimestepContactPairs.AddRange(Pairs.AsArray());
@@ -127,6 +193,7 @@ public partial struct SolveXpbdUnitContactsJob
                 pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;
                 pair.ActivatedSubstepCount = previous.ActivatedSubstepCount;
+                pair.WasAddedByFallback = previous.WasAddedByFallback;
             }
             else
             {
@@ -138,54 +205,6 @@ public partial struct SolveXpbdUnitContactsJob
 
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
-
-        long elapsed = TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - startTimestamp);
-        statistics.TimestepContactSetBuildNanoseconds += elapsed;
-        if (fallback)
-        {
-            statistics.TimestepContactSetFullRebuildCount++;
-            statistics.TimestepContactSetFallbackNanoseconds += elapsed;
-        }
-        return sourcedFromIncrementalCache;
-    }
-
-
-    private void CaptureFullSweptFallbackGauges(
-        ref IncrementalContactPipelineStatistics incrementalStatistics)
-    {
-        incrementalStatistics.CurrentSweptContactCount = Pairs.Length;
-        incrementalStatistics.CurrentDormantPairCount = 0;
-        incrementalStatistics.CurrentApproachingPairCount = 0;
-        incrementalStatistics.CurrentPredictivePairCount = 0;
-        incrementalStatistics.CurrentActualPairCount = 0;
-
-        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
-        {
-            UnitCollisionPair pair = Pairs[pairIndex];
-            if (pair.IsDormant != 0)
-            {
-                incrementalStatistics.CurrentDormantPairCount++;
-                continue;
-            }
-
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-            float3 delta = bodyA.TimestepStartPosition - bodyB.TimestepStartPosition;
-            delta.y = 0f;
-            float radiusSum = bodyA.Radius + bodyB.Radius;
-            if (math.lengthsq(delta) <= radiusSum * radiusSum)
-                incrementalStatistics.CurrentActualPairCount++;
-            else if (pair.ContactMode == UnitContactMode.Predictive)
-                incrementalStatistics.CurrentPredictivePairCount++;
-            else
-                incrementalStatistics.CurrentApproachingPairCount++;
-        }
-
-        incrementalStatistics.CurrentActiveConstraintCount = Pairs.Length;
-        incrementalStatistics.PeakActiveConstraintCount = math.max(
-            incrementalStatistics.PeakActiveConstraintCount,
-            Pairs.Length);
     }
 
     private void ResetTimestepContactSetForSubstep()
@@ -260,15 +279,9 @@ public partial struct SolveXpbdUnitContactsJob
         if (EnablePersistentContactCache &&
             TryIncrementallyRepairEscapedContactSet(
                 substepIndex,
-                substepCount,
                 ref statistics,
                 ref incrementalStatistics))
         {
-            statistics.TimestepContactSetBuildCount++;
-            statistics.TimestepContactSetClassificationPassCount++;
-            statistics.TimestepContactSetUniquePairCount = TimestepContactPairs.Length;
-            ValidateIncrementalContactSetAgainstQuadraticOracle(
-                ref incrementalStatistics);
             return;
         }
 
@@ -278,7 +291,8 @@ public partial struct SolveXpbdUnitContactsJob
             ref fatCachePairsMappedThisFrame,
             ref incrementalStatistics,
             true,
-            true);
+            true,
+            substepIndex + 1);
         shadowStatistics.FullBroadPhaseFallbackCount++;
     }
 
