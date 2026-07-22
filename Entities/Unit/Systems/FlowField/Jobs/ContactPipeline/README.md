@@ -20,6 +20,14 @@ Owns stable entity-pair topology, contact lifecycle classification, classificati
 
 Builds timestep/substep envelopes and frame-local interaction/contact views from the persistent authority or the full-sweep reference path.
 
+## Motion
+
+Owns frame-local velocity preparation, position prediction, and velocity reconstruction. It does not own pair topology or contact lifecycle.
+
+## Solver
+
+Consumes compact frame-local constraints only. XPBD and wall projection cannot mutate persistent pair topology directly.
+
 ## SoftAvoidance
 
 Consumes only the compact frame-local soft-avoidance view. It must not read legacy Fat AABB caches or the full persistent neighbor set directly.
