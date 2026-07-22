@@ -86,13 +86,6 @@ public partial struct SolveXpbdUnitContactsJob
                 ref shadowStatistics,
                 ref fatCachePairsMappedThisFrame);
         }
-        else if (!forceFullBroadPhase && EnableFatAabbCache)
-        {
-            sourcedFromFatCache = BuildContactPairsFromFatAabbCache(
-                ref statistics,
-                ref shadowStatistics,
-                ref fatCachePairsMappedThisFrame);
-        }
         else
         {
             BuildSweptContactPairs(ref statistics);
@@ -199,7 +192,7 @@ public partial struct SolveXpbdUnitContactsJob
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
         PrepareTimestepContactPrediction(remainingDuration, true);
-        if (EnableFatAabbCache)
+        if (AdaptiveFatAabbRequested)
             InvalidateFatAabbCache(ref shadowStatistics, true);
         BuildTimestepContactSet(
             ref statistics,

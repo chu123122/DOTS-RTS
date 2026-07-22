@@ -8,7 +8,7 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct SolveXpbdUnitContactsJob
 {
     private bool AdaptiveFatAabbRequested =>
-        EnableFatAabbCache && AdaptiveSettings.Enabled != 0;
+        AdaptiveSettings.Enabled != 0;
 
     private bool HasActiveAdaptiveFatRegions =>
         AdaptiveFatAabbRequested && AdaptiveRegions.Length > 0;

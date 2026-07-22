@@ -45,6 +45,7 @@ public static class SimulationDebuggerRuntime
     public static int SpatialSampleIntervalFrames { get; set; } = 2;
     public static int ExperimentWarmupFrames { get; set; } = 45;
     public static float HeatmapOpacity { get; set; } = 0.28f;
+    public static float SlowTimeScale { get; set; } = 0.1f;
 
 
     public static bool TimestepContactSetCacheEnabled

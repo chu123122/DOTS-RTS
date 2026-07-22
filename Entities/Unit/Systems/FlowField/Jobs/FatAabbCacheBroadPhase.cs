@@ -292,11 +292,8 @@ public partial struct SolveXpbdUnitContactsJob
 
     private float CalculateFatAabbNeighborPadding()
     {
-        if (AdaptiveFatAabbRequested)
-            return math.max(0f, PredictiveSkin);
-        return math.max(
-            math.max(0f, PredictiveSkin),
-            math.max(0f, SoftAvoidanceShell) * 0.5f);
+        // Global 路径已移除，始终使用 Adaptive 的 PredictiveSkin 作为 padding。
+        return math.max(0f, PredictiveSkin);
     }
 
     private void ResetCorrectedBodyTracking()
