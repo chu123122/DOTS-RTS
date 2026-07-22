@@ -136,21 +136,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
         var contactSolverSettings = SystemAPI.GetSingleton<UnitContactSolverSettings>();
-        bool hasAdaptiveSettings =
-            SystemAPI.TryGetSingleton(out AdaptiveFatAabbSettings configuredAdaptiveSettings);
-        AdaptiveFatAabbSettings adaptiveSettings = hasAdaptiveSettings
-            ? configuredAdaptiveSettings
-            : AdaptiveFatAabbSettings.Default;
-        adaptiveSettings = adaptiveSettings.Sanitized();
 
         // 先发布上一时间步已经完成的统计，再应用下一时间步的实验配置。
         // 这样面板中的 ExperimentId、有效配置和求解结果始终属于同一帧。
         PublishSimulationDebuggerSnapshot(gridComponent, contactSolverSettings);
         ApplySimulationDebuggerRuntimeOverrides(
             ref flowFieldSettings,
-            ref contactSolverSettings,
-            ref adaptiveSettings,
-            hasAdaptiveSettings);
+            ref contactSolverSettings);
         IncrementalContactPipelineExperimentRuntime.Apply(ref contactSolverSettings);
         bool effectiveTimestepContactSetCache =
             IncrementalContactPipelineExperimentRuntime.OverrideEnabled
@@ -165,8 +157,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
         if (SimulationDebuggerRuntime.TryConsumeContactCacheReset())
             ResetPersistentContactCaches();
-        EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
-        DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection) &&
             diagnosticSelection.SelectedEntity != Entity.Null)
