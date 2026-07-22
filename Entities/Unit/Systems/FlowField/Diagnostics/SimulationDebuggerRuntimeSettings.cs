@@ -76,6 +76,7 @@ public abstract partial class BaseFlowMovementSystem
         UnitContactSolverSettings solverSettings,
         AdaptiveFatAabbSettings adaptiveSettings)
     {
+        bool timestepCacheEnabled = SimulationDebuggerRuntime.TimestepContactSetCacheEnabled;
         return new SimulationDebuggerEffectiveSettings
         {
             SubstepCount = solverSettings.SubstepCount,
@@ -87,9 +88,9 @@ public abstract partial class BaseFlowMovementSystem
             EnablePredictiveContacts =
                 (byte)(solverSettings.EnablePredictiveContacts ? 1 : 0),
             EnableFatAabbCache =
-                (byte)(solverSettings.EnableFatAabbCache ? 1 : 0),
+                (byte)(solverSettings.EnableFatAabbCache && timestepCacheEnabled ? 1 : 0),
             EnableTimestepContactSetCache =
-                (byte)(SimulationDebuggerRuntime.TimestepContactSetCacheEnabled ? 1 : 0),
+                (byte)(timestepCacheEnabled ? 1 : 0),
             FatAabbCacheMargin = solverSettings.FatAabbCacheMargin,
             EnableDiagnostics =
                 (byte)(solverSettings.EnableDiagnostics ? 1 : 0),

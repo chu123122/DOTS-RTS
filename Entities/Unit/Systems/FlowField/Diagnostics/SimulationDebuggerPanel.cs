@@ -509,7 +509,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         IncrementalContactPipelineSnapshot pipeline =
             IncrementalContactPipelineDiagnosticsRuntime.Latest;
         var statistics = pipeline.Statistics;
-        bool cacheEnabled = snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
+        bool cacheEnabled = snapshot.EffectiveSettings.EnableFatAabbCache != 0;
         bool hasPipelineSnapshot = statistics.Timestep != 0;
         SimulationDebuggerHealth health;
         string status;
@@ -647,16 +647,35 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
         GUILayout.Label(
-            "A 仅控制热点网格诊断；跨帧邻居拓扑与跨子步接触集共用 B 开关，C 为软避让求解器。",
+            "A 为跨帧持久邻居拓扑，B 为跨子步接触集；A 依赖 B，关闭 B 会自动关闭 A。",
             _mutedStyle);
-        draft.EnableAdaptiveFatAabb = DrawToggle(
-            "A：热点网格诊断（非执行路径）",
-            draft.EnableAdaptiveFatAabb,
-            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
+        draft.EnableFatAabbCache = DrawToggle(
+            "A：跨帧接触缓存",
+            draft.EnableFatAabbCache,
+            snapshot.EffectiveSettings.EnableFatAabbCache);
         draft.EnableTimestepContactSetCache = DrawToggle(
-            "B：接触缓存（跨帧 / 跨子步）",
+            "B：跨子步接触缓存",
             draft.EnableTimestepContactSetCache,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache);
+        if (draft.EnableFatAabbCache != 0 && draft.EnableTimestepContactSetCache == 0)
+        {
+            bool userTurnedOffSubstepCache =
+                snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
+            if (userTurnedOffSubstepCache)
+            {
+                draft.EnableFatAabbCache = 0;
+                GUILayout.Label("已关闭 A：跨帧接触缓存依赖跨子步接触集。", _mutedStyle);
+            }
+            else
+            {
+                draft.EnableTimestepContactSetCache = 1;
+                GUILayout.Label("已自动开启 B：跨帧接触缓存需要跨子步接触集。", _mutedStyle);
+            }
+        }
+        draft.EnableAdaptiveFatAabb = DrawToggle(
+            "热点网格诊断（非执行路径）",
+            draft.EnableAdaptiveFatAabb,
+            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
         GUILayout.BeginHorizontal();
         GUILayout.Label("C：软避让求解器", _mutedStyle, GUILayout.Width(170f));
         string[] solverModes = { "预测引导", "RVO 互惠避让" };
@@ -741,16 +760,17 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUI.enabled = previousEnabled;
 
         GUILayout.Space(6f);
-        GUILayout.Label("跨帧 AABB 参数", _sectionStyle);
-        bool adaptiveEnabled = draft.EnableAdaptiveFatAabb != 0;
-        GUI.enabled = adaptiveEnabled;
+        GUILayout.Label("跨帧接触缓存参数", _sectionStyle);
+        bool persistentCacheEnabled = draft.EnableFatAabbCache != 0;
+        GUI.enabled = persistentCacheEnabled;
         draft.FatAabbCacheMargin = DrawFloatSlider(
-            "Fat AABB 外扩余量",
+            "跨帧预测包络余量",
             draft.FatAabbCacheMargin,
             snapshot.EffectiveSettings.FatAabbCacheMargin,
             0f,
             5f,
             "0.00");
+        GUI.enabled = previousEnabled && draft.EnableAdaptiveFatAabb != 0;
         draft.AdaptiveDetectionCellSpan = DrawIntSlider(
             "检测格子跨度",
             draft.AdaptiveDetectionCellSpan,

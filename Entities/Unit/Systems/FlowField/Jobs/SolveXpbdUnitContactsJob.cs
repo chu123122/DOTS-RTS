@@ -33,7 +33,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
     public bool EnableDiagnostics;
-    public bool EnableFatAabbCache;
+    // Persistent topology is cross-frame reuse; the timestep switch controls
+    // whether a contact set is reused across substeps.
+    public bool EnablePersistentContactCache;
     public bool EnableTimestepContactSetCache;
     public float FatAabbCacheMargin;
     public AdaptiveFatAabbSettings AdaptiveSettings;
@@ -128,6 +130,13 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         ShadowCurrentProxies.Clear();
         ShadowCurrentPairs.Clear();
         FatAabbCacheState.Value = default;
+        if (!EnablePersistentContactCache)
+        {
+            PersistentSweptProxies.Clear();
+            PersistentNeighborPairs.Clear();
+            PersistentPredictiveContacts.Clear();
+            IncrementalCacheState.Value = default;
+        }
 
         InitializeSolverState();
         // 即使旧 Fat AABB 已退出执行路径，热力图仍需要从当前状态构建诊断网格。
@@ -152,7 +161,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
             bool usePersistentCandidatesForSoftAvoidance =
-                EnableTimestepContactSetCache &&
+                EnablePersistentContactCache &&
                 IncrementalCacheState.Value.IsValid != 0;
             CalculateSoftAvoidanceForSubstep(
                 usePersistentCandidatesForSoftAvoidance,

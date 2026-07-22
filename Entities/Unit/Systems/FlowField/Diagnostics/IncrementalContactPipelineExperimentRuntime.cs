@@ -12,6 +12,7 @@ public static class IncrementalContactPipelineExperimentRuntime
 {
     public static bool OverrideEnabled;
     public static bool TimestepCacheEnabled = true;
+    public static bool CrossFrameContactCacheEnabled = true;
     public static bool PredictiveContactsEnabled = true;
     public static bool DiagnosticsEnabled = true;
 
@@ -36,6 +37,7 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.PredictiveSkin = PredictiveSkin < 0f ? 0f : PredictiveSkin;
         settings.TimestepContactMargin = TimestepContactMargin < 0f ? 0f : TimestepContactMargin;
         settings.EnablePredictiveContacts = PredictiveContactsEnabled;
+        settings.EnableFatAabbCache = CrossFrameContactCacheEnabled && TimestepCacheEnabled;
         settings.EnableDiagnostics = DiagnosticsEnabled;
     }
 

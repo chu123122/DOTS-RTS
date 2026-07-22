@@ -81,7 +81,7 @@ public partial struct SolveXpbdUnitContactsJob
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
 
         bool sourcedFromIncrementalCache = false;
-        if (EnableTimestepContactSetCache)
+        if (EnablePersistentContactCache)
         {
             sourcedFromIncrementalCache = BuildContactPairsFromPersistentNeighborSet(
                 ref statistics,
@@ -257,7 +257,7 @@ public partial struct SolveXpbdUnitContactsJob
                 (substepCount - substepIndex) * substepDeltaTime)
             : 0f;
         PrepareTimestepContactPrediction(remainingDuration, true);
-        if (EnableTimestepContactSetCache &&
+        if (EnablePersistentContactCache &&
             TryIncrementallyRepairEscapedContactSet(
                 substepIndex,
                 substepCount,
