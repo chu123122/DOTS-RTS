@@ -61,6 +61,7 @@ public sealed partial class AdaptiveParameterTuner
     private int _benchmarkRunIndex;
     private int _benchmarkSettledCount;
     private int _benchmarkPreparationFrames;
+    private int _benchmarkNoSnapshotFrames;
     private int _benchmarkPrimingFrames;
     private int _benchmarkMeasuredFrames;
     private int _benchmarkLegIndex;
@@ -258,6 +259,7 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkAccumulator.Reset();
         _benchmarkPrimingFrames = 0;
         _benchmarkMeasuredFrames = 0;
+        _benchmarkNoSnapshotFrames = 0;
         _benchmarkLegIndex = 0;
         _benchmarkLastSnapshotVersion = SimulationDebuggerRuntime.PublishedVersion;
         _benchmarkPhase = BenchmarkPhase.Priming;
@@ -269,7 +271,15 @@ public sealed partial class AdaptiveParameterTuner
         if (!IsBenchmarkRestoreFlowReady())
             return;
         if (!TryGetNewBenchmarkSnapshot(out _))
+        {
+            if (++_benchmarkNoSnapshotFrames > 300)
+            {
+                FailBenchmark("超过 300 帧未收到 SimulationDebugger 快照。确认 F8 面板已开启且至少一个窗口可见。");
+                return;
+            }
             return;
+        }
+        _benchmarkNoSnapshotFrames = 0;
         if (++_benchmarkPrimingFrames < BenchmarkCachePrimingFrames)
             return;
         if (CurrentBenchmarkScenario.Mode != BenchmarkScenarioMode.MoveThenHold)
