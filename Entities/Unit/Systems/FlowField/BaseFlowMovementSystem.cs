@@ -154,6 +154,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             IncrementalContactPipelineExperimentRuntime.OverrideEnabled
                 ? IncrementalContactPipelineExperimentRuntime.TimestepCacheEnabled
                 : SimulationDebuggerRuntime.TimestepContactSetCacheEnabled;
+        bool requestedPersistentContactCache =
+            IncrementalContactPipelineExperimentRuntime.OverrideEnabled
+                ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabled
+                : contactSolverSettings.EnableFatAabbCache;
+        // 持久邻居拓扑只能为跨子步接触集提供候选；不允许“跨帧开、跨子步关”。
+        bool effectivePersistentContactCache =
+            requestedPersistentContactCache && effectiveTimestepContactSetCache;
         EnsureAdaptiveFatAabbHistory(gridComponent.GridDimensions, adaptiveSettings);
         DrawAdaptiveFatAabbDebug(adaptiveSettings);
         Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
@@ -311,7 +318,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             RvoTimeHorizon = flowFieldSettings.RvoTimeHorizon,
             EnablePredictiveContacts = contactSolverSettings.EnablePredictiveContacts,
             EnableDiagnostics = contactSolverSettings.EnableDiagnostics,
-            EnableFatAabbCache = contactSolverSettings.EnableFatAabbCache,
+            EnablePersistentContactCache = effectivePersistentContactCache,
             EnableTimestepContactSetCache = effectiveTimestepContactSetCache,
             FatAabbCacheMargin = contactSolverSettings.FatAabbCacheMargin,
             AdaptiveSettings = adaptiveSettings,

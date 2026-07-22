@@ -112,7 +112,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
             _contactWriter = CreateWriter("03_timestep_contact_set.csv",
                 "elapsed_s,frame,cache_enabled,builds,contact_set_size,active_contacts,inactive_contacts,actual_contacts,predictive_contacts,predictive_activated,fallbacks,activation_ratio,predictive_activation_ratio,substeps");
             _settingsWriter = CreateWriter("04_settings.csv",
-                "elapsed_s,frame,configuration_id,adaptive_hotspot_enabled,legacy_fat_aabb_enabled,timestep_contact_set_enabled,predictive_skin,fat_margin,substeps,iterations,soft_avoidance_solver,soft_avoidance_rate,soft_avoidance_shell,rvo_horizon");
+                "elapsed_s,frame,configuration_id,hotspot_diagnostics_enabled,cross_frame_contact_cache_enabled,timestep_contact_set_enabled,predictive_skin,fat_margin,substeps,iterations,soft_avoidance_solver,soft_avoidance_rate,soft_avoidance_shell,rvo_horizon");
         }
         catch (Exception exception)
         {
