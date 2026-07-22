@@ -626,15 +626,20 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
             if (pair.ContactMode == UnitContactMode.Predictive)
             {
-                // Persistent contacts are keyed by Entity while BodyIndex is
-                // frame-local. Reorient the cached normal to the current
-                // BodyA-BodyB ordering before evaluating the constraint.
                 normal = pair.PredictiveNormal;
-                if (math.dot(currentDelta, normal) < 0f)
-                    normal = -normal;
-                normal = math.normalizesafe(
-                    normal,
-                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                if (pair.PredictiveNormalOriented == 0)
+                {
+                    // BodyIndex ordering is frame-local. Orient the persistent
+                    // normal once for this timestep, then keep it fixed even if
+                    // the pair later crosses to the opposite side.
+                    if (math.dot(currentDelta, normal) < 0f)
+                        normal = -normal;
+                    normal = math.normalizesafe(
+                        normal,
+                        DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                    pair.PredictiveNormal = normal;
+                    pair.PredictiveNormalOriented = 1;
+                }
                 constraintValue = math.dot(currentDelta, normal) - radiusSum;
             }
             else
