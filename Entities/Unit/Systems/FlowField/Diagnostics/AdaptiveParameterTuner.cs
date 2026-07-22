@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using RTS.Unit.Components;
 using RTS.Unit.FlowField;
+using RTS.Unit.FlowField.Jobs;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
@@ -34,61 +35,42 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     [Header("Timing")]
     [Min(0)] public float PostSpawnDelaySeconds = 5f;
-    [Min(1)] public int WarmupFrames = 180;
-    [Min(1)] public int TrialFrames = 120;
-    [Min(1)] public int StatisticsFrames = 60;
+    [Min(1)] public int WarmupFrames = 360;
+    [Min(1)] public int TrialFrames = 600;
+    [Min(1)] public int StatisticsFrames = 300;
 
-    [Header("移动")]
+    [Header("Scenario")]
+    [Tooltip("默认关闭：本轮用于静止密集单位测试。开启后才会在预热前下发随机移动命令。")]
+    public bool IssueMoveBeforeTrials;
     public float MoveTargetSpread = 10f;
 
-    [Header("Trials — Fat AABB 收益分析")]
+    [Header("Trials — 跨帧缓存 A/B")]
     public List<ParameterTrial> TrialList = new()
     {
-        // === 对照组 ===
-        new() { Label = "sweep_only",         EnableFatAabbCache = 0, EnableAdaptiveFatAabb = 0 },
-        new() { Label = "sweep_skin_0.1",     EnableFatAabbCache = 0, EnableAdaptiveFatAabb = 0, PredictiveSkin = 0.1f },
-
-        // === margin 扫描 (Fat=ON, Adaptive=OFF, Skin=0) ===
-        new() { Label = "fat_m0",             EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0f },
-        new() { Label = "fat_m0.05",          EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f },
-        new() { Label = "fat_m0.1",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.1f },
-        new() { Label = "fat_m0.25",          EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.25f },
-        new() { Label = "fat_m0.5",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f },
-        new() { Label = "fat_m1.0",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 1.0f },
-        new() { Label = "fat_m2.0",           EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 2.0f },
-
-        // === Skin 扫描 (Fat=ON, Margin=0.05, Adaptive=OFF) ===
-        new() { Label = "fat_skin_0",         EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0f },
-        new() { Label = "fat_skin_0.05",      EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.05f },
-        new() { Label = "fat_skin_0.1",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.1f },
-        new() { Label = "fat_skin_0.2",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0.2f },
-
-        // === 子步/迭代扫描 (Fat=ON, Margin=0.5, Adaptive=OFF) ===
-        new() { Label = "s2_i2",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 2 },
-        new() { Label = "s2_i4",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 4 },
-        new() { Label = "s2_i6",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 2, IterationCount = 6 },
-        new() { Label = "s4_i2",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 2 },
-        new() { Label = "s4_i4",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 4 },
-        new() { Label = "s4_i6",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 4, IterationCount = 6 },
-        new() { Label = "s6_i3",              EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, SubstepCount = 6, IterationCount = 3 },
-
-        // === Adaptive 开关对比 (Margin=0.5) ===
-        new() { Label = "adp_off_m0.5",       EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f },
-        new() { Label = "adp_on_easy",        FatAabbCacheMargin = 0.5f,
-                AdaptiveDetectionCellSpan = 2, AdaptiveMinimumUnitsPerCell = 2,
-                AdaptiveMinimumUnitsPerRegion = 6, AdaptiveEnableScore = 0.35f },
-        new() { Label = "adp_on_default",     FatAabbCacheMargin = 0.5f,
-                AdaptiveDetectionCellSpan = 3, AdaptiveMinimumUnitsPerCell = 6,
-                AdaptiveMinimumUnitsPerRegion = 14, AdaptiveEnableScore = 0.68f },
-        new() { Label = "adp_on_hard",        FatAabbCacheMargin = 0.5f,
-                AdaptiveDetectionCellSpan = 4, AdaptiveMinimumUnitsPerCell = 10,
-                AdaptiveMinimumUnitsPerRegion = 24, AdaptiveEnableScore = 0.8f },
-
-        // === 最优组合交叉 ===
-        new() { Label = "combo_1",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, PredictiveSkin = 0f },
-        new() { Label = "combo_2",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 2.0f, PredictiveSkin = 0f },
-        new() { Label = "combo_3",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.05f, PredictiveSkin = 0f },
-        new() { Label = "combo_4",            EnableAdaptiveFatAabb = 0, FatAabbCacheMargin = 0.5f, PredictiveSkin = 0.05f },
+        // 保持跨子步接触集(B)一致，只切换跨帧持久邻居拓扑(A)。
+        // 详细诊断含 O(N²) Oracle，性能测量必须关闭。
+        new()
+        {
+            Label = "baseline_timestep_swept_A0_B1",
+            EnableFatAabbCache = 0,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            FatAabbCacheMargin = 0.5f,
+            SubstepCount = 4,
+            IterationCount = 4
+        },
+        new()
+        {
+            Label = "incremental_persistent_A1_B1",
+            EnableFatAabbCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            FatAabbCacheMargin = 0.5f,
+            SubstepCount = 4,
+            IterationCount = 4
+        }
     };
 
     private enum Phase { WaitingForScene, WaitingForButton, Spawning, PostSpawnWait, IssueMove, Warmup, Trial, Done }
@@ -163,7 +145,12 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
                 break;
             case Phase.PostSpawnWait:
                 if (Time.time - _phaseStartTime >= PostSpawnDelaySeconds)
-                    IssueRandomMoveCommands();
+                {
+                    if (IssueMoveBeforeTrials)
+                        IssueRandomMoveCommands();
+                    else
+                        BeginWarmupForStaticHold();
+                }
                 break;
             case Phase.IssueMove:
                 _phaseStartTime = Time.time;
@@ -223,7 +210,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         {
             _phase = Phase.PostSpawnWait;
             _phaseStartTime = Time.time;
-            Debug.Log($"[Tuner] 已有 {currentCount} 个单位，等待 {PostSpawnDelaySeconds}s 后下发移动命令");
+            Debug.Log($"[Tuner] 已有 {currentCount} 个单位，等待 {PostSpawnDelaySeconds}s 后进入{(IssueMoveBeforeTrials ? "移动" : "静止")}预热");
             return;
         }
 
@@ -245,6 +232,15 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             return 0;
         using var query = world.EntityManager.CreateEntityQuery(typeof(UnitMoveDestination));
         return query.CalculateEntityCount();
+    }
+
+    private void BeginWarmupForStaticHold()
+    {
+        EnsureFlowFieldRuntimeActive();
+        _phaseStartTime = Time.time;
+        _phaseStartFrame = Time.frameCount;
+        _phase = Phase.Warmup;
+        Debug.Log($"[Tuner] 未下发移动命令，静止预热 {WarmupFrames} 帧");
     }
 
     // ── 随机移动命令 ────────────────────────────────────
@@ -284,20 +280,29 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             });
         }
 
-        // 激活流场求解
-        using var stateQuery = _entityManager.CreateEntityQuery(typeof(FlowFieldRuntimeState));
-        if (!stateQuery.IsEmptyIgnoreFilter)
-        {
-            var runtimeState = stateQuery.GetSingleton<FlowFieldRuntimeState>();
-            if (runtimeState.ActiveVersion == 0)
-            {
-                runtimeState.ActiveVersion = 1;
-                stateQuery.SetSingleton(runtimeState);
-            }
-        }
+        EnsureFlowFieldRuntimeActive();
 
         Debug.Log($"[Tuner] 已为 {entities.Length} 个单位下发随机移动目标");
         _phase = Phase.IssueMove;
+    }
+
+    private void EnsureFlowFieldRuntimeActive()
+    {
+        World world = World.DefaultGameObjectInjectionWorld;
+        if (world == null || !world.IsCreated)
+            return;
+
+        EntityManager entityManager = world.EntityManager;
+        using var stateQuery = entityManager.CreateEntityQuery(typeof(FlowFieldRuntimeState));
+        if (stateQuery.IsEmptyIgnoreFilter)
+            return;
+
+        FlowFieldRuntimeState runtimeState = stateQuery.GetSingleton<FlowFieldRuntimeState>();
+        if (runtimeState.ActiveVersion != 0)
+            return;
+
+        runtimeState.ActiveVersion = 1;
+        stateQuery.SetSingleton(runtimeState);
     }
 
     // ── Trial 管理 ───────────────────────────────────────
@@ -347,15 +352,11 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             TrialResult result = _accumulator.Finalize(TrialList[_trialIndex].Label, _trialIndex);
             _results.Add(result);
 
-            int cacheAttempts = result.CacheReuseCount + result.CacheRebuildCount;
-            float hitRate = cacheAttempts > 0
-                ? (float)result.CacheReuseCount / cacheAttempts * 100f
-                : 0f;
             Debug.Log(
                 $"[Tuner] {result.Label}: " +
-                $"hit={hitRate:F0}% " +
-                $"rebuild={result.CacheRebuildCount} " +
-                $"fallback={result.FallbackCount} " +
+                $"dirty={result.AverageTopologyDirtyBodies:F1} " +
+                $"neighbors={result.AveragePersistentNeighborPairs:F0} " +
+                $"rebuild={result.AverageFullRebuilds:F2} " +
                 $"solver={result.AverageSolverNs / 1000f:F1}us");
 
             _trialIndex++;
@@ -371,25 +372,23 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         using var writer = new StreamWriter(path);
         writer.WriteLine(
             "Label,UnitCount,FrameCount," +
-            "CacheReuse,CacheRebuild,CacheHitRate," +
-            "FallbackCount,InvalidationCount," +
             "AvgSolverNs,AvgIterationNs,AvgSoftAvoidNs," +
+            "AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs," +
+            "AvgTopologyDirtyBodies,AvgPersistentNeighborPairs,AvgFullRebuilds,AvgIncrementalRepairs," +
             "ContactPairs,ActivePairs,PredictivePairs," +
-            "EnableFatAabb,EnableAdaptive,PredictiveSkin,FatCacheMargin," +
-            "Substeps,Iterations,AdpCellSpan,AdpMinPerCell,AdpEnableScore");
+            "CrossFrameTopologyEnabled,EnableAdaptive,CrossSubstepCacheEnabled,DiagnosticsEnabled," +
+            "PredictiveSkin,GuardMargin,Substeps,Iterations,AdpCellSpan,AdpMinPerCell,AdpEnableScore");
 
         foreach (TrialResult r in _results)
         {
-            int attempts = r.CacheReuseCount + r.CacheRebuildCount;
-            float hitRate = attempts > 0 ? (float)r.CacheReuseCount / attempts : 0f;
             writer.WriteLine(
                 $"{r.Label},{r.UnitCount},{r.FrameCount}," +
-                $"{r.CacheReuseCount},{r.CacheRebuildCount},{hitRate:F4}," +
-                $"{r.FallbackCount},{r.InvalidationCount}," +
                 $"{r.AverageSolverNs:F0},{r.AverageIterationNs:F0},{r.AverageSoftAvoidanceNs:F0}," +
+                $"{r.AverageProxyValidationNs:F0},{r.AverageLocalBroadPhaseNs:F0},{r.AveragePairDiffNs:F0},{r.AverageClassificationNs:F0}," +
+                $"{r.AverageTopologyDirtyBodies:F2},{r.AveragePersistentNeighborPairs:F2},{r.AverageFullRebuilds:F3},{r.AverageIncrementalRepairs:F3}," +
                 $"{r.AverageContactPairs:F0},{r.AverageActivePairs:F0},{r.AveragePredictivePairs:F0}," +
-                $"{r.EnableFatAabbCache},{r.EnableAdaptiveFatAabb},{r.PredictiveSkin:F3},{r.FatAabbCacheMargin:F3}," +
-                $"{r.SubstepCount},{r.IterationCount},{r.AdaptiveDetectionCellSpan},{r.AdaptiveMinimumUnitsPerCell},{r.AdaptiveEnableScore:F2}");
+                $"{r.EnableFatAabbCache},{r.EnableAdaptiveFatAabb},{r.EnableTimestepContactSetCache},{r.EnableDiagnostics}," +
+                $"{r.PredictiveSkin:F3},{r.FatAabbCacheMargin:F3},{r.SubstepCount},{r.IterationCount},{r.AdaptiveDetectionCellSpan},{r.AdaptiveMinimumUnitsPerCell},{r.AdaptiveEnableScore:F2}");
         }
 
         Debug.Log($"[Tuner] CSV 已输出: {path}");
@@ -406,10 +405,14 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         private long _contactPairTotal;
         private long _activePairTotal;
         private long _predictivePairTotal;
-        private int _cacheReuse;
-        private int _cacheRebuild;
-        private int _fallback;
-        private int _invalidation;
+        private int _topologyDirtyBodies;
+        private int _persistentNeighborPairs;
+        private int _fullRebuilds;
+        private int _incrementalRepairs;
+        private long _proxyValidationTotal;
+        private long _localBroadPhaseTotal;
+        private long _pairDiffTotal;
+        private long _classificationTotal;
         private int _unitCount;
 
         public void Reset()
@@ -421,10 +424,14 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             _contactPairTotal = 0;
             _activePairTotal = 0;
             _predictivePairTotal = 0;
-            _cacheReuse = 0;
-            _cacheRebuild = 0;
-            _fallback = 0;
-            _invalidation = 0;
+            _topologyDirtyBodies = 0;
+            _persistentNeighborPairs = 0;
+            _fullRebuilds = 0;
+            _incrementalRepairs = 0;
+            _proxyValidationTotal = 0;
+            _localBroadPhaseTotal = 0;
+            _pairDiffTotal = 0;
+            _classificationTotal = 0;
         }
 
         public void Accumulate(SimulationDebuggerFrameSnapshot s)
@@ -437,10 +444,16 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             _contactPairTotal += s.ContactSet.ContactSetSize;
             _activePairTotal += s.ContactSet.ActiveContactCount;
             _predictivePairTotal += s.ContactSet.PredictiveContactCount;
-            _cacheReuse += s.BroadPhase.ReuseCount;
-            _cacheRebuild += s.BroadPhase.RebuildCount;
-            _fallback += s.BroadPhase.FallbackCount;
-            _invalidation += s.BroadPhase.InvalidationCount;
+            IncrementalContactPipelineStatistics pipeline =
+                IncrementalContactPipelineDiagnosticsRuntime.Latest.Statistics;
+            _topologyDirtyBodies += pipeline.TopologyDirtyBodyCount;
+            _persistentNeighborPairs += pipeline.PersistentNeighborPairCount;
+            _fullRebuilds += pipeline.FullRebuildCount;
+            _incrementalRepairs += pipeline.IncrementalRepairCount;
+            _proxyValidationTotal += pipeline.ProxyValidationNanoseconds;
+            _localBroadPhaseTotal += pipeline.LocalBroadPhaseNanoseconds;
+            _pairDiffTotal += pipeline.PairDiffNanoseconds;
+            _classificationTotal += pipeline.SweptClassificationNanoseconds;
         }
 
         public TrialResult Finalize(string label, int trialIndex)
@@ -455,10 +468,14 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
                 TrialIndex = trialIndex,
                 UnitCount = _unitCount,
                 FrameCount = _frames,
-                CacheReuseCount = _cacheReuse,
-                CacheRebuildCount = _cacheRebuild,
-                FallbackCount = _fallback,
-                InvalidationCount = _invalidation,
+                AverageTopologyDirtyBodies = _topologyDirtyBodies * inv,
+                AveragePersistentNeighborPairs = _persistentNeighborPairs * inv,
+                AverageFullRebuilds = _fullRebuilds * inv,
+                AverageIncrementalRepairs = _incrementalRepairs * inv,
+                AverageProxyValidationNs = _proxyValidationTotal * inv,
+                AverageLocalBroadPhaseNs = _localBroadPhaseTotal * inv,
+                AveragePairDiffNs = _pairDiffTotal * inv,
+                AverageClassificationNs = _classificationTotal * inv,
                 AverageSolverNs = (long)(_solverTotal * inv),
                 AverageIterationNs = (long)(_iterTotal * inv),
                 AverageSoftAvoidanceNs = (long)(_softAvoidTotal * inv),
@@ -468,6 +485,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
                 EnableFatAabbCache = settings.EnableFatAabbCache,
                 EnableAdaptiveFatAabb = settings.EnableAdaptiveFatAabb,
                 EnableTimestepContactSetCache = settings.EnableTimestepContactSetCache,
+                EnableDiagnostics = settings.EnableDiagnostics,
                 PredictiveSkin = settings.PredictiveSkin,
                 FatAabbCacheMargin = settings.FatAabbCacheMargin,
                 SubstepCount = settings.SubstepCount,
@@ -487,6 +505,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         public byte EnableFatAabbCache = 1;
         public byte EnableAdaptiveFatAabb = 1;
         public byte EnableTimestepContactSetCache = 1;
+        public byte EnableDiagnostics = 1;
         public float PredictiveSkin;
         public float FatAabbCacheMargin;
         public int SubstepCount;
@@ -502,6 +521,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
             s.EnableFatAabbCache = EnableFatAabbCache;
             s.EnableAdaptiveFatAabb = EnableAdaptiveFatAabb;
             s.EnableTimestepContactSetCache = EnableTimestepContactSetCache;
+            s.EnableDiagnostics = EnableDiagnostics;
             s.PredictiveSkin = PredictiveSkin;
             if (FatAabbCacheMargin > 0f)
                 s.FatAabbCacheMargin = FatAabbCacheMargin;
@@ -526,10 +546,14 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         public int TrialIndex;
         public int UnitCount;
         public int FrameCount;
-        public int CacheReuseCount;
-        public int CacheRebuildCount;
-        public int FallbackCount;
-        public int InvalidationCount;
+        public float AverageTopologyDirtyBodies;
+        public float AveragePersistentNeighborPairs;
+        public float AverageFullRebuilds;
+        public float AverageIncrementalRepairs;
+        public float AverageProxyValidationNs;
+        public float AverageLocalBroadPhaseNs;
+        public float AveragePairDiffNs;
+        public float AverageClassificationNs;
         public long AverageSolverNs;
         public long AverageIterationNs;
         public long AverageSoftAvoidanceNs;
@@ -539,6 +563,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         public byte EnableFatAabbCache;
         public byte EnableAdaptiveFatAabb;
         public byte EnableTimestepContactSetCache;
+        public byte EnableDiagnostics;
         public float PredictiveSkin;
         public float FatAabbCacheMargin;
         public int SubstepCount;
