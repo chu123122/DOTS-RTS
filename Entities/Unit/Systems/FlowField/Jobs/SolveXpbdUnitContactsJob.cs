@@ -209,7 +209,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
                 if (!AreCorrectedDiscsInsideTimestepEnvelope(
                         substepIndex,
-                        ref statistics))
+                        ref statistics,
+                        ref incrementalStatistics))
                 {
                     RebuildTimestepContactSetForRemainingTime(
                         substepIndex,
@@ -262,7 +263,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
                 if (!AreCorrectedDiscsInsideTimestepEnvelope(
                         substepIndex,
-                        ref statistics))
+                        ref statistics,
+                        ref incrementalStatistics))
                 {
                     RebuildTimestepContactSetForRemainingTime(
                         substepIndex,
