@@ -10,14 +10,14 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct SolveXpbdUnitContactsJob
 {
-    private void BuildSweptContactPairs(ref PredictiveDiscContactStatistics statistics)
+    private void BuildSweptInteractionPairs(ref PredictiveDiscContactStatistics statistics)
     {
         SweptCellEntries.Clear();
         Pairs.Clear();
+        TimestepInteractionPairs.Clear();
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
-        float skin = math.max(0f, PredictiveSkin);
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
@@ -25,15 +25,12 @@ public partial struct SolveXpbdUnitContactsJob
             if (!state.IsInsideGrid)
                 continue;
 
-            float sweptExtent = math.max(0f, state.Radius) +
-                                (EnablePredictivePairGeneration
-                                    ? skin + math.max(0f, TimestepContactMargin)
-                                    : 0f);
-            float2 pathEnd = EnablePredictivePairGeneration
-                ? state.TimestepPredictedPosition.xz
-                : state.TimestepStartPosition.xz;
-            float2 sweptMin = math.min(state.TimestepStartPosition.xz, pathEnd) - sweptExtent;
-            float2 sweptMax = math.max(state.TimestepStartPosition.xz, pathEnd) + sweptExtent;
+            // A0 与 A1 必须生产同一种中层 InteractionSet：包络同时覆盖
+            // XPBD swept contact、Soft Avoidance shell 与 RVO horizon。
+            CalculateIncrementalTightSweptBounds(
+                state,
+                out float2 sweptMin,
+                out float2 sweptMax);
             int2 minCell = (int2)math.floor((sweptMin - GridOrigin.xz) / cellSize);
             int2 maxCell = (int2)math.floor((sweptMax - GridOrigin.xz) / cellSize);
 
@@ -60,8 +57,7 @@ public partial struct SolveXpbdUnitContactsJob
         SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
         EmitCellPairs();
         SortAndDeduplicatePairs();
-        statistics.CandidatePairCount += Pairs.Length;
-        FilterAndClassifyPairs(ref statistics, skin);
+        TimestepInteractionPairs.AddRange(Pairs.AsArray());
     }
 
     private void EmitCellPairs()

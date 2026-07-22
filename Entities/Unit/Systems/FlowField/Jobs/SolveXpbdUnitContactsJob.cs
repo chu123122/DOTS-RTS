@@ -13,7 +13,8 @@ namespace RTS.Unit.FlowField.Jobs
 
 /// <summary>
 /// Frostbite-inspired Predictive Disc Contact 求解器。
-/// timestep 开始时生成一次 TimestepContactSet；全部 substep 和 XPBD iteration 复用。
+/// 顶层跨帧拓扑或全量 Sweep 统一生成中层 InteractionSet；
+/// 中层可跨 substep 复用，并派生 Soft 候选与 XPBD ContactSet。
 /// 约束修正逃出 timestep envelope 时，针对剩余时间执行完整 Broad Phase 回退。
 /// 缓存、软避让、Broad Phase 与诊断实现分布在同一 partial Job 的独立文件中。
 /// </summary>
@@ -58,7 +59,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<ShadowEntityPair> ShadowCurrentPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
     public NativeList<UnitCollisionPair> MappedFatCachePairs;
-    public NativeList<UnitCollisionPair> MappedPersistentNeighborPairs;
+    // 中层跨子步 InteractionSet。跨帧缓存与全量 Sweep 只能作为它的两种来源；
+    // Soft Avoidance 和 XPBD 不得直接读取任何跨帧持久容器。
+    public NativeList<UnitCollisionPair> TimestepInteractionPairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
     public NativeList<ShadowFatBodyProxy> ShadowPreviousProxies;
@@ -158,13 +161,22 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
-            long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             PrepareBaseVelocitiesForSubstep(substepDeltaTime);
-            bool usePersistentCandidatesForSoftAvoidance =
-                EnablePersistentContactCache &&
-                IncrementalCacheState.Value.IsValid != 0;
+            if (!EnableTimestepContactSetCache)
+            {
+                // B0：每个 substep 重新生产同一种 InteractionSet；A 在该组合中
+                // 被上层配置强制关闭，因此这里只会执行全量统一 Sweep。
+                PrepareTimestepContactPrediction(substepDeltaTime, true);
+                long substepInteractionStart = ProfilerUnsafeUtility.Timestamp;
+                BuildSubstepInteractionSet(
+                    ref statistics,
+                    ref incrementalStatistics);
+                statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
+                    ProfilerUnsafeUtility.Timestamp - substepInteractionStart);
+            }
+
+            long softAvoidanceStart = ProfilerUnsafeUtility.Timestamp;
             CalculateSoftAvoidanceForSubstep(
-                usePersistentCandidatesForSoftAvoidance,
                 substepDeltaTime,
                 ref statistics);
             statistics.SoftAvoidanceEvaluationCount++;
@@ -172,24 +184,20 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - softAvoidanceStart);
 
             PredictUnconstrainedPositions(substepDeltaTime);
-            ActivateScheduledPredictiveContactsForSubstep(
-                substepIndex,
-                substepCount,
-                ref incrementalStatistics);
             if (!EnableTimestepContactSetCache)
             {
                 PrepareSubstepContactPrediction();
-                long substepContactSetStart = ProfilerUnsafeUtility.Timestamp;
-                BuildTimestepContactSet(
+                long substepContactViewStart = ProfilerUnsafeUtility.Timestamp;
+                BuildSubstepContactView(
                     ref statistics,
-                    ref shadowStatistics,
-                    ref fatCachePairsMappedThisFrame,
-                    ref incrementalStatistics,
-                    false,
-                    false);
+                    ref incrementalStatistics);
                 statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
-                    ProfilerUnsafeUtility.Timestamp - substepContactSetStart);
+                    ProfilerUnsafeUtility.Timestamp - substepContactViewStart);
             }
+            ActivateScheduledPredictiveContactsForSubstep(
+                EnableTimestepContactSetCache ? substepIndex : 0,
+                EnableTimestepContactSetCache ? substepCount : 1,
+                ref incrementalStatistics);
             ResetTimestepContactSetForSubstep();
             statistics.TimestepContactSetSubstepUseCount++;
 

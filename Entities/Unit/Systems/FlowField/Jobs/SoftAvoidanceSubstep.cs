@@ -11,15 +11,10 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct SolveXpbdUnitContactsJob
 {
     private void CalculateSoftAvoidanceForSubstep(
-        bool usePersistentNeighborCandidates,
         float substepDeltaTime,
         ref PredictiveDiscContactStatistics statistics)
     {
-        SweptCellEntries.Clear();
-        Pairs.Clear();
-
         float softShell = math.max(0f, SoftAvoidanceShell);
-        float cellSize = math.max(CellRadius * 2f, 0.0001f);
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
@@ -43,63 +38,17 @@ public partial struct SolveXpbdUnitContactsJob
                 softShell,
                 ref state.WallAvoidanceVelocity);
             States[bodyIndex] = state;
-
-            if (softShell <= 0f || SoftAvoidanceResponseRate <= 0f ||
-                usePersistentNeighborCandidates)
-                continue;
-
-            float softExtent = math.max(0f, state.Radius) + softShell * 0.5f;
-            float2 softPathEnd = position.xz;
-            if (SoftAvoidanceVelocitySolver ==
-                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle)
-            {
-                softPathEnd += state.BasePredictedVelocity.xz *
-                               math.max(0f, RvoTimeHorizon);
-            }
-            float2 softMin = math.min(position.xz, softPathEnd) - softExtent;
-            float2 softMax = math.max(position.xz, softPathEnd) + softExtent;
-            int2 minCell = (int2)math.floor((softMin - GridOrigin.xz) / cellSize);
-            int2 maxCell = (int2)math.floor((softMax - GridOrigin.xz) / cellSize);
-            if (maxCell.x < 0 || maxCell.y < 0 ||
-                minCell.x >= GridDimensions.x || minCell.y >= GridDimensions.y)
-                continue;
-
-            minCell = math.clamp(minCell, int2.zero, GridDimensions - 1);
-            maxCell = math.clamp(maxCell, int2.zero, GridDimensions - 1);
-            for (int x = minCell.x; x <= maxCell.x; x++)
-            {
-                for (int y = minCell.y; y <= maxCell.y; y++)
-                {
-                    SweptCellEntries.Add(new SweptDiscCellEntry
-                    {
-                        CellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), GridDimensions),
-                        BodyIndex = bodyIndex
-                    });
-                }
-            }
         }
 
-        if (softShell > 0f && SoftAvoidanceResponseRate > 0f &&
-            usePersistentNeighborCandidates)
+        if (softShell > 0f && SoftAvoidanceResponseRate > 0f)
         {
-            statistics.SoftAvoidanceFatAabbUseCount++;
+            if (EnablePersistentContactCache)
+                statistics.SoftAvoidanceFatAabbUseCount++;
             statistics.SoftAvoidanceCandidatePairCount +=
-                MappedPersistentNeighborPairs.Length;
+                TimestepInteractionPairs.Length;
             statistics.SoftAvoidanceActivatedPairCount +=
                 AccumulateUnitAvoidanceVelocities(
-                    MappedPersistentNeighborPairs.AsArray(),
-                    softShell,
-                    substepDeltaTime);
-        }
-        else if (softShell > 0f && SoftAvoidanceResponseRate > 0f)
-        {
-            SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
-            EmitCellPairs();
-            SortAndDeduplicatePairs();
-            statistics.SoftAvoidanceCandidatePairCount += Pairs.Length;
-            statistics.SoftAvoidanceActivatedPairCount +=
-                AccumulateUnitAvoidanceVelocities(
-                    Pairs.AsArray(),
+                    TimestepInteractionPairs.AsArray(),
                     softShell,
                     substepDeltaTime);
         }

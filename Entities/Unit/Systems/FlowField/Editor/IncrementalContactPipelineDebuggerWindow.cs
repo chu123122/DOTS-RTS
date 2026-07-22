@@ -178,6 +178,7 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
         Metric("Reclassified evaluations", statistics.ReclassifiedPairEvaluationCount.ToString());
         Metric("Swept evaluations", statistics.SweptClassificationEvaluationCount.ToString());
         Metric("Constraint evaluations", statistics.ActiveConstraintEvaluationCount.ToString());
+        Metric("Timestep interactions", statistics.CurrentInteractionPairCount.ToString());
         Metric("Current swept", statistics.CurrentSweptContactCount.ToString());
         Metric("Dormant / approaching",
             $"{statistics.CurrentDormantPairCount} / {statistics.CurrentApproachingPairCount}");
@@ -195,6 +196,8 @@ public sealed class IncrementalContactPipelineDebuggerWindow : EditorWindow
 
         Space();
         EditorGUILayout.LabelField("Incremental timings", EditorStyles.boldLabel);
+        Metric("A0 full-sweep source", NsToMs(statistics.FullSweepSourceNanoseconds));
+        Metric("A1 persistent mapping", NsToMs(statistics.PersistentPairMappingNanoseconds));
         Metric("Proxy validation", NsToMs(statistics.ProxyValidationNanoseconds));
         Metric("Local broadphase", NsToMs(statistics.LocalBroadPhaseNanoseconds));
         Metric("Pair diff / merge", NsToMs(statistics.PairDiffNanoseconds));

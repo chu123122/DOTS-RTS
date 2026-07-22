@@ -38,7 +38,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref fatCachePairsMappedThisFrame,
                 true))
         {
-            BuildSweptContactPairs(ref statistics);
+            BuildSweptInteractionPairs(ref statistics);
             cacheStatistics.FullBroadPhaseFallbackCount++;
             return false;
         }

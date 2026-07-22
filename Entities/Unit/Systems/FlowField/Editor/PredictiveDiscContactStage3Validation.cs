@@ -880,6 +880,8 @@ public static class PredictiveDiscContactStage3Validation
             Allocator.TempJob);
         var entries = new NativeList<SweptDiscCellEntry>(16, Allocator.TempJob);
         var pairs = new NativeList<UnitCollisionPair>(16, Allocator.TempJob);
+        var timestepInteractionPairs =
+            new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
         var timestepContactPairs = new NativeList<UnitCollisionPair>(16, Allocator.TempJob);
         var shadowEntries = new NativeList<SweptDiscCellEntry>(32, Allocator.TempJob);
         var shadowBodyPairs = new NativeList<UnitCollisionPair>(32, Allocator.TempJob);
@@ -943,6 +945,7 @@ public static class PredictiveDiscContactStage3Validation
                 Grid = grid,
                 SweptCellEntries = entries,
                 Pairs = pairs,
+                TimestepInteractionPairs = timestepInteractionPairs,
                 TimestepContactPairs = timestepContactPairs,
                 ShadowCellEntries = shadowEntries,
                 ShadowBodyPairs = shadowBodyPairs,
@@ -995,6 +998,7 @@ public static class PredictiveDiscContactStage3Validation
             shadowBodyPairs.Dispose();
             shadowEntries.Dispose();
             pairs.Dispose();
+            timestepInteractionPairs.Dispose();
             timestepContactPairs.Dispose();
             entries.Dispose();
             grid.Dispose();

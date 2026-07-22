@@ -217,8 +217,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle independentForceHandle =
             independentForceJob.ScheduleParallel(_movementQuery, footprintHandle);
 
-        // 阶段 2：每个 substep 先按最新求解位置重算软避让，再生成 swept disc Pair，
-        // 随后的全部 XPBD iteration 复用该 Pair 快照。
+        // 阶段 2：A0 全量 Sweep 或 A1 跨帧拓扑先生产统一 InteractionSet；
+        // B1 在 timestep 内复用，B0 则每个 substep 重建。Soft 与 XPBD 只消费其派生视图。
         var sweptCellEntries = new NativeList<SweptDiscCellEntry>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
@@ -243,7 +243,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var currentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
-        var mappedPersistentNeighborPairs = new NativeList<UnitCollisionPair>(
+        var timestepInteractionPairs = new NativeList<UnitCollisionPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
         var mappedFatCachePairs = new NativeList<UnitCollisionPair>(
@@ -340,7 +340,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ShadowCurrentPairs = shadowCurrentPairs,
             CurrentBodyIndexByEntity = currentBodyIndexByEntity,
             MappedFatCachePairs = mappedFatCachePairs,
-            MappedPersistentNeighborPairs = mappedPersistentNeighborPairs,
+            TimestepInteractionPairs = timestepInteractionPairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
             ShadowPreviousProxies = _shadowPreviousProxies,
@@ -445,8 +445,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             currentBodyIndexByEntity.Dispose(applyMovementHandle);
         JobHandle mappedFatCachePairDisposeHandle =
             mappedFatCachePairs.Dispose(applyMovementHandle);
-        JobHandle mappedPersistentNeighborPairDisposeHandle =
-            mappedPersistentNeighborPairs.Dispose(applyMovementHandle);
+        JobHandle timestepInteractionPairDisposeHandle =
+            timestepInteractionPairs.Dispose(applyMovementHandle);
         JobHandle currentIncrementalProxyDisposeHandle =
             currentIncrementalProxies.Dispose(applyMovementHandle);
         JobHandle incrementalDirtyBodyDisposeHandle =
@@ -513,7 +513,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle mappingScratchDisposeHandle = JobHandle.CombineDependencies(
             currentBodyIndexDisposeHandle,
             mappedFatCachePairDisposeHandle,
-            mappedPersistentNeighborPairDisposeHandle);
+            timestepInteractionPairDisposeHandle);
         JobHandle correctionScratchDisposeHandle = JobHandle.CombineDependencies(
             correctedBodyFlagDisposeHandle,
             correctedBodyIndexDisposeHandle);
