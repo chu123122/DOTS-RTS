@@ -354,6 +354,23 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.AverageSpeedAfterContact /= substepCount;
         statistics.SolverNanoseconds =
             TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - solverStartTimestamp);
+        incrementalStatistics.CorrectedPairCount =
+            statistics.TimestepContactSetUniqueActivatedPairCount;
+        incrementalStatistics.NeighborToSweptRatio =
+            incrementalStatistics.PersistentNeighborPairCount > 0
+                ? (float)incrementalStatistics.SweptHitCount /
+                  incrementalStatistics.PersistentNeighborPairCount
+                : 0f;
+        incrementalStatistics.SweptToActiveRatio =
+            incrementalStatistics.SweptHitCount > 0
+                ? (float)incrementalStatistics.ActiveConstraintCount /
+                  incrementalStatistics.SweptHitCount
+                : 0f;
+        incrementalStatistics.ActiveToCorrectedRatio =
+            incrementalStatistics.ActiveConstraintCount > 0
+                ? (float)incrementalStatistics.CorrectedPairCount /
+                  incrementalStatistics.ActiveConstraintCount
+                : 0f;
         CaptureSimulationDebuggerSelectedUnit();
         Statistics.Value = statistics;
         ShadowStatistics.Value = shadowStatistics;

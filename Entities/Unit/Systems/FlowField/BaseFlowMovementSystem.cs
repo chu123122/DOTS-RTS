@@ -37,6 +37,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs;
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
     private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
+    private Entity _incrementalDiagnosticsEntity;
     private int2 _adaptiveCellDimensions;
     private int _adaptiveCellSpan;
 
@@ -80,11 +81,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
         _simulationDebuggerSelectedUnitValid =
             new NativeReference<byte>(Allocator.Persistent);
+        _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
+            typeof(IncrementalContactPipelineSnapshot));
     }
 
     protected override void OnDestroy()
     {
         Dependency.Complete();
+        if (EntityManager.Exists(_incrementalDiagnosticsEntity))
+            EntityManager.DestroyEntity(_incrementalDiagnosticsEntity);
         if (_shadowPreviousProxies.IsCreated)
             _shadowPreviousProxies.Dispose();
         if (_shadowPreviousPairs.IsCreated)
@@ -374,6 +379,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         };
         JobHandle publishStatisticsHandle =
             publishStatisticsJob.Schedule(solveContactHandle);
+        var publishIncrementalStatisticsJob =
+            new PublishIncrementalContactPipelineStatisticsJob
+            {
+                Source = incrementalStatistics,
+                Target = _incrementalDiagnosticsEntity,
+                SnapshotLookup =
+                    GetComponentLookup<IncrementalContactPipelineSnapshot>(false)
+            };
+        JobHandle publishIncrementalStatisticsHandle =
+            publishIncrementalStatisticsJob.Schedule(solveContactHandle);
 
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
@@ -423,7 +438,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle statisticsDisposeHandle = contactStatistics.Dispose(publishStatisticsHandle);
         JobHandle shadowStatisticsDisposeHandle = shadowStatistics.Dispose(publishStatisticsHandle);
         JobHandle incrementalStatisticsDisposeHandle =
-            incrementalStatistics.Dispose(applyMovementHandle);
+            incrementalStatistics.Dispose(publishIncrementalStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle =
             selectedBodyDiagnostic.Dispose(publishStatisticsHandle);
         JobHandle iterationDiagnosticDisposeHandle =

@@ -79,24 +79,18 @@ public partial struct SolveXpbdUnitContactsJob
         if (fallback)
             MappedFatCachePairs.AddRange(TimestepContactPairs.AsArray());
 
-        bool sourcedFromFatCache = false;
-        if (EnableFatAabbCache)
+        bool sourcedFromIncrementalCache = false;
+        if (EnableTimestepContactSetCache)
         {
-            sourcedFromFatCache = BuildContactPairsFromPersistentNeighborSet(
+            sourcedFromIncrementalCache = BuildContactPairsFromPersistentNeighborSet(
                 ref statistics,
                 ref incrementalStatistics,
                 forceFullBroadPhase);
         }
-        else if (!forceFullBroadPhase && HasActiveAdaptiveFatRegions)
-        {
-            sourcedFromFatCache = BuildAdaptiveHybridContactPairs(
-                ref statistics,
-                ref shadowStatistics,
-                ref fatCachePairsMappedThisFrame);
-        }
         else
         {
             BuildSweptContactPairs(ref statistics);
+            MappedPersistentNeighborPairs.Clear();
         }
 
         TimestepContactPairs.Clear();
@@ -131,6 +125,9 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepContactPairs[pairIndex] = pair;
         }
 
+        ValidateIncrementalContactSetAgainstQuadraticOracle(
+            ref incrementalStatistics);
+
         long elapsed = TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
@@ -139,7 +136,7 @@ public partial struct SolveXpbdUnitContactsJob
             statistics.TimestepContactSetFullRebuildCount++;
             statistics.TimestepContactSetFallbackNanoseconds += elapsed;
         }
-        return sourcedFromFatCache;
+        return sourcedFromIncrementalCache;
     }
 
     private void ResetTimestepContactSetForSubstep()
@@ -219,6 +216,8 @@ public partial struct SolveXpbdUnitContactsJob
             statistics.TimestepContactSetBuildCount++;
             statistics.TimestepContactSetClassificationPassCount++;
             statistics.TimestepContactSetUniquePairCount = TimestepContactPairs.Length;
+            ValidateIncrementalContactSetAgainstQuadraticOracle(
+                ref incrementalStatistics);
             return;
         }
 
