@@ -83,6 +83,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
     private int _spawnCooldown;
     private SimulationDebuggerEffectiveSettings _baseline;
     private bool _hasBaseline;
+    private bool _hasWrittenCsv;
     private UnityEngine.UI.Button _spawnButton;
     private int _targetUnitCount;
     private EntityManager _entityManager;
@@ -172,8 +173,7 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (_results.Count > 0)
-            WriteCsv();
+        WriteCsv();
     }
 
     // ── 按钮查找 ────────────────────────────────────────
@@ -312,7 +312,8 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
         if (_trialIndex >= TrialList.Count)
         {
             _phase = Phase.Done;
-            Debug.Log("[Tuner] 全部 trial 完成，退出 Play Mode 时输出 CSV");
+            WriteCsv();
+            Debug.Log("[Tuner] 全部 trial 完成，CSV 已输出。");
             return;
         }
 
@@ -368,6 +369,10 @@ public sealed class AdaptiveParameterTuner : MonoBehaviour
 
     private void WriteCsv()
     {
+        if (_hasWrittenCsv || _results.Count == 0)
+            return;
+
+        _hasWrittenCsv = true;
         string path = Path.Combine(Application.dataPath, "..", "adaptive_tuning_result.csv");
         using var writer = new StreamWriter(path);
         writer.WriteLine(
