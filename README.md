@@ -1,288 +1,153 @@
+# High-Performance RTS Simulation & Incremental Predictive Contact Pipeline
 # 大规模 RTS 群体模拟 & 增量预测接触管线
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3%2B-black)
-![DOTS](https://img.shields.io/badge/Tech-ECS_|_Jobs_|_Burst-blue)
-![NetCode](https://img.shields.io/badge/Network-NetCode_for_Entities-green)
+![DOTS](https://img.shields.io/badge/Tech-ECS%20%7C%20Jobs%20%7C%20Burst-blue)
+![NetCode](https://img.shields.io/badge/Network-NetCode%20for%20Entities-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-> 200+ 高密度单位同屏物理模拟 | 跨帧增量拓扑复用 | 并行 Jacobi XPBD 求解 | 指令回放
+> **核心亮点**：200+ 高密度单位同屏物理模拟 | 跨帧增量拓扑复用 | 并行 Jacobi XPBD 求解 | 基于指令的确定性回放
 
 ---
 
-## 项目定位
+## 📺 [[Click to Watch Demo Video](https://www.bilibili.com/video/BV1moUhBsE3K/) (Bilibili )]
+
+---
+
+## 📖 项目简介 (Introduction)
 
 基于 **Unity DOTS**（ECS + Jobs + Burst）的大规模 RTS 群体模拟系统，以及面向**动态接触**的**增量预测碰撞**与**并行 XPBD 约束求解**框架。
 
-项目以 RTS 高密度单位移动作为实际应用与压力测试场景，自下而上实现**玩法驱动 → 运动预测 → 碰撞检测 → 接触调度 → 约束求解 → 状态回写**的完整管线。围绕动态接触在连续时间中的相干性，分别在**跨帧**、**跨 substep** 和**单次 iteration** 三个尺度上减少重复计算。
+项目以 RTS 高密度单位移动作为实际应用与压力测试场景，自下而上实现**玩法驱动 → 运动预测 → 碰撞检测 → 接触调度 → 约束求解 → 状态回写**的完整管线。围绕动态接触在连续时间中的相干性，分别在**跨帧**（Persistent Topology）、**跨 substep**（Timestep Contact Set）和**单次 iteration**（CSR Incident Index）三个尺度上减少重复计算。
 
 ---
 
-## 整体架构
+## ✨ 核心特性 (Key Features)
+
+### 1. 海量单位流场寻路 (Flow Field Pathfinding)
+摒弃传统 A* 逐单位寻路，实现基于 **Eikonal 方程**的向量场寻路。
+* **性能：** 支持 **500+** 单位同时寻路，寻路逻辑完全并行化（Job System + Burst）。
+* **机制：** Cost Field（静态障碍代价）→ Integration Field（Eikonal BFS）→ Vector Field（8 方向梯度下降），实现 $O(1)$ 复杂度单位方向查询。
+* **调度：** 全局目标变更时按需重烘焙，双缓冲 `Grid` / `PendingGrid` 保证读取无锁。
+
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/FlowField.gif"/>
+
+### 2. 增量预测接触管线 (Incremental Predictive Contact Pipeline)
+针对高密度 RTS 场景中相邻帧接触拓扑高度相干的特点，维护**跨帧持久代理视图**，只对发生变化的"脏 body"进行增量修补。
+* **持久拓扑：** `StableEntityPairKey` 驱动的实体对生命周期（Dormant → Approaching → Predictive → Actual → Separating → Expired），`PersistentSweptProxy` 以 Guard Bounds 证明拓扑完备性。
+* **增量决策：** 每帧验证代理有效 → 标记脏体（拓扑脏/几何脏/逃逸）→ dirtyRatio > 35% 全量回退，否则增量修补。
+* **安全钳位：** Soft/RVO 输出强制钳位在已证明的 Interaction Envelope 内，二分搜索寻找最大安全缩放；逃逸时 fallback 到全量重建。
+* **独立验证：** O(N²) Oracle 持续检测增量管线的漏报（False Negative），诊断模式下漏报数必须为零。
+
+### 3. XPBD 约束求解与软避让 (XPBD Contact Solver & Soft Avoidance)
+为解决大量单位挤过窄口（沙漏场景）时的死锁与穿模，实现分层接触求解：
+* **软分离 (Soft Avoidance)：** 支持 **Surface Velocity Buffer** 与 **Reciprocal Velocity Obstacle (RVO)** 两种模式，消耗紧凑 Soft 视图（非全量邻居），维持队形分离。
+* **硬约束投影 (Hard Constraint)：** XPBD 位置投影修正穿透，含 Compliance 柔度控制，支持 Regular 与 Predictive 两种接触模式。
+* **墙壁约束：** 基于流场格阻挡的静态墙壁投影，防止单位穿入障碍格。
+
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/PBD.gif"/>
+
+### 4. 并行 Jacobi P1-P6 求解器 (Parallel Jacobi Solver)
+在串行 Gauss-Seidel 参考路径之外，实现 **6 阶段并行接触投影管线**，突破高接触密度下的求解瓶颈：
+* **P1-P2：** 管线初始化 + Substep 准备（位置预测、速度积分，body-parallel）
+* **P3-P4：** 并行 Pair 评估 + 局部修正累积（pair-parallel，读取不可变位置快照确保确定性）
+* **P5：** 持久拓扑修复 + Spatial Membership 缓存 + Pair 分类（serial prepare → parallel eval → serial commit）
+* **P6：** 确定性 Body Gather + 位置应用 + 墙壁投影（body-parallel，CSR Incident Index 消除原子操作）
+* **Gauss-Seidel** 保留为串行参考路径，调试模式下自动切换。
+
+### 5. 事件溯源回放系统 (Event Sourcing Replay)
+在服务端权威（Server-Authoritative）架构下，实现基于指令流的回放系统。
+* **零快照：** 不记录每帧 Transform，仅记录关键输入指令 (Command Buffer)。
+* **瞬间重置：** 利用 ECS 的结构特性，毫秒级状态回滚与指令重演。
+* **操作：** 按 L 开始录制，按 R 开始回放。
+
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/Replay.gif"/>
+
+### 6. 混合式网络架构 (Hybrid Network Architecture)
+* **框架：** 基于 **Unity NetCode for Entities**。
+* **策略：** 服务端权威 (Server-Auth) + 客户端预测 (Client-Side Prediction)，结合本地模拟层，支持断线后的本地平滑回放。
+* **双模式：** `NetCodeUnitFlowMovementSystem`（联网）与 `LocalUnitFlowMovementSystem`（本地）共享同一 `BaseFlowMovementSystem` 调度逻辑。
+
+---
+
+## 🛠️ 技术架构 (Architecture)
+
+### ECS Systems Overview
+
+**Simulation Group（核心模拟）：**
+* `FlowFieldBakeSystem` — 按需烘焙 Cost / Integration / Vector Field（Parallel Jobs）。
+* `BaseFlowMovementSystem` — 完整移动管线：独立力 → 接触对构建 → 软避让 → XPBD求解 → 位置写回。
+  * `LocalUnitFlowMovementSystem` / `NetCodeUnitFlowMovementSystem` — 本地 / 联网模式具体化。
+* `RtsCommandSystem` — MoveOrder 消费，编队槽位分配，触发流场重烘焙。
+* `UnitSpatialPartitionSystem` — 空间哈希网格（可选，当前禁用）。
+
+**Contact Pipeline 六层模块（`Jobs/ContactPipeline/`）：**
+
+| 模块 | 职责 | 生命周期 |
+|------|------|---------|
+| **BroadPhase** | Swept Disc 空间哈希候选对生成 | 帧内 |
+| **Persistent** | 跨帧实体对拓扑、脏体分类、稳定键/法线 | 跨帧 |
+| **Prediction** | Timestep 包络预测 + Envelope Guard 安全钳位 | Timestep |
+| **SoftAvoidance** | RVO / 速度缓冲软避让 | 子步 |
+| **Solver** | XPBD (Gauss-Seidel / Jacobi P1-P6) + 墙壁投影 | 子步迭代 |
+| **Motion** | 速度准备、位置预测、速度重建 | 子步 |
+
+**Replay Group（回放）：**
+* `CommandReplayingSystem` — 指令录制与时间轴管理 (Event Sourcing)。
+* `RequestCommandRpcSystem` — RPC 指令采集与网络同步。
+
+### Pipeline 数据流
 
 ```
-PlayerInput (鼠标指令)
-    │
+鼠标输入 (UnitMoveInputSystem)
+    │  框选单位 → MoveOrder (RPC)
     ▼
-RtsCommandSystem ──→ MoveOrder ──→ FlowFieldBakeSystem (Cost → Integration → Vector)
-    │                                    │
-    ▼                                    ▼
-BaseFlowMovementSystem ◄── FlowFieldGrid (每帧稳定快照)
+RtsCommandSystem
+    │  编队槽位 → UnitMoveDestination
+    ▼
+FlowFieldBakeSystem
+    │  Cost → Integration → Vector → 双缓冲发布
+    ▼
+BaseFlowMovementSystem (每帧)
     │
-    ├─ [A] CalculateIndependentFlowForceJob    ← 流场驱动力 + 单位状态初始化
-    │
-    ├─ [B] SolveXpbdUnitContactsJob (主求解器)  ← ┐
-    │   ├─ Persistent: 跨帧增量拓扑验证/修复     │  跨帧复用
-    │   ├─ BroadPhase: 帧内 Swept Disc 候选对    │
-    │   ├─ Prediction: Timestep 包络预测          │
-    │   ├─ SoftAvoidance: RVO / 速度缓冲 (子步)   │  子步迭代
-    │   ├─ XPBD Solver: Gauss-Seidel / Jacobi    │
-    │   └─ Motion: 位置预测 + 速度重建 (子步)     │
-    │
-    └─ [C] ApplyFlowMovementJob               ← Transform 写回 ECS
+    ├─ [1] CalculateIndependentFlowForceJob  流场驱动力 + 状态初始化
+    ├─ [2] IncrementalPredictiveContactPipeline  增量拓扑验证/修补
+    ├─ [3] SoftAvoidance (子步迭代)  RVO / 速度缓冲
+    ├─ [4] XPBD Solver (子步迭代)  Gauss-Seidel / Jacobi P1-P6
+    ├─ [5] Wall Projection (子步迭代)  静态墙壁投影
+    └─ [6] ApplyFlowMovementJob  Transform + Velocity 写回 ECS
 ```
 
-### 核心模块
+### Performance (Profiler Data)
 
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| **FlowField** | `Entities/Unit/Systems/FlowField/` | Eikonal 流场寻路 + 移动调度 |
-| **Contact Pipeline** | `…/Jobs/ContactPipeline/` | 增量预测碰撞 + XPBD 约束求解 |
-| **Unit Components** | `Entities/Unit/Components/` | ECS 组件定义 |
-| **Replay** | `Entities/_RePlay/` | 基于指令的事件溯源回放 |
-| **Diagnostics** | `…/FlowField/Diagnostics/` | 调试面板、参数调优、Benchmark |
-| **Editor** | `…/FlowField/Editor/` | 编辑器验证与基准窗口 |
-| **Common** | `Entities/_Common/` | 攻击、伤害、技能等通用系统 |
-| **PlayerInput** | `_PlayerInput/` | 鼠标框选与移动指令 |
-| **Camera** | `Entities/Camera/` | RTS 摄像机控制 |
+在 Ryzen 7 上实测：
+* **逻辑帧耗时:** < 0.3ms (200 Agents)
+* **Burst 优化:** 核心 Job 利用 SIMD 指令集加速，零 GC。
+* **内存：** NativeContainer 持久分配，无每帧堆分配。
+
+<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/20251126133028955.png"/>
 
 ---
 
-## 一、流场寻路（Flow Field）
+## 📊 诊断与调优 (Diagnostics & Tuning)
 
-基于 Eikonal 方程的向量场寻路，替代传统逐单位 A*。
+| 工具 | 快捷键 | 用途 |
+|------|--------|------|
+| **SimulationDebuggerPanel** | `F8` | 四窗口 IMGUI（整体概况 / 跨帧AABB / 跨子步Contact / 运行时设置） |
+| **AdaptiveParameterTuner** | 挂场景运行 | 自动参数搜索，CSV 输出 |
+| **IncrementalContactPipelineBenchmarkWindow** | Editor 菜单 | 增量管线指标实时对比 |
+| **IncrementalPredictiveContactValidation** | `Ctrl+Shift+F12` | 预测接触 Stage 3 验证 |
+| **LocalGameplayModeValidation** | Editor 菜单 | 本地模式功能验证 |
+| **IncrementalContactOracle** | 诊断模式自动 | O(N²) 独立验证，检测增量漏报 |
 
-```
-Cost Field → Integration Field (Eikonal) → Vector Field (梯度下降)
-```
-
-- 单次全局烘焙，O(1) 每单位方向查询
-- `FlowFieldBakeSystem` 负责 Cost → Integration 计算
-- `GenerateVectorFieldJob` 生成 8 方向向量场
-- `CalculateIndependentFlowForceJob` 从向量场采样，计算独立于邻居的驱动力
-
-### 关键类型
-
-| 类型 | 文件 | 说明 |
-|------|------|------|
-| `FlowFieldGrid` | `GridComponent.cs` | 网格数据（原点、尺寸、Cell 数组） |
-| `FlowFieldCell` | `GridComponent.cs` | 单格 Cost + Integration + 最优方向 |
-| `FlowFieldSettings` | `GridComponent.cs` | 网格 + 软避让参数 |
-| `FlowFieldRuntimeState` | `GridComponent.cs` | 版本号驱动的稳定快照 |
-| `MoveOrder` / `MoveOrderSelectionElement` | `GridComponent.cs` | 移动指令 + 选中单位快照 |
+诊断统计 `PredictiveDiscContactStatistics` 覆盖：Contact Set 构建/逃逸/回退计数、Active/Predictive/Dormant pair 分类、穿透深度统计、各阶段纳秒级耗时。
 
 ---
 
-## 二、增量预测接触管线（Contact Pipeline）
+## ⚠️ 已知限制 (Known Limitations)
 
-### 设计思想
-
-高密度 RTS 场景中，单位位置在连续帧间变化缓慢——相邻两帧的接触拓扑高度相干。与其每帧从零构建所有接触对，不如维护一份**跨帧持久代理视图**，只对移动超过包络边界的"脏 body"进行增量修复。
-
-三条核心正确性保障：
-
-1. **Envelope Guard**：所有可能接触都在当前 Interaction 视图内或被脏 body 覆盖——Soft/RVO 输出不得逃逸
-2. **Fallback**：增量证明失败时统一回退到全量 Swept Disc 重建
-3. **Oracle**：O(N²) 独立验证器持续检测增量管线的漏报
-
-### 六层子模块
-
-| 层 | 路径 | 职责 | 生命周期 |
-|----|------|------|---------|
-| **BroadPhase** | `…/BroadPhase/` | Swept Disc 空间哈希候选对生成 | 帧内 |
-| **Persistent** | `…/Persistent/` | 跨帧实体对拓扑、脏体分类、稳定键 | 跨帧 |
-| **Prediction** | `…/Prediction/` | Timestep 包络预测 + 安全钳位 | Timestep |
-| **SoftAvoidance** | `…/SoftAvoidance/` | RVO / 速度缓冲软避让 | 子步 |
-| **Solver** | `…/Solver/` | XPBD 约束求解 + 墙壁投影 | 子步迭代 |
-| **Motion** | `…/Motion/` | 速度准备、位置预测、速度重建 | 子步 |
-
-### 关键类型
-
-| 类型 | 说明 |
-|------|------|
-| `StableEntityPairKey` | 跨帧稳定的实体对标识（按 Index/Version 排序） |
-| `PersistentSweptProxy` | 持久代理：Guard Bounds 证明拓扑完备性，Tight Bounds 描述预测视野 |
-| `PersistentNeighborPair` | 跨帧邻居对缓存 |
-| `PersistentPredictiveContact` | 跨帧预测接触（含法线） |
-| `UnitCollisionPair` | 帧内 XPBD 约束（BodyA/B、Lambda、法线、激活状态） |
-| `FlowMovementFrameState` | 单帧临时状态（位置、速度、包络、力累积），不写 ECS |
-| `ContactPipelineConfiguration` | 归一化求解器配置 |
-
-### 增量拓扑流程
-
-```
-当前帧 Body States
-    │
-    ├─ ValidateAndClassifyIncrementalDirtyBodies()
-    │   └─ 标记：拓扑脏（entity 增删）、几何脏（位置超包络）、稳定
-    │
-    ├─ dirtyRatio > 35%？
-    │   ├─ YES → FullRebuildPersistentNeighborTopology()  [全线重建]
-    │   └─ NO  → UpdatePersistentProxyMetadata()          [增量修补]
-    │            PatchDirtyBodyNeighborTopology()          [仅修补脏体邻居]
-    │
-    └─ 输出：当前帧有效 Contact Pair Set
-```
-
----
-
-## 三、XPBD 约束求解器
-
-### Gauss-Seidel（串行参考路径）
-
-串行迭代，每个 contact 求解后立即更新双方位置——下个 contact 可见最新结果。收敛快但无并行性。
-
-### Parallel Jacobi P1-P6（并行路径）
-
-6 阶段并行接触投影管线，含 CSR 格式主动约束索引。
-
-| 阶段 | 内容 | 并行度 |
-|------|------|--------|
-| **P1** | 初始化管线状态 | — |
-| **P2** | 准备 substep：位置预测、速度积分 | body-parallel |
-| **P3** | 并行 pair 评估：计算法线 + 约束值 | pair-parallel |
-| **P4** | 局部修正累积 (scatter) | pair-parallel |
-| **P5A** | 持久拓扑修复 | 串行协调 |
-| **P5B** | Spatial Membership 缓存（cell→proxy 映射） | — |
-| **P5C** | 持久 pair 分类（serial prepare → parallel eval → serial commit） | pair-parallel |
-| **P6** | 确定性 body gather + 位置应用 + 墙壁投影 | body-parallel |
-
-**关键设计**：
-- Jacobi 并行对评估读取不可变位置快照，确保确定性
-- 集合并行修正按 incident-pair 顺序完成
-- `ActiveConstraintIncidentIndex`：CSR 格式的 body → contact 索引，Gauss-Seidel 和 Jacobi 共享
-
-### 求解器类型
-
-| 类型 | 说明 |
-|------|------|
-| `XpbdContactConstraintMath` | XPBD 约束评估（法线、约束值、Lambda 更新） |
-| `SoftAvoidanceMath` | 软避让速度计算（RVO / Surface Velocity Buffer） |
-| `WallConstraintSolver` | 静态墙壁投影（基于流场格阻挡） |
-| `ContactEnvelopeGuard` | 软避让输出钳位 + Timestep 逃逸检测 |
-
----
-
-## 四、运动集成
-
-每子步执行：
-
-```
-1. PredictUnconstrainedPositions()
-   └─ positionₜ₊₁ = positionₜ + (独立力 + 软避让) × Δt
-
-2. XPBD Contact Solve (Gauss-Seidel / Jacobi)
-   └─ 约束投影：positionₜ₊₁ → 满足无穿透的 positionₜ₊₁'
-
-3. ReconstructVelocities()
-   └─ velocity = (positionₜ₊₁' − positionₜ) / Δt
-```
-
----
-
-## 五、事件溯源回放系统
-
-| 文件 | 说明 |
-|------|------|
-| `CommandReplayingSystem.cs` | L 键录制 / R 键回放 |
-| `ReplaySchema.cs` | 回放状态 + 指令 Buffer 定义 |
-| `RequestCommandRpcSystem.cs` | RPC 指令采集 |
-| `RTSUnitSpawner.cs` | 录制时的单位快照重建 |
-
-**设计**：不记录每帧 Transform，仅记录输入指令 Buffer + 时间戳。回放时从头快进执行，利用确定性模拟重现结果。
-
----
-
-## 六、诊断与调优
-
-| 工具 | 文件 | 用途 |
-|------|------|------|
-| **SimulationDebuggerPanel** | `Diagnostics/SimulationDebuggerPanel.cs` | F8 四窗口 IMGUI（整体/跨帧AABB/跨子步Contact/设置） |
-| **AdaptiveParameterTuner** | `Diagnostics/AdaptiveParameterTuner.cs` | 自动参数搜索，输出 CSV |
-| **IncrementalContactPipelineCsvRecorder** | `Diagnostics/IncrementalContactPipelineCsvRecorder.cs` | 实验数据 CSV 导出 |
-| **IncrementalContactPipelineExperimentRuntime** | `Diagnostics/IncrementalContactPipelineExperimentRuntime.cs` | 运行时实验参数覆盖 |
-| **IncrementalContactPipelineBenchmarkWindow** | `Editor/IncrementalContactPipelineBenchmarkWindow.cs` | Editor 基准窗口 |
-| **IncrementalPredictiveContactValidation** | `Editor/IncrementalPredictiveContactValidation.cs` | Editor 预测接触验证 |
-| **LocalGameplayModeValidation** | `Editor/LocalGameplayModeValidation.cs` | 本地模式功能验证 |
-| **SimulationDebuggerWorldOverlay** | `Diagnostics/SimulationDebuggerWorldOverlay.cs` | 场景覆盖层可视化 |
-| **IncrementalContactOracle** | `Jobs/IncrementalContactOracle.cs` | O(N²) 独立验证器，检测增量管线漏报 |
-
-### 诊断统计
-
-`PredictiveDiscContactStatistics` 提供完整帧级指标：
-- Timestep Contact Set 构建/分类/复用/逃逸/回退计数
-- Candidate / Active / Predictive / Dormant pair 分类
-- 穿透统计（最大/平均 穿透深度）
-- 各阶段耗时（ns）：Pair Generation / Soft Avoidance / Iteration / Solver
-
----
-
-## 七、其他游戏系统
-
-| 系统 | 路径 | 说明 |
-|------|------|------|
-| **Attack** | `_Common/Systems/Attack/` | 攻击技能 + 触发器伤害 |
-| **HealPoint** | `_Common/Systems/HealPoint/` | 生命值 + 帧伤害累积 + 应用 |
-| **AbilityMove** | `_Common/Systems/AbilityMove/` | 技能驱动位移 |
-| **Track** | `_Common/Systems/Track/` | 目标跟踪 |
-| **Destroy** | `_Common/Systems/Destroy/` | 定时销毁 + 生命归零销毁 |
-| **Building** | `Entities/Building/` | 建筑放置（兵营等） |
-| **Selection** | `Unit/Systems/Selection/` | 框选 + 选中状态同步 |
-| **HealthBar** | `Unit/Systems/HealthBar/` | 血条创建 |
-| **Camera** | `Entities/Camera/` | 摄像机初始化 |
-| **Input** | `_PlayerInput/UnitControl/` | 鼠标移动指令 |
-
----
-
-## 配置参数
-
-### 核心求解器 (`UnitContactSolverSettings`)
-
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `SubstepCount` | 4 | 每帧子步数 |
-| `IterationCount` | 4 | 每子步 XPBD 迭代数 |
-| `ContactPositionSolver` | GaussSeidel | 约束求解器（GaussSeidel / Jacobi） |
-| `Compliance` | — | XPBD 柔度 |
-| `PredictiveSkin` | 0.05 | 预测接触膨胀厚度 |
-| `EnablePredictiveContacts` | true | 启用预测接触 |
-| `EnableFatAabbCache` | true | 启用跨帧持久拓扑缓存 |
-| `FatAabbCacheMargin` | 0.5 | Guard Envelope 膨胀余量 |
-| `TimestepContactMargin` | 0.02 | Timestep 接触检测余量 |
-
-### 流场避让 (`FlowFieldSettings`)
-
-| 参数 | 说明 |
-|------|------|
-| `SoftAvoidanceResponseRate` | 软避让响应强度 |
-| `SoftAvoidanceShell` | 软避让壳体半径 |
-| `SettledSoftAvoidanceMultiplier` | 已到达单位的避让衰减 |
-| `SoftAvoidanceVelocitySolver` | 避让算法（SurfaceBuffer / RVO） |
-| `RvoTimeHorizon` | RVO 时间视野 |
-
----
-
-## 已知限制
-
-- 未实现 Contact-island 休眠——持续活跃接触始终求解
-- Gauss-Seidel 无并行路径（需图着色或冲突无关批次）
-- 确定性列表压缩、排序、持久视图发布仍为串行协调点
-- 流场当前为全局烘焙，未支持局部动态障碍增量更新
-
----
-
-## 性能参考
-
-| 指标 | 数值 |
-|------|------|
-| 逻辑帧耗时 | < 0.3ms（200 Agents, Ryzen 7） |
-| Burst 优化 | 核心 Job 利用 SIMD，零 GC |
-| 内存 | NativeContainer 持久分配，无每帧堆分配 |
+* 未实现 Contact-island 休眠——持续活跃接触始终求解
+* Gauss-Seidel 无并行路径（需图着色或冲突无关批次）
+* 确定性列表压缩、排序、持久视图发布仍为串行协调点
+* 流场当前为全局烘焙，未支持局部动态障碍增量更新
+* 持久 Spatial Membership 依赖容量上限，超限回退全量扫描
