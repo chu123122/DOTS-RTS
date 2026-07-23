@@ -22,6 +22,23 @@ def replace_once(old: str, new: str) -> None:
     text = text.replace(old, new, 1)
 
 
+def insert_after_call_containing(token: str, insertion: str) -> None:
+    global text
+    if insertion.strip() in text:
+        return
+    token_index = text.find(token)
+    if token_index < 0:
+        raise RuntimeError(f"missing call token: {token}")
+    call_start = text.rfind("        solverScratchDisposeHandle =", 0, token_index)
+    if call_start < 0:
+        raise RuntimeError(f"missing call start before: {token}")
+    call_end = text.find(");", token_index)
+    if call_end < 0:
+        raise RuntimeError(f"missing call end after: {token}")
+    call_end += 3 if text[call_end + 2:call_end + 3] == "\n" else 2
+    text = text[:call_end] + insertion + text[call_end:]
+
+
 allocation_anchor = '''        var jacobiPairCorrections = new NativeList<JacobiPairCorrection>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
@@ -87,19 +104,8 @@ after_once(
 ''',
 )
 
-combine_anchor = '''        solverScratchDisposeHandle = JobHandle.CombineDependencies(
-   solverScratchDisposeHandle,
-   jacobiPairCorrectionDisposeHandle,
-   incrementalStatisticsDisposeHandle);
-'''
-if combine_anchor not in text:
-    combine_anchor = '''        solverScratchDisposeHandle = JobHandle.CombineDependencies(
-            solverScratchDisposeHandle,
-            jacobiPairCorrectionDisposeHandle,
-            incrementalStatisticsDisposeHandle);
-'''
-after_once(
-    combine_anchor,
+insert_after_call_containing(
+    "jacobiPairCorrectionDisposeHandle,",
     '''        solverScratchDisposeHandle = JobHandle.CombineDependencies(
             solverScratchDisposeHandle,
             envelopeEscapeFlagDisposeHandle,
@@ -124,6 +130,7 @@ required = [
     "SoftPairContributions = softPairContributions",
     "activeIncidentIndexState.Dispose",
     "softPairContributions.Dispose",
+    "envelopeEscapeFlagDisposeHandle",
 ]
 missing = [token for token in required if token not in text]
 if missing:
