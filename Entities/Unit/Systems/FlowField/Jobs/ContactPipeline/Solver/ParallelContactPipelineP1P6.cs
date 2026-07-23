@@ -980,6 +980,10 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentSweptProxies.Clear();
             PersistentNeighborPairs.Clear();
             PersistentPredictiveContacts.Clear();
+            if (PersistentSpatialMembership.IsCreated)
+                PersistentSpatialMembership.Clear();
+            if (PersistentSpatialMembershipEpoch.IsCreated)
+                PersistentSpatialMembershipEpoch.Value = 0;
             if (PersistentIncidentPairLookup.IsCreated)
                 PersistentIncidentPairLookup.Clear();
             if (PersistentIncidentLookupEpoch.IsCreated)

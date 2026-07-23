@@ -1250,6 +1250,7 @@ public partial struct SolveXpbdUnitContactsJob
                 TryAppendPersistentSpatialNeighborsP1P6(
                     dirtyProxyIndex,
                     nextTopologyEpoch,
+                    nextTimestep,
                     ref incrementalStatistics))
                 continue;
 

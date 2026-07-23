@@ -18,6 +18,9 @@ public struct PersistentPairClassificationResult
 public struct ParallelPersistentClassificationState
 {
     public long BuildStartTimestamp;
+    public long ClassificationStartTimestamp;
+    public uint Timestep;
+    public uint ClassificationEpoch;
     public byte NeedsCommit;
 }
 
@@ -61,6 +64,7 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
             PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
             DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+            PhaseState = PersistentClassificationState,
             Results = PersistentClassificationResults.AsDeferredJobArray(),
             PredictiveSkin = Configuration.PredictiveSkin,
             TimestepContactMargin = Configuration.TimestepContactMargin,
@@ -73,8 +77,6 @@ public partial struct SolveXpbdUnitContactsJob
             EnablePredictiveContacts =
                 (byte)(Configuration.EnablePredictiveContacts ? 1 : 0),
             SubstepCount = math.max(1, Configuration.SubstepCount),
-            Timestep = IncrementalCacheState.Value.Timestep,
-            ClassificationEpoch = CalculateClassificationEpoch(),
             ScheduleStartSubstep = 0
         };
         handle = evaluateJob.Schedule(
@@ -109,6 +111,7 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<PersistentPredictiveContact> PreviousContacts;
         [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
+        [ReadOnly] public NativeReference<ParallelPersistentClassificationState> PhaseState;
         public NativeArray<PersistentPairClassificationResult> Results;
 
         public float PredictiveSkin;
@@ -120,12 +123,11 @@ public partial struct SolveXpbdUnitContactsJob
         public byte EnablePredictivePairGeneration;
         public byte EnablePredictiveContacts;
         public int SubstepCount;
-        public uint Timestep;
-        public uint ClassificationEpoch;
         public int ScheduleStartSubstep;
 
         public void Execute(int pairIndex)
         {
+            ParallelPersistentClassificationState phase = PhaseState.Value;
             UnitCollisionPair rawPair = RawPairs[pairIndex];
             FlowMovementFrameState bodyA = States[rawPair.BodyA];
             FlowMovementFrameState bodyB = States[rawPair.BodyB];
@@ -152,7 +154,7 @@ public partial struct SolveXpbdUnitContactsJob
                     IncrementalBodyDirtyFlags.None;
             bool canReuse = !dirtyEndpoint && hasPrevious &&
                             hasProxyA && hasProxyB &&
-                            previous.ClassificationEpoch == ClassificationEpoch &&
+                            previous.ClassificationEpoch == phase.ClassificationEpoch &&
                             previous.MotionVersionA == proxyA.MotionVersion &&
                             previous.MotionVersionB == proxyB.MotionVersion;
 
@@ -163,7 +165,7 @@ public partial struct SolveXpbdUnitContactsJob
             };
             if (canReuse)
             {
-                previous.LastSeenTimestep = Timestep;
+                previous.LastSeenTimestep = phase.Timestep;
                 result.Contact = previous;
             }
             else
@@ -175,8 +177,8 @@ public partial struct SolveXpbdUnitContactsJob
                     bodyB,
                     proxyA,
                     proxyB,
-                    Timestep,
-                    ClassificationEpoch,
+                    phase.Timestep,
+                    phase.ClassificationEpoch,
                     ScheduleStartSubstep,
                     SubstepCount,
                     PredictiveSkin,
@@ -230,6 +232,9 @@ public partial struct SolveXpbdUnitContactsJob
             ref incremental);
         if (needsClassification)
         {
+            phase.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+            phase.Timestep = IncrementalCacheState.Value.Timestep;
+            phase.ClassificationEpoch = CalculateClassificationEpoch();
             PersistentClassificationResults.ResizeUninitialized(
                 TimestepInteractionPairs.Length);
             phase.NeedsCommit = 1;
@@ -455,7 +460,7 @@ public partial struct SolveXpbdUnitContactsJob
         ValidateSoftAvoidancePairViewAgainstQuadraticOracle(ref incremental);
         CommitFinalizedTimestepContactView(ref statistics, ref incremental, false);
         incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - phase.BuildStartTimestamp);
+            ProfilerUnsafeUtility.Timestamp - phase.ClassificationStartTimestamp);
         FinalizePersistentBuildTimingP1P6(
             phase.BuildStartTimestamp,
             ref statistics);
@@ -542,6 +547,7 @@ public partial struct SolveXpbdUnitContactsJob
     private bool TryAppendPersistentSpatialNeighborsP1P6(
         int dirtyProxyIndex,
         uint expectedEpoch,
+        uint validatedTimestep,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         if (!PersistentSpatialMembership.IsCreated ||
@@ -608,8 +614,7 @@ public partial struct SolveXpbdUnitContactsJob
                             dirtyProxy.Entity,
                             other.Entity),
                         TopologyEpoch = expectedEpoch,
-                        LastValidatedTimestep =
-                            IncrementalCacheState.Value.Timestep + 1u
+                        LastValidatedTimestep = validatedTimestep
                     });
                 }
                 while (PersistentSpatialMembership.TryGetNextValue(
