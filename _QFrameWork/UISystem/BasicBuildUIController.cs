@@ -22,7 +22,7 @@ namespace Test
             createUnitButton.onClick.AddListener(CreateUnit);
             create50UnitButton.onClick.AddListener(() =>
             {
-                for (int i = 0; i < 10; i++)
+                for (int i = 0; i < 20; i++)
                 {
                     CreateUnit();
                 }

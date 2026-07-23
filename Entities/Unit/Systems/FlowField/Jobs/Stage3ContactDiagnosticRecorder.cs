@@ -192,22 +192,21 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepWallCorrection = selected.TimestepWallCorrection
         };
 
-        if (AdaptiveFatAabbRequested)
+        if (EnablePersistentContactCache &&
+            TryFindPersistentProxy(
+                selected.Entity,
+                out PersistentSweptProxy proxy) &&
+            proxy.IsValid != 0)
         {
-            if (TryFindProxy(
-                    ShadowPreviousProxies,
-                    selected.Entity,
-                    out ShadowFatBodyProxy proxy))
-            {
-                float coreExtent = math.max(0f, selected.Radius) + math.max(0f, PredictiveSkin);
-                float2 finalMin = selected.PredictedPosition.xz - coreExtent;
-                float2 finalMax = selected.PredictedPosition.xz + coreExtent;
-                selectedDiagnostic.ShadowReferenceAvailable = 1;
-                selectedDiagnostic.ShadowEscaped =
-                    (byte)(AabbContains(proxy.FatMin, proxy.FatMax, finalMin, finalMax) ? 0 : 1);
-                selectedDiagnostic.ShadowFatMin = proxy.FatMin;
-                selectedDiagnostic.ShadowFatMax = proxy.FatMax;
-            }
+            float coreExtent = math.max(0f, selected.Radius) +
+                               math.max(0f, PredictiveSkin);
+            float2 finalMin = selected.PredictedPosition.xz - coreExtent;
+            float2 finalMax = selected.PredictedPosition.xz + coreExtent;
+            selectedDiagnostic.ShadowReferenceAvailable = 1;
+            selectedDiagnostic.ShadowEscaped =
+                (byte)(AabbContains(proxy.GuardMin, proxy.GuardMax, finalMin, finalMax) ? 0 : 1);
+            selectedDiagnostic.ShadowFatMin = proxy.GuardMin;
+            selectedDiagnostic.ShadowFatMax = proxy.GuardMax;
         }
 
         SelectedBodyDiagnostic.Value = selectedDiagnostic;
