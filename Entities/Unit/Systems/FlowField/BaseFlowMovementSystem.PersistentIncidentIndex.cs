@@ -19,9 +19,10 @@ public abstract partial class BaseFlowMovementSystem
 
     private void EnsurePersistentIncidentLookupCapacity(int unitCount)
     {
-        int required = math.max(
-            1,
-            math.max(unitCount * 64, _persistentNeighborPairs.Length * 2 + 1));
+        // Do not inspect PersistentNeighborPairs.Length here: the previous frame may
+        // still be writing that persistent list. Capacity is derived only from the
+        // stable main-thread body count, and growth is the only synchronization point.
+        int required = math.max(1, unitCount * 64);
         if (_persistentIncidentPairLookup.Capacity >= required)
             return;
         Dependency.Complete();
