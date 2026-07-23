@@ -1400,24 +1400,38 @@ public partial struct SolveXpbdUnitContactsJob
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
 
-        for (int pairIndex = 0;
-             pairIndex < PersistentNeighborPairs.Length;
-             pairIndex++)
+        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        if (!PersistentIncidentPairLookup.IsCreated)
+            return false;
+
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
-            StableEntityPairKey key = PersistentNeighborPairs[pairIndex].Key;
-            if (!IsDirtyEntity(key.EntityA) && !IsDirtyEntity(key.EntityB))
+            int dirtyBodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
+            Entity entity = States[dirtyBodyIndex].Entity;
+            NativeParallelMultiHashMapIterator<Entity> iterator;
+            if (!PersistentIncidentPairLookup.TryGetFirstValue(
+                    entity, out int persistentPairIndex, out iterator))
                 continue;
-            if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
-                !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
-                return false;
-            Pairs.Add(new UnitCollisionPair
+            do
             {
-                BodyA = math.min(bodyA, bodyB),
-                BodyB = math.max(bodyA, bodyB)
-            });
+                if ((uint)persistentPairIndex >= (uint)PersistentNeighborPairs.Length)
+                    return false;
+                StableEntityPairKey key =
+                    PersistentNeighborPairs[persistentPairIndex].Key;
+                if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
+                    !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
+                    return false;
+                Pairs.Add(new UnitCollisionPair
+                {
+                    BodyA = math.min(bodyA, bodyB),
+                    BodyB = math.max(bodyA, bodyB)
+                });
+            }
+            while (PersistentIncidentPairLookup.TryGetNextValue(
+                out persistentPairIndex, ref iterator));
         }
 
-        SortAndDeduplicatePairs();
+        SortAndDeduplicateBodyPairs(Pairs);
         return true;
     }
 

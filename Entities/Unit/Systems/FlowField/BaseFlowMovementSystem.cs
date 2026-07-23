@@ -58,6 +58,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeList<PredictiveContactScheduleEntry>(Allocator.Persistent);
         _incrementalContactCacheState =
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
+        CreatePersistentIncidentLookup();
         _simulationDebuggerSelectedPairs =
             new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
         _simulationDebuggerSelectedUnit =
@@ -87,6 +88,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _persistentDormantContactSchedule.Dispose();
         if (_incrementalContactCacheState.IsCreated)
             _incrementalContactCacheState.Dispose();
+        DisposePersistentIncidentLookup();
         if (_simulationDebuggerSelectedPairs.IsCreated)
             _simulationDebuggerSelectedPairs.Dispose();
         if (_simulationDebuggerSelectedUnit.IsCreated)
@@ -134,6 +136,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
+        EnsurePersistentIncidentLookupCapacity(unitCount);
 
         // 同一 EntityQuery 的各阶段通过 EntityIndexInQuery 访问相同槽位，
         // 避免把仅在本帧有效的中间状态写回 ECS 组件。
@@ -341,6 +344,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PredictiveContactScheduleCursor = predictiveContactScheduleCursor,
             IncrementalCacheState = _incrementalContactCacheState,
             IncrementalStatistics = incrementalStatistics,
+            PersistentIncidentPairLookup = _persistentIncidentPairLookup,
+            PersistentIncidentLookupEpoch = _persistentIncidentLookupEpoch,
             SimulationDebuggerCaptureMask = SimulationDebuggerRuntime.CaptureMask,
             SimulationDebuggerMaximumPairs = SimulationDebuggerRuntime.MaximumVisualizedPairs,
             SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
@@ -587,6 +592,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _persistentSoftAvoidancePairKeys.Clear();
         _persistentDormantContactSchedule.Clear();
         _incrementalContactCacheState.Value = default;
+        if (_persistentIncidentPairLookup.IsCreated)
+            _persistentIncidentPairLookup.Clear();
+        if (_persistentIncidentLookupEpoch.IsCreated)
+            _persistentIncidentLookupEpoch.Value = 0;
     }
 }
 }
