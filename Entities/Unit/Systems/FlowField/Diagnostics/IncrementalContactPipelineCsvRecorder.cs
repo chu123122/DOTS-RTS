@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public static class IncrementalContactPipelineCsvRecorderRuntime
 {
-    public const int CsvSchemaVersion = 6;
+    public const int CsvSchemaVersion = 7;
 
     private static readonly List<IncrementalContactPipelineSnapshot> Samples =
         new List<IncrementalContactPipelineSnapshot>(1024);
@@ -108,7 +108,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
         {
             "CsvSchemaVersion", "SnapshotSchemaVersion", "UtcTimestamp", "SampleIndex",
             "ExperimentId", "Scenario", "ConfigurationLabel", "PipelineMode", "Timestep",
-            "UnitCount", "DeltaTime", "SubstepCount", "IterationCount",
+            "UnitCount", "DeltaTime", "SubstepCount", "IterationCount", "ContactPositionSolver",
             "TimestepCacheEnabled", "CrossFrameTopologyEnabled", "PredictiveContactsEnabled", "DiagnosticsEnabled",
             "GuardEnvelopeMargin", "PredictiveSkin", "TimestepContactMargin", "SoftAvoidanceShell",
 
@@ -167,6 +167,7 @@ public static class IncrementalContactPipelineCsvRecorderRuntime
             F(configuration.DeltaTime),
             configuration.SubstepCount.ToString(CultureInfo.InvariantCulture),
             configuration.IterationCount.ToString(CultureInfo.InvariantCulture),
+            configuration.ContactPositionSolver.ToString(CultureInfo.InvariantCulture),
             configuration.TimestepCacheEnabled.ToString(CultureInfo.InvariantCulture),
             configuration.CrossFrameTopologyEnabled.ToString(CultureInfo.InvariantCulture),
             configuration.PredictiveContactsEnabled.ToString(CultureInfo.InvariantCulture),

@@ -28,6 +28,7 @@ public struct IncrementalContactPipelineConfiguration
     public int UnitCount;
     public int SubstepCount;
     public int IterationCount;
+    public byte ContactPositionSolver;
     public float DeltaTime;
     public float GuardEnvelopeMargin;
     public float PredictiveSkin;

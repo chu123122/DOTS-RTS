@@ -75,6 +75,7 @@ public struct SimulationDebuggerEffectiveSettings
 {
     public int SubstepCount;
     public int IterationCount;
+    public int ContactPositionSolver;
     public float Compliance;
     public float PredictiveSkin;
     public byte EnablePredictivePairGeneration;
@@ -105,12 +106,13 @@ public struct SimulationExperimentMetrics
     public byte PersistentBroadPhaseCache;
     public byte TimestepContactSetCache;
     public int SoftAvoidanceSolver;
+    public int ContactPositionSolver;
     public uint ConfigurationId;
     public int FramesSinceChanged;
     public byte IsWarmup;
 
     public string ShortId =>
-        $"A{PersistentBroadPhaseCache}-B{TimestepContactSetCache}-C{SoftAvoidanceSolver}";
+        $"A{PersistentBroadPhaseCache}-B{TimestepContactSetCache}-C{SoftAvoidanceSolver}-D{ContactPositionSolver}";
 }
 
 [Serializable]

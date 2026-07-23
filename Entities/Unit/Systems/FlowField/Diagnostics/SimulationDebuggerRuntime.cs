@@ -98,7 +98,8 @@ public static class SimulationDebuggerRuntime
         {
             int key = (settings.EnableFatAabbCache != 0 ? 1 : 0) |
                       (settings.EnableTimestepContactSetCache != 0 ? 2 : 0) |
-                      ((settings.SoftAvoidanceVelocitySolver & 1) << 2);
+                      ((settings.SoftAvoidanceVelocitySolver & 1) << 2) |
+                      ((settings.ContactPositionSolver & 1) << 3);
             if (_experimentLastKey != key)
             {
                 _experimentLastKey = key;
@@ -115,6 +116,7 @@ public static class SimulationDebuggerRuntime
                 PersistentBroadPhaseCache = settings.EnableFatAabbCache,
                 TimestepContactSetCache = settings.EnableTimestepContactSetCache,
                 SoftAvoidanceSolver = settings.SoftAvoidanceVelocitySolver,
+                ContactPositionSolver = settings.ContactPositionSolver,
                 ConfigurationId = _experimentConfigurationId,
                 FramesSinceChanged = _experimentFramesSinceChanged,
                 IsWarmup = (byte)(_experimentFramesSinceChanged < ExperimentWarmupFrames ? 1 : 0)

@@ -10,6 +10,7 @@ public struct ContactPipelineConfiguration
     public float DeltaTime;
     public int SubstepCount;
     public int IterationCount;
+    public ContactPositionSolverMode ContactPositionSolver;
     public float Compliance;
     public float PredictiveSkin;
     public float SoftAvoidanceResponseRate;
@@ -37,6 +38,7 @@ public struct ContactPipelineConfiguration
             DeltaTime = deltaTime,
             SubstepCount = solverSettings.SubstepCount,
             IterationCount = solverSettings.IterationCount,
+            ContactPositionSolver = solverSettings.ContactPositionSolver,
             Compliance = solverSettings.Compliance,
             PredictiveSkin = solverSettings.PredictiveSkin,
             SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
