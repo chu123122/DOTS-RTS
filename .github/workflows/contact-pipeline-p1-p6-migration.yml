@@ -48,9 +48,17 @@ jobs:
 
       - name: P2 integrate staged body jobs
         run: |
-          python3 .github/scripts/apply_contact_pipeline_p2.py
+          python3 .github/scripts/apply_contact_pipeline_p2.py 2> migration-p2-error.txt
           git add -A
           git commit -m "perf: parallelize independent contact body stages"
+
+      - name: Upload migration error
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contact-pipeline-migration-error
+          path: migration-p2-error.txt
+          if-no-files-found: ignore
 
       - name: P3 record soft avoidance gather migration
         run: |
@@ -80,14 +88,12 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           root = Path('.')
           base = (root / 'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs').read_text()
           staged = (root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs').read_text()
           incident = (root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ActiveConstraintIncidentIndex.cs').read_text()
           diagnostics = (root / 'Entities/Unit/Systems/FlowField/Diagnostics/SimulationDebuggerSnapshotPublishing.cs').read_text()
           persistent = (root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs').read_text()
-
           required = {
               'new scheduler': 'ScheduleParallelJacobiP1P6' in base and 'ScheduleParallelJacobiP1P6' in staged,
               'soft pair parallel': 'EvaluateSoftAvoidancePairsJob : IJobParallelForDefer' in staged,
@@ -102,7 +108,6 @@ jobs:
           failed = [name for name, ok in required.items() if not ok]
           if failed:
               raise SystemExit('missing contracts: ' + ', '.join(failed))
-
           for path in [
               root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs',
               root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ActiveConstraintIncidentIndex.cs',
@@ -117,4 +122,4 @@ jobs:
       - name: Push phase commits
         run: git push origin HEAD:codex/contact-pipeline-parallel-p1-p6
 
-# Trigger revision 3
+# Trigger revision 4
