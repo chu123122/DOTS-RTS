@@ -1,0 +1,30 @@
+name: Export old Jacobi phase 4 draft
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/tmp-export-old-phase4
+          fetch-depth: 0
+      - name: Extract old draft patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin f5496ce508dd825203c7e3c2cac7fefeaf60b544
+          git show f5496ce508dd825203c7e3c2cac7fefeaf60b544:.github/jacobi/phase4b.patch.gz.b64 \
+            | base64 -d | gzip -d > /tmp/old-phase4b.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: old-phase4b-patch
+          path: /tmp/old-phase4b.patch
+          if-no-files-found: error
