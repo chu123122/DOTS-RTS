@@ -22,7 +22,7 @@ Motion integration + Soft Avoidance + XPBD / wall projection
 - **Prediction** owns timestep envelopes, view construction, safety validation, and the
   single incremental-repair/full-rebuild fallback boundary.
 - **SoftAvoidance** consumes only the compact soft view.
-- **Solver** consumes only frame-local active constraints and may not mutate topology.
+- **Solver** consumes only frame-local active constraints and may not mutate topology. Gauss–Seidel remains the serial reference; Jacobi evaluates pairs in parallel and gathers deterministic body corrections through a frame-local CSR incident index.
 - **Motion** owns substep velocity preparation, position prediction, and reconstruction.
 - **Diagnostics** observes completed snapshots; it is not a state authority.
 
@@ -33,7 +33,7 @@ Motion integration + Soft Avoidance + XPBD / wall projection
 | Persistent proxy / neighbor / contact | Cross timestep | Entity pair |
 | Timestep interaction / soft / active view | One timestep or rebuild interval | Current BodyIndex mapping |
 | Lambda / activation flags | One substep or timestep | Frame-local pair |
-| Iteration correction | One XPBD iteration | None |
+| Iteration correction | One XPBD iteration | Pair index / BodyIndex |
 
 ## Correctness invariants
 
@@ -42,7 +42,8 @@ Motion integration + Soft Avoidance + XPBD / wall projection
 3. Soft/RVO output cannot leave the proven interaction envelope without being clamped.
 4. Predicted positions and solver corrections are validated after their respective mutations.
 5. Failed incremental proof converges on one full-sweep fallback path.
-6. Oracle missing-pair count must remain zero when diagnostics are enabled.
+6. Jacobi pair evaluation reads one immutable position snapshot; body gather applies contributions in deterministic incident-pair order without float atomics.
+7. Oracle missing-pair count must remain zero when diagnostics are enabled.
 
 ## Explicit exclusions
 
