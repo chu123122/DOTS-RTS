@@ -2,7 +2,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode;
 using Unity.Physics;
 using RTS.Unit.Components;
 using RTS.Unit.FlowField;
@@ -20,7 +19,7 @@ namespace RTS.Unit.FlowField.Systems
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup))]
-    [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
+    [UpdateAfter(typeof(FixedStepSimulationSystemGroup))]
     public partial class FlowFieldBakeSystem : SystemBase
     {
         private JobHandle _bakeHandle;
@@ -28,6 +27,7 @@ namespace RTS.Unit.FlowField.Systems
         private JobHandle _pendingReuseHandle;
         private bool _isBaking;
         private bool _scheduledCostDirty;
+        private bool _waitingForPhysicsWorldRefresh;
         private uint _scheduledRequestVersion;
 
         protected override void OnCreate()
@@ -75,10 +75,48 @@ namespace RTS.Unit.FlowField.Systems
                 return;
             }
 
-            if (!requestEnabled) return;
+            if (!requestEnabled)
+            {
+                _waitingForPhysicsWorldRefresh = false;
+                return;
+            }
+
+            if (!IsCollisionWorldReadyForCostBake(managerEntity))
+                return;
 
             EnsureRuntimeGrid(managerEntity);
             ScheduleBake(managerEntity);
+        }
+
+        private bool IsCollisionWorldReadyForCostBake(Entity managerEntity)
+        {
+            FlowFieldCostState costState =
+                EntityManager.GetComponentData<FlowFieldCostState>(managerEntity);
+            if (!costState.IsDirty)
+            {
+                _waitingForPhysicsWorldRefresh = false;
+                return true;
+            }
+
+            // PhysicsWorldSingleton can still contain the world built before an
+            // asynchronously streamed SubScene added its static colliders. Observe
+            // the dirty request once, then wait until BuildPhysicsWorld writes a
+            // newer singleton before sampling obstacle costs.
+            if (!_waitingForPhysicsWorldRefresh)
+            {
+                _waitingForPhysicsWorldRefresh = true;
+                return false;
+            }
+
+            Entity physicsWorldEntity =
+                SystemAPI.GetSingletonEntity<PhysicsWorldSingleton>();
+            ComponentLookup<PhysicsWorldSingleton> physicsWorldLookup =
+                GetComponentLookup<PhysicsWorldSingleton>(true);
+            if (!physicsWorldLookup.DidChange(physicsWorldEntity, LastSystemVersion))
+                return false;
+
+            _waitingForPhysicsWorldRefresh = false;
+            return true;
         }
 
         private void EnsureRuntimeGrid(Entity managerEntity)

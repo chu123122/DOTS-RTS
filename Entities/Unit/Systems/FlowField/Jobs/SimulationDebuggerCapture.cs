@@ -133,17 +133,17 @@ public partial struct SolveXpbdUnitContactsJob
             ActiveContactCount = activeContacts
         };
 
-        for (int i = 0; i < AdaptiveDebugProxies.Length; i++)
+        if (EnablePersistentContactCache &&
+            TryFindPersistentProxy(
+                state.Entity,
+                out PersistentSweptProxy persistentProxy) &&
+            persistentProxy.IsValid != 0)
         {
-            AdaptiveFatAabbDebugProxy proxy = AdaptiveDebugProxies[i];
-            if (proxy.Entity != state.Entity)
-                continue;
-            sample.SweptMin = proxy.CoreMin;
-            sample.SweptMax = proxy.CoreMax;
-            sample.FatMin = proxy.FatMin;
-            sample.FatMax = proxy.FatMax;
+            sample.SweptMin = persistentProxy.TightMin;
+            sample.SweptMax = persistentProxy.TightMax;
+            sample.FatMin = persistentProxy.GuardMin;
+            sample.FatMax = persistentProxy.GuardMax;
             sample.HasFatBounds = 1;
-            break;
         }
 
         SimulationDebuggerSelectedUnit.Value = sample;
