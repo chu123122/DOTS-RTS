@@ -194,6 +194,24 @@ public partial struct SolveXpbdUnitContactsJob
                 SubstepIndex = substepIndex
             }.Schedule(handle);
 
+            handle = new PrepareP1P6RepairPredictionBodiesJob
+            {
+                States = States,
+                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
+                Duration = math.max(
+                    substepDeltaTime,
+                    (substepCount - substepIndex) * substepDeltaTime),
+                Skin = Configuration.PredictiveSkin,
+                Margin = Configuration.TimestepContactMargin,
+                GridOrigin = GridOrigin,
+                CellRadius = CellRadius,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon,
+                Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
+            }.Schedule(States.Length, ParallelBodyBatchSize, handle);
+
             handle = new RepairP1P6SubstepContactViewJob
             {
                 Solver = this,
@@ -617,6 +635,61 @@ public partial struct SolveXpbdUnitContactsJob
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
         public int SubstepIndex;
         public void Execute() => Solver.FinalizeP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
+    }
+
+    [BurstCompile]
+    private struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelFor
+    {
+        public NativeArray<FlowMovementFrameState> States;
+        [ReadOnly] public NativeArray<IncrementalDirtyBody> DirtyBodies;
+        public float Duration;
+        public float Skin;
+        public float Margin;
+        public float3 GridOrigin;
+        public float CellRadius;
+        public float SoftAvoidanceShell;
+        public float SoftAvoidanceResponseRate;
+        public SoftAvoidanceVelocitySolverMode SoftSolverMode;
+        public float RvoTimeHorizon;
+        public byte Enabled;
+
+        public void Execute(int bodyIndex)
+        {
+            if (Enabled == 0 || DirtyBodies.Length == 0)
+                return;
+
+            FlowMovementFrameState state = States[bodyIndex];
+            if (!state.IsInsideGrid)
+                return;
+
+            float3 start = state.PredictedPosition;
+            float3 velocity = state.BasePredictedVelocity;
+            if (state.IsSettled)
+                velocity *= math.pow(0.8f, Duration * 60f);
+            if (math.lengthsq(velocity) > state.MoveSpeed * state.MoveSpeed)
+                velocity = math.normalizesafe(velocity) * state.MoveSpeed;
+
+            float3 end = start + velocity * Duration;
+            end.y = state.CurrentPosition.y;
+            float extent = math.max(0f, state.Radius) +
+                           math.max(0f, Skin) + math.max(0f, Margin);
+            state.TimestepStartPosition = start;
+            state.TimestepPredictedPosition = end;
+            state.BasePredictedVelocity = velocity;
+            state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
+            state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            CalculateInteractionBounds(
+                state,
+                Skin,
+                Margin,
+                SoftAvoidanceShell,
+                SoftAvoidanceResponseRate,
+                SoftSolverMode,
+                RvoTimeHorizon,
+                out state.TimestepInteractionEnvelopeMin,
+                out state.TimestepInteractionEnvelopeMax);
+            States[bodyIndex] = state;
+        }
     }
 
     [BurstCompile]
@@ -1206,20 +1279,38 @@ public partial struct SolveXpbdUnitContactsJob
         }
         else if (IncrementalDirtyBodies.Length > 0)
         {
-            RepairOrRebuildContactViewForRemainingTime(
+            RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
                 substepIndex,
-                substepCount,
-                substepDeltaTime,
-                true,
                 ref statistics,
-                ref incremental,
-                false);
+                ref incremental);
             InvalidateSoftIncidentIndexP1P6();
             RebuildPersistentIncidentPairLookupIfNeededP1P6();
         }
 
         Statistics.Value = statistics;
         IncrementalStatistics.Value = incremental;
+    }
+
+    private void RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
+        int substepIndex,
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        int scheduleStartSubstep = substepIndex;
+        if (EnablePersistentContactCache &&
+            TryIncrementallyRepairEscapedContactSet(
+                substepIndex,
+                scheduleStartSubstep,
+                ref statistics,
+                ref incrementalStatistics))
+            return;
+
+        BuildTimestepContactSet(
+            ref statistics,
+            ref incrementalStatistics,
+            true,
+            true,
+            scheduleStartSubstep);
     }
 
     private void PrepareP1P6SoftWorkset(
