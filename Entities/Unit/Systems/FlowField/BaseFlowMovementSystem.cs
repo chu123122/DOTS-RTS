@@ -254,6 +254,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var jacobiPairCorrections = new NativeList<JacobiPairCorrection>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
+        var parallelJacobiRuntimeState =
+            new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob);
+        var parallelJacobiIterationState =
+            new NativeReference<ParallelJacobiIterationState>(Allocator.TempJob);
+        var parallelJacobiBlockStatistics = new NativeList<JacobiBlockStatistics>(
+            math.max((unitCount * 4 + 63) / 64, 1),
+            Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -325,7 +332,19 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SelectedBodyDiagnostic = selectedBodyDiagnostic,
             HeatSamples = heatSamples
         };
-        JobHandle solveContactHandle = solveContactJob.Schedule(initializeSolverStateHandle);
+        bool requiresSerialJacobiCapture =
+            (SimulationDebuggerRuntime.CaptureMask &
+             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+        bool useParallelJacobi =
+            contactSolverSettings.ContactPositionSolver == ContactPositionSolverMode.Jacobi &&
+            !requiresSerialJacobiCapture;
+        JobHandle solveContactHandle = useParallelJacobi
+            ? solveContactJob.ScheduleParallelJacobi(
+                parallelJacobiRuntimeState,
+                parallelJacobiIterationState,
+                parallelJacobiBlockStatistics,
+                initializeSolverStateHandle)
+            : solveContactJob.Schedule(initializeSolverStateHandle);
 
         var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
         {
@@ -415,6 +434,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             activeIncidentPairIndices.Dispose(applyMovementHandle);
         JobHandle jacobiPairCorrectionDisposeHandle =
             jacobiPairCorrections.Dispose(applyMovementHandle);
+        JobHandle parallelJacobiRuntimeStateDisposeHandle =
+            parallelJacobiRuntimeState.Dispose(applyMovementHandle);
+        JobHandle parallelJacobiIterationStateDisposeHandle =
+            parallelJacobiIterationState.Dispose(applyMovementHandle);
+        JobHandle parallelJacobiBlockStatisticsDisposeHandle =
+            parallelJacobiBlockStatistics.Dispose(applyMovementHandle);
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -477,6 +502,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   solverScratchDisposeHandle,
   jacobiPairCorrectionDisposeHandle,
   incrementalStatisticsDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  parallelJacobiRuntimeStateDisposeHandle,
+  parallelJacobiIterationStateDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  parallelJacobiBlockStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
             statisticsDisposeHandle,
