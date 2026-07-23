@@ -11,6 +11,12 @@ public enum SoftAvoidanceVelocitySolverMode : byte
     ReciprocalVelocityObstacle
 }
 
+public enum ContactPositionSolverMode : byte
+{
+    GaussSeidel,
+    Jacobi
+}
+
 public enum ContactHeatmapMode : byte
 {
     ContactLoad,
@@ -75,6 +81,7 @@ public struct UnitContactSolverSettings : IComponentData
 {
     public int SubstepCount;
     public int IterationCount;
+    public ContactPositionSolverMode ContactPositionSolver;
     public float Compliance;
     public float PredictiveSkin;
     public bool EnablePredictivePairGeneration;

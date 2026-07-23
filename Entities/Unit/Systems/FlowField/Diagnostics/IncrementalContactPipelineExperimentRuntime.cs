@@ -18,6 +18,8 @@ public static class IncrementalContactPipelineExperimentRuntime
 
     public static int SubstepCount = 4;
     public static int IterationCount = 4;
+    public static ContactPositionSolverMode ContactPositionSolver =
+        ContactPositionSolverMode.GaussSeidel;
     public static float GuardEnvelopeMargin = 0.5f;
     public static float PredictiveSkin = 0.05f;
     public static float TimestepContactMargin = 0.02f;
@@ -33,6 +35,7 @@ public static class IncrementalContactPipelineExperimentRuntime
 
         settings.SubstepCount = SubstepCount < 1 ? 1 : SubstepCount;
         settings.IterationCount = IterationCount < 1 ? 1 : IterationCount;
+        settings.ContactPositionSolver = ContactPositionSolver;
         settings.FatAabbCacheMargin = GuardEnvelopeMargin < 0f ? 0f : GuardEnvelopeMargin;
         settings.PredictiveSkin = PredictiveSkin < 0f ? 0f : PredictiveSkin;
         settings.TimestepContactMargin = TimestepContactMargin < 0f ? 0f : TimestepContactMargin;
@@ -57,6 +60,7 @@ public static class IncrementalContactPipelineExperimentRuntime
             UnitCount = unitCount,
             SubstepCount = settings.SubstepCount,
             IterationCount = settings.IterationCount,
+            ContactPositionSolver = (byte)settings.ContactPositionSolver,
             DeltaTime = deltaTime,
             GuardEnvelopeMargin = settings.FatAabbCacheMargin,
             PredictiveSkin = settings.PredictiveSkin,

@@ -101,6 +101,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 SubstepCount = math.max(1, authoring.contactSubsteps),
                 IterationCount = math.max(1, authoring.contactIterations),
+                ContactPositionSolver = ContactPositionSolverMode.GaussSeidel,
                 Compliance = math.max(0f, authoring.contactCompliance),
                 PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
                 EnablePredictivePairGeneration = authoring.enablePredictivePairGeneration,

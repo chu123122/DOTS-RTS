@@ -689,6 +689,19 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             $"当前有效：{SoftSolverLabel(snapshot.EffectiveSettings.SoftAvoidanceVelocitySolver)}",
             _mutedStyle);
         GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("D：接触位置求解器", _mutedStyle, GUILayout.Width(170f));
+        string[] contactSolverModes = { "Gauss-Seidel", "Jacobi" };
+        draft.ContactPositionSolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(draft.ContactPositionSolver, 0, 1),
+            contactSolverModes,
+            2,
+            _tabStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label(
+            $"当前有效：{ContactSolverLabel(snapshot.EffectiveSettings.ContactPositionSolver)}",
+            _mutedStyle);
+        GUILayout.EndHorizontal();
         DrawDetailRow(
             "当前实验编号",
             $"{snapshot.Experiment.ShortId} / 配置 #{snapshot.Experiment.ConfigurationId}");
@@ -712,6 +725,15 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             snapshot.EffectiveSettings.IterationCount,
             1,
             24);
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("接触位置求解器", _mutedStyle, GUILayout.Width(170f));
+        draft.ContactPositionSolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(draft.ContactPositionSolver, 0, 1),
+            new[] { "Gauss-Seidel", "Jacobi" },
+            2,
+            _tabStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.EndHorizontal();
         draft.Compliance = DrawFloatSlider(
             "柔顺度",
             draft.Compliance,
@@ -885,6 +907,11 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private static string SoftSolverLabel(int solverMode)
     {
         return solverMode == 1 ? "RVO 互惠避让" : "预测引导";
+    }
+
+    private static string ContactSolverLabel(int solverMode)
+    {
+        return solverMode == 1 ? "Jacobi" : "Gauss-Seidel";
     }
 
     private void DrawTrendChart(
