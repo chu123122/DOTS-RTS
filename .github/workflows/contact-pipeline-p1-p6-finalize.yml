@@ -1,0 +1,63 @@
+name: Contact pipeline P1-P6 finalize
+
+on:
+  push:
+    branches:
+      - codex/contact-pipeline-parallel-p1-p6
+    paths:
+      - .github/workflows/contact-pipeline-p1-p6-finalize.yml
+      - .github/scripts/finalize_contact_pipeline_p1_p6.py
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: codex/contact-pipeline-parallel-p1-p6
+
+      - name: Apply final correctness guards
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 .github/scripts/finalize_contact_pipeline_p1_p6.py
+          git add \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: harden staged contact pipeline guards"
+
+      - name: Validate final contracts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          staged = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs').read_text()
+          persistent = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs').read_text()
+          checks = {
+              'one soft cache stat': staged.count('SoftAvoidanceFatAabbUseCount++;') == 1,
+              'one zero delta guard': staged.count('if (substepDeltaTime <= 0f)') == 1,
+              'b0 post validation': 'PrepareSubstepContactPrediction();' in staged,
+              'no pre-validation b0 job': 'PrepareSubstepContactPredictionBodiesJob : IJobParallelFor' not in staged,
+              'lookup capacity guard': 'requiredEntryCount > PersistentIncidentPairLookup.Capacity' in staged,
+              'lookup epoch fallback': 'PersistentIncidentLookupEpoch.Value !=' in persistent,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('failed: ' + ', '.join(failed))
+          for path in [
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs'),
+          ]:
+              text = path.read_text()
+              if text.count('{') != text.count('}'):
+                  raise SystemExit(f'unbalanced braces: {path}')
+          PY
+
+      - name: Push final guard commit
+        run: git push origin HEAD:codex/contact-pipeline-parallel-p1-p6
