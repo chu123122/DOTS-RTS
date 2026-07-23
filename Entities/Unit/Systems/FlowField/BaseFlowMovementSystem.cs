@@ -240,6 +240,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var correctedBodyIndices = new NativeList<int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        var jacobiBodyCorrectionSums = new NativeArray<float3>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var jacobiBodyCorrectionCounts = new NativeArray<int>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -278,6 +286,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SoftAvoidancePairs = softAvoidancePairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
+            JacobiBodyCorrectionSums = jacobiBodyCorrectionSums,
+            JacobiBodyCorrectionCounts = jacobiBodyCorrectionCounts,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
@@ -389,6 +399,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
+        JobHandle jacobiBodyCorrectionSumDisposeHandle =
+            jacobiBodyCorrectionSums.Dispose(applyMovementHandle);
+        JobHandle jacobiBodyCorrectionCountDisposeHandle =
+            jacobiBodyCorrectionCounts.Dispose(applyMovementHandle);
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -442,6 +456,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
   correctedBodyIndexDisposeHandle,
+  jacobiBodyCorrectionSumDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  jacobiBodyCorrectionCountDisposeHandle,
   incrementalStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
