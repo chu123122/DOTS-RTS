@@ -26,6 +26,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;
     private int IterationCount => Configuration.IterationCount;
+    private ContactPositionSolverMode ContactPositionSolver =>
+        Configuration.ContactPositionSolver;
     private float Compliance => Configuration.Compliance;
     private float PredictiveSkin => Configuration.PredictiveSkin;
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
@@ -63,6 +65,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> SoftAvoidancePairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
+    public NativeArray<float3> JacobiBodyCorrectionSums;
+    public NativeArray<int> JacobiBodyCorrectionCounts;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
@@ -240,7 +244,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     ResetTimestepContactSetForSubstep();
                 }
 
-                SolveContactIteration(
+                SolveConfiguredContactIteration(
                     substepDeltaTime,
                     substepIndex,
                     true,
@@ -288,7 +292,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     if (iterationIndex == iterationCount - 1)
                     {
                         ResetTimestepContactSetForSubstep();
-                        SolveContactIteration(
+                        SolveConfiguredContactIteration(
                             substepDeltaTime,
                             substepIndex,
                             true,
