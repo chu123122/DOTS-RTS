@@ -71,6 +71,14 @@ public partial struct SolveXpbdUnitContactsJob
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
+        if (substepDeltaTime <= 0f)
+        {
+            return new FinalizeParallelJacobiPipelineJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
+        }
 
         if (Configuration.EnableTimestepContactSetCache)
         {
@@ -1089,6 +1097,9 @@ public partial struct SolveXpbdUnitContactsJob
         int escaped = 0;
         for (int i = 0; i < EnvelopeEscapeFlags.Length; i++)
             escaped += EnvelopeEscapeFlags[i] != 0 ? 1 : 0;
+        if (EnablePersistentContactCache &&
+            SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
+            statistics.SoftAvoidanceFatAabbUseCount++;
         if (EnablePersistentContactCache &&
             SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
             statistics.SoftAvoidanceFatAabbUseCount++;
