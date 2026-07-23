@@ -32,9 +32,10 @@ new_build = '''        if (!EnableTimestepContactSetCache && !rebuilt)
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepContactView(ref statistics, ref incremental);
 '''
-if old_build not in text:
+if old_build in text:
+    text = text.replace(old_build, new_build, 1)
+elif "PrepareSubstepContactPrediction();\n            long start" not in text:
     raise RuntimeError("B0 contact-view build anchor missing")
-text = text.replace(old_build, new_build, 1)
 
 old_stats = '''        statistics.SoftAvoidanceCandidatePairCount += SoftAvoidancePairs.Length;
         statistics.SoftAvoidanceActivatedPairCount += activated;
@@ -45,9 +46,31 @@ new_stats = '''        if (EnablePersistentContactCache &&
         statistics.SoftAvoidanceCandidatePairCount += SoftAvoidancePairs.Length;
         statistics.SoftAvoidanceActivatedPairCount += activated;
 '''
-if old_stats not in text:
+if old_stats in text:
+    text = text.replace(old_stats, new_stats, 1)
+elif "statistics.SoftAvoidanceFatAabbUseCount++;" not in text:
     raise RuntimeError("soft statistics anchor missing")
-text = text.replace(old_stats, new_stats, 1)
+
+zero_delta_anchor = '''        float substepDeltaTime = Configuration.DeltaTime / substepCount;
+
+        if (Configuration.EnableTimestepContactSetCache)
+'''
+zero_delta_replacement = '''        float substepDeltaTime = Configuration.DeltaTime / substepCount;
+        if (substepDeltaTime <= 0f)
+        {
+            return new FinalizeParallelJacobiPipelineJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
+        }
+
+        if (Configuration.EnableTimestepContactSetCache)
+'''
+if zero_delta_anchor in text:
+    text = text.replace(zero_delta_anchor, zero_delta_replacement, 1)
+elif "if (substepDeltaTime <= 0f)" not in text:
+    raise RuntimeError("zero-delta scheduler anchor missing")
 
 if "PrepareSubstepContactPredictionBodiesJob\n            {" in text:
     raise RuntimeError("B0 prediction is still scheduled before validation")
