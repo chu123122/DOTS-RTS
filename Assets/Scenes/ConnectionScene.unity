@@ -3393,6 +3393,138 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Padding: {x: -8, y: -5, z: -8, w: -5}
   m_Softness: {x: 0, y: 0}
+--- !u!1 &1385868241
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1385868242}
+  - component: {fileID: 1385868243}
+  m_Layer: 0
+  m_Name: AdaptiveParameterTuner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1385868242
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1385868241}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1385868243
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1385868241}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b783ec7727753c64fb7ba4b3d8089c01, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  UnitCount: 200
+  ClusterCenter:
+    x: 0
+    y: 0
+    z: 0
+  SpawnSpread: 2
+  PostSpawnDelaySeconds: 5
+  WarmupFrames: 360
+  TrialFrames: 600
+  StatisticsFrames: 300
+  IssueMoveBeforeTrials: 0
+  MoveTargetSpread: 10
+  TrialList:
+  - Label: baseline_timestep_swept_A0_B1
+    EnablePredictivePairGeneration: 1
+    EnableFatAabbCache: 0
+    EnableAdaptiveFatAabb: 0
+    EnableTimestepContactSetCache: 1
+    EnableDiagnostics: 0
+    PredictiveSkin: 0
+    FatAabbCacheMargin: 0.5
+    SubstepCount: 4
+    IterationCount: 4
+    AdaptiveDetectionCellSpan: 0
+    AdaptiveMinimumUnitsPerCell: 0
+    AdaptiveMinimumUnitsPerRegion: 0
+    AdaptiveEnableScore: 0
+  - Label: incremental_persistent_A1_B1
+    EnablePredictivePairGeneration: 1
+    EnableFatAabbCache: 1
+    EnableAdaptiveFatAabb: 0
+    EnableTimestepContactSetCache: 1
+    EnableDiagnostics: 0
+    PredictiveSkin: 0
+    FatAabbCacheMargin: 0.5
+    SubstepCount: 4
+    IterationCount: 4
+    AdaptiveDetectionCellSpan: 0
+    AdaptiveMinimumUnitsPerCell: 0
+    AdaptiveMinimumUnitsPerRegion: 0
+    AdaptiveEnableScore: 0
+  UseScenarioBenchmark: 1
+  BenchmarkRepetitions: 7
+  BenchmarkCachePrimingFrames: 60
+  BenchmarkHoldFrames: 600
+  BenchmarkFramesPerLeg: 300
+  BenchmarkRawSampleInterval: 10
+  BenchmarkSettledFrames: 45
+  BenchmarkMaxPreparationFrames: 1800
+  BenchmarkSettledSpeedThreshold: 0.05
+  BenchmarkSettledUnitRatio: 0.903
+  BenchmarkScenarios:
+  - Enabled: 1
+    Label: settled_hold
+    Mode: 0
+    PointA:
+      x: 2.584251
+      y: 0.000003814697
+      z: -4.022369
+    PointB:
+      x: 0
+      y: 0
+      z: 0
+    RoundTripCount: 1
+  - Enabled: 1
+    Label: open_ping_pong
+    Mode: 1
+    PointA:
+      x: 2.584251
+      y: 0.000003814697
+      z: -4.022369
+    PointB:
+      x: 27.87032
+      y: 0
+      z: -2.884846
+    RoundTripCount: 2
+  - Enabled: 1
+    Label: obstacle_ping_pong
+    Mode: 2
+    PointA:
+      x: 2.584251
+      y: 0.000003814697
+      z: -4.022369
+    PointB:
+      x: 11.11795
+      y: 0
+      z: 25.84306
+    RoundTripCount: 2
 --- !u!1 &1534747098
 GameObject:
   m_ObjectHideFlags: 0
@@ -5165,10 +5297,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75cdd9a2705b4ae5a12b3b520f534d78, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  connectModeDropdown: {fileID: 85983898}
-  teamDropdown: {fileID: 304733021}
-  addressInputField: {fileID: 979311047}
-  portInputField: {fileID: 1090951634}
   connectButton: {fileID: 1265502339}
 --- !u!4 &2099911273
 Transform:
@@ -5284,3 +5412,4 @@ SceneRoots:
   - {fileID: 1654774521}
   - {fileID: 1835154179}
   - {fileID: 2099911273}
+  - {fileID: 1385868242}

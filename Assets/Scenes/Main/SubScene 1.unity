@@ -784,7 +784,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4491904405285657162, guid: b1ac56c6561319c4ebddb4c73c42ce48, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 18.47
+      value: 19.01
       objectReference: {fileID: 0}
     - target: {fileID: 4491904405285657162, guid: b1ac56c6561319c4ebddb4c73c42ce48, type: 3}
       propertyPath: m_LocalPosition.y
@@ -918,6 +918,33 @@ MonoBehaviour:
     x: -25
     y: 0
     z: -25
+  showGrid: 1
+  showCost: 1
+  showDirections: 1
+  pixelsPerCell: 8
+  visualizationOpacity: 0.65
+  visualizationHeightOffset: 0.05
+  softAvoidanceResponseRate: 4
+  softAvoidanceShell: 0.2
+  settledSoftAvoidanceMultiplier: 0.3
+  softAvoidanceVelocitySolver: 1
+  rvoTimeHorizon: 0.5
+  contactSubsteps: 3
+  contactIterations: 5
+  contactCompliance: 0
+  predictiveContactSkin: 0.05
+  enablePredictivePairGeneration: 1
+  enablePredictiveContacts: 1
+  enableContactDiagnostics: 0
+  visualizeSelectedContacts: 1
+  visualizeContactHeatmap: 1
+  contactHeatmapMode: 0
+  diagnosticSlowMotionScale: 0.2
+  diagnosticCaptureDuration: 10
+  diagnosticCaptureInterval: 0.1
+  enableFatAabbCache: 1
+  fatAabbCacheMargin: 0.5
+  timestepContactMargin: 0.25
 --- !u!4 &921903694
 Transform:
   m_ObjectHideFlags: 0
@@ -1921,7 +1948,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4491904405285657162, guid: b1ac56c6561319c4ebddb4c73c42ce48, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 7.5
+      value: 7
       objectReference: {fileID: 0}
     - target: {fileID: 4491904405285657162, guid: b1ac56c6561319c4ebddb4c73c42ce48, type: 3}
       propertyPath: m_LocalPosition.y
