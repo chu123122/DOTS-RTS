@@ -212,7 +212,37 @@ public partial struct SolveXpbdUnitContactsJob
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
-            handle = new RepairP1P6SubstepContactViewJob
+            handle = new PrepareP1P6SubstepRepairClassificationJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex
+            }.Schedule(handle);
+
+            handle = new EvaluatePersistentPairClassificationsP1P6Job
+            {
+                States = States,
+                RawPairs = Pairs.AsDeferredJobArray(),
+                PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
+                PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                PhaseState = PersistentClassificationState,
+                Results = PersistentClassificationResults.AsDeferredJobArray(),
+                PredictiveSkin = Configuration.PredictiveSkin,
+                TimestepContactMargin = Configuration.TimestepContactMargin,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                SoftAvoidanceVelocitySolver = Configuration.SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon,
+                EnablePredictivePairGeneration =
+                    (byte)(Configuration.EnablePredictivePairGeneration ? 1 : 0),
+                EnablePredictiveContacts =
+                    (byte)(Configuration.EnablePredictiveContacts ? 1 : 0),
+                SubstepCount = math.max(1, Configuration.SubstepCount),
+                ScheduleStartSubstep = substepIndex
+            }.Schedule(PersistentClassificationResults, SoftPairBatchSize, handle);
+
+            handle = new CommitP1P6SubstepRepairClassificationJob
             {
                 Solver = this,
                 RuntimeState = runtimeState,
@@ -693,12 +723,25 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
-    private struct RepairP1P6SubstepContactViewJob : IJob
+    private struct PrepareP1P6SubstepRepairClassificationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
         public int SubstepIndex;
-        public void Execute() => Solver.RepairP1P6SubstepContactView(SubstepIndex, RuntimeState);
+        public void Execute() => Solver.PrepareP1P6SubstepRepairClassification(
+            SubstepIndex,
+            RuntimeState);
+    }
+
+    [BurstCompile]
+    private struct CommitP1P6SubstepRepairClassificationJob : IJob
+    {
+        public SolveXpbdUnitContactsJob Solver;
+        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public int SubstepIndex;
+        public void Execute() => Solver.CommitP1P6SubstepRepairClassification(
+            SubstepIndex,
+            RuntimeState);
     }
 
     [BurstCompile]
@@ -1255,6 +1298,278 @@ public partial struct SolveXpbdUnitContactsJob
         incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
         Statistics.Value = statistics;
         IncrementalStatistics.Value = incremental;
+    }
+
+    private void PrepareP1P6SubstepRepairClassification(
+        int substepIndex,
+        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+    {
+        ParallelPersistentClassificationState phase = default;
+        PersistentClassificationResults.Clear();
+        PersistentClassificationState.Value = phase;
+
+        if (runtimeState.Value.IsValid == 0)
+            return;
+        if (!EnableTimestepContactSetCache ||
+            !EnablePersistentContactCache ||
+            IncrementalDirtyBodies.Length == 0)
+        {
+            RepairP1P6SubstepContactView(substepIndex, runtimeState);
+            return;
+        }
+
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
+        long validationStart = ProfilerUnsafeUtility.Timestamp;
+        PrepareCurrentBodyLookup();
+        BuildCurrentIncrementalSweptProxies();
+
+        int topologyDirtyCount = 0;
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        {
+            IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
+            int bodyIndex = dirty.BodyIndex;
+            Entity entity = States[bodyIndex].Entity;
+            IncrementalBodyDirtyFlags flags =
+                IncrementalBodyDirtyFlags.Motion |
+                IncrementalBodyDirtyFlags.CorrectedEscape;
+
+            if (!TryFindCurrentIncrementalProxyP1P6(
+                    entity,
+                    out PersistentSweptProxy current,
+                    out int currentProxyIndex) ||
+                !TryFindPersistentProxy(entity, out PersistentSweptProxy previous) ||
+                previous.IsValid != current.IsValid ||
+                (current.IsValid != 0 && !AabbContains(
+                    previous.GuardMin,
+                    previous.GuardMax,
+                    current.TightMin,
+                    current.TightMax)))
+            {
+                flags |= IncrementalBodyDirtyFlags.Topology;
+                topologyDirtyCount++;
+            }
+            else
+            {
+                AssignMotionVersion(ref current, previous);
+                CurrentIncrementalProxies[currentProxyIndex] = current;
+            }
+
+            dirty.Flags = flags;
+            IncrementalDirtyBodies[dirtyIndex] = dirty;
+            IncrementalDirtyFlagsByBody[bodyIndex] = (byte)flags;
+        }
+        incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - validationStart);
+
+        float dirtyRatio = States.Length > 0
+            ? (float)IncrementalDirtyBodies.Length / States.Length
+            : 1f;
+        if (dirtyRatio > IncrementalDirtyBodyRatioThreshold ||
+            IncrementalCacheState.Value.IsValid == 0)
+        {
+            BuildTimestepContactSet(
+                ref statistics,
+                ref incremental,
+                true,
+                true,
+                substepIndex);
+            InvalidateSoftIncidentIndexP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            Statistics.Value = statistics;
+            IncrementalStatistics.Value = incremental;
+            return;
+        }
+
+        long pairDiffStart = ProfilerUnsafeUtility.Timestamp;
+        long localBroadPhaseBefore = incremental.LocalBroadPhaseNanoseconds;
+        UpdatePersistentProxyMetadata();
+        if (topologyDirtyCount > 0)
+            IncrementallyRepairPersistentNeighborTopology(ref incremental, false);
+        long pairDiffElapsed = TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - pairDiffStart);
+        long localBroadPhaseElapsed =
+            incremental.LocalBroadPhaseNanoseconds - localBroadPhaseBefore;
+        incremental.PairDiffNanoseconds += math.max(0L, pairDiffElapsed - localBroadPhaseElapsed);
+
+        PreviousTimestepContactPairs.Clear();
+        PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
+        long mappingStart = ProfilerUnsafeUtility.Timestamp;
+        if (!MapDirtyIncidentNeighborPairsToCurrentBodies())
+        {
+            incremental.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - mappingStart);
+            BuildTimestepContactSet(
+                ref statistics,
+                ref incremental,
+                true,
+                true,
+                substepIndex);
+            InvalidateSoftIncidentIndexP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            Statistics.Value = statistics;
+            IncrementalStatistics.Value = incremental;
+            return;
+        }
+        incremental.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - mappingStart);
+
+        RemoveDirtyPredictiveContactSchedules();
+        PredictiveContactScratch.Clear();
+        for (int contactIndex = 0;
+             contactIndex < PersistentPredictiveContacts.Length;
+             contactIndex++)
+        {
+            PersistentPredictiveContact contact =
+                PersistentPredictiveContacts[contactIndex];
+            if (IsDirtyEntity(contact.Key.EntityA) ||
+                IsDirtyEntity(contact.Key.EntityB))
+                continue;
+            PredictiveContactScratch.Add(contact);
+        }
+
+        phase.BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+        phase.ClassificationStartTimestamp = phase.BuildStartTimestamp;
+        phase.Timestep = IncrementalCacheState.Value.Timestep;
+        phase.ClassificationEpoch = CalculateClassificationEpoch();
+        phase.NeedsCommit = 2;
+        PersistentClassificationResults.ResizeUninitialized(Pairs.Length);
+        PersistentClassificationState.Value = phase;
+        Statistics.Value = statistics;
+        IncrementalStatistics.Value = incremental;
+    }
+
+    private void CommitP1P6SubstepRepairClassification(
+        int substepIndex,
+        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+    {
+        ParallelPersistentClassificationState phase =
+            PersistentClassificationState.Value;
+        if (runtimeState.Value.IsValid == 0 || phase.NeedsCommit != 2)
+            return;
+
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
+        int retainedCount = 0;
+        int activeWriteIndex = 0;
+        statistics.CandidatePairCount += PersistentClassificationResults.Length;
+
+        for (int pairIndex = 0;
+             pairIndex < PersistentClassificationResults.Length;
+             pairIndex++)
+        {
+            PersistentPairClassificationResult result =
+                PersistentClassificationResults[pairIndex];
+            UnitCollisionPair rawPair = result.RawPair;
+            PersistentPredictiveContact contact = result.Contact;
+            PredictiveContactScratch.Add(contact);
+            if (result.WasReclassified != 0)
+            {
+                incremental.ReclassifiedPairEvaluationCount++;
+                incremental.SweptClassificationEvaluationCount++;
+            }
+            else
+            {
+                incremental.ClassificationReuseCount++;
+                incremental.ClassificationSkippedCount++;
+            }
+            AccumulatePersistentClassificationStatistics(contact, ref statistics);
+
+            if (contact.Lifecycle == PersistentContactLifecycle.Expired)
+                continue;
+            retainedCount++;
+            if (contact.Lifecycle == PersistentContactLifecycle.Dormant)
+            {
+                PredictiveContactSchedule.Add(new PredictiveContactScheduleEntry
+                {
+                    Key = contact.Key,
+                    Substep = contact.NextCheckSubstep
+                });
+                continue;
+            }
+            Pairs[activeWriteIndex++] = BuildUnitCollisionPairFromPersistentContact(
+                rawPair.BodyA,
+                rawPair.BodyB,
+                contact);
+        }
+
+        Pairs.ResizeUninitialized(activeWriteIndex);
+        if (Pairs.Length > 1)
+            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+        if (PredictiveContactScratch.Length > 1)
+            PredictiveContactScratch.AsArray().Sort(
+                new PersistentPredictiveContactComparer());
+        if (PredictiveContactSchedule.Length > 1)
+            PredictiveContactSchedule.AsArray().Sort(
+                new PredictiveContactScheduleEntryComparer());
+        PredictiveContactScheduleCursor.Value = 0;
+
+        PersistentPredictiveContacts.Clear();
+        PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
+        RebuildPersistentContactViews();
+        RebuildSoftAvoidancePairSetFromPersistentContacts();
+        statistics.ContactPairCount += retainedCount;
+        incremental.CurrentInteractionPairCount = PersistentNeighborPairs.Length;
+        incremental.CurrentSoftAvoidancePairCount = SoftAvoidancePairs.Length;
+        incremental.PersistentViewRebuildCount++;
+
+        IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
+        cacheState.ClassificationEpoch = phase.ClassificationEpoch;
+        cacheState.LastUpdateWasFullRebuild = 0;
+        cacheState.NeighborPairCount = PersistentNeighborPairs.Length;
+        IncrementalCacheState.Value = cacheState;
+
+        RebuildEscapedTimestepContactView(ref statistics, ref incremental);
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        {
+            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
+            FlowMovementFrameState state = States[bodyIndex];
+            state.TimestepEscaped = 0;
+            States[bodyIndex] = state;
+        }
+
+        incremental.IncrementalRepairCount++;
+        incremental.UsedIncrementalTopology = 1;
+        incremental.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
+        incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - phase.ClassificationStartTimestamp);
+        statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - phase.BuildStartTimestamp);
+
+        InvalidateSoftIncidentIndexP1P6();
+        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        phase.NeedsCommit = 0;
+        PersistentClassificationState.Value = phase;
+        Statistics.Value = statistics;
+        IncrementalStatistics.Value = incremental;
+    }
+
+    private bool TryFindCurrentIncrementalProxyP1P6(
+        Entity entity,
+        out PersistentSweptProxy proxy,
+        out int proxyIndex)
+    {
+        int low = 0;
+        int high = CurrentIncrementalProxies.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            PersistentSweptProxy candidate = CurrentIncrementalProxies[middle];
+            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
+            if (comparison == 0)
+            {
+                proxy = candidate;
+                proxyIndex = middle;
+                return true;
+            }
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        proxy = default;
+        proxyIndex = -1;
+        return false;
     }
 
     private void RepairP1P6SubstepContactView(
