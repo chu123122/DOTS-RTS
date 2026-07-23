@@ -26,6 +26,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;
     private int IterationCount => Configuration.IterationCount;
+    private ContactPositionSolverMode ContactPositionSolver =>
+        Configuration.ContactPositionSolver;
     private float Compliance => Configuration.Compliance;
     private float PredictiveSkin => Configuration.PredictiveSkin;
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;

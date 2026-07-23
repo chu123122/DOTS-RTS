@@ -138,7 +138,7 @@ jobs:
               'Entities/Unit/Systems/FlowField/Diagnostics/'
               'IncrementalContactPipelineCsvRecorder.cs')
           csv_text = csv_path.read_text(encoding='utf-8')
-          if 'CsvSchemaVersion = 6' not in csv_text:
+          if 'CsvSchemaVersion = 7' not in csv_text:
               raise SystemExit('Unexpected contact CSV schema')
           if ('LegacyCacheUseCount' in csv_text or
                   'LegacyBroadPhaseStatistics' in csv_text):

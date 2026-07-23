@@ -23,6 +23,8 @@ public abstract partial class BaseFlowMovementSystem
 
         solverSettings.SubstepCount = math.max(1, requested.SubstepCount);
         solverSettings.IterationCount = math.max(1, requested.IterationCount);
+        solverSettings.ContactPositionSolver =
+            (ContactPositionSolverMode)math.clamp(requested.ContactPositionSolver, 0, 1);
         solverSettings.Compliance = math.max(0f, requested.Compliance);
         solverSettings.PredictiveSkin = math.max(0f, requested.PredictiveSkin);
         solverSettings.EnablePredictivePairGeneration = requested.EnablePredictivePairGeneration != 0;
@@ -56,6 +58,7 @@ public abstract partial class BaseFlowMovementSystem
         {
             SubstepCount = solverSettings.SubstepCount,
             IterationCount = solverSettings.IterationCount,
+            ContactPositionSolver = (int)solverSettings.ContactPositionSolver,
             Compliance = solverSettings.Compliance,
             PredictiveSkin = solverSettings.PredictiveSkin,
             EnablePredictivePairGeneration =

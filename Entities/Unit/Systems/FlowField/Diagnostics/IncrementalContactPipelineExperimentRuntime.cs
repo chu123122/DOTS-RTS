@@ -57,6 +57,7 @@ public static class IncrementalContactPipelineExperimentRuntime
             UnitCount = unitCount,
             SubstepCount = settings.SubstepCount,
             IterationCount = settings.IterationCount,
+            ContactPositionSolver = (byte)settings.ContactPositionSolver,
             DeltaTime = deltaTime,
             GuardEnvelopeMargin = settings.FatAabbCacheMargin,
             PredictiveSkin = settings.PredictiveSkin,

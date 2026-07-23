@@ -369,6 +369,7 @@ public static class LocalGameplayModeValidation
             {
                 SubstepCount = 1,
                 IterationCount = 1,
+                ContactPositionSolver = ContactPositionSolverMode.GaussSeidel,
                 Compliance = 0f,
                 PredictiveSkin = 0f,
                 EnableDiagnostics = false,
