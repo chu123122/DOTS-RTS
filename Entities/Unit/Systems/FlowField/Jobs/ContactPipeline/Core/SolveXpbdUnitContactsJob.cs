@@ -65,6 +65,10 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> SoftAvoidancePairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
+    // Phase 2 serial Jacobi reference scratch. These buffers are frame-local
+    // and are cleared once per Jacobi iteration.
+    public NativeArray<float3> JacobiPositionCorrections;
+    public NativeArray<int> JacobiConstraintCounts;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;

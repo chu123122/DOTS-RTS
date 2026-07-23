@@ -240,6 +240,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var correctedBodyIndices = new NativeList<int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
+        // Serial Jacobi reference scratch. Phase 3 replaces pair scatter with a
+        // deterministic body-to-active-constraint incident gather.
+        var jacobiPositionCorrections = new NativeArray<float3>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var jacobiConstraintCounts = new NativeArray<int>(
+            unitCount,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -278,6 +288,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SoftAvoidancePairs = softAvoidancePairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
+            JacobiPositionCorrections = jacobiPositionCorrections,
+            JacobiConstraintCounts = jacobiConstraintCounts,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
@@ -389,6 +401,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
+        JobHandle jacobiPositionCorrectionDisposeHandle =
+            jacobiPositionCorrections.Dispose(applyMovementHandle);
+        JobHandle jacobiConstraintCountDisposeHandle =
+            jacobiConstraintCounts.Dispose(applyMovementHandle);
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -442,6 +458,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
   correctedBodyIndexDisposeHandle,
+  jacobiPositionCorrectionDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  jacobiConstraintCountDisposeHandle,
   incrementalStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
