@@ -155,12 +155,25 @@ public partial struct SolveXpbdUnitContactsJob
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
-            handle = new BeginP1P6SubstepJob
+            handle = new CollectP1P6EnvelopeEscapesJob
             {
                 Solver = this,
                 RuntimeState = runtimeState,
-                BlockStatistics = blockStatistics,
                 SubstepIndex = substepIndex
+            }.Schedule(handle);
+
+            handle = new RepairP1P6SubstepContactViewJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex
+            }.Schedule(handle);
+
+            handle = new PrepareP1P6SoftWorksetJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState,
+                BlockStatistics = blockStatistics
             }.Schedule(handle);
 
             handle = new InitializeSoftAvoidanceBodiesJob
@@ -479,13 +492,30 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
-    private struct BeginP1P6SubstepJob : IJob
+    private struct CollectP1P6EnvelopeEscapesJob : IJob
+    {
+        public SolveXpbdUnitContactsJob Solver;
+        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public int SubstepIndex;
+        public void Execute() => Solver.CollectP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
+    }
+
+    [BurstCompile]
+    private struct RepairP1P6SubstepContactViewJob : IJob
+    {
+        public SolveXpbdUnitContactsJob Solver;
+        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public int SubstepIndex;
+        public void Execute() => Solver.RepairP1P6SubstepContactView(SubstepIndex, RuntimeState);
+    }
+
+    [BurstCompile]
+    private struct PrepareP1P6SoftWorksetJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
         public NativeList<JacobiBlockStatistics> BlockStatistics;
-        public int SubstepIndex;
-        public void Execute() => Solver.BeginP1P6Substep(SubstepIndex, RuntimeState, BlockStatistics);
+        public void Execute() => Solver.PrepareP1P6SoftWorkset(RuntimeState, BlockStatistics);
     }
 
     [BurstCompile]
@@ -1009,14 +1039,38 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalStatistics.Value = incremental;
     }
 
-    private void BeginP1P6Substep(
+    private void CollectP1P6EnvelopeEscapes(
         int substepIndex,
-        NativeReference<ParallelJacobiRuntimeState> runtimeState,
-        NativeList<JacobiBlockStatistics> blockStatistics)
+        NativeReference<ParallelJacobiRuntimeState> runtimeState)
     {
-        ParallelJacobiRuntimeState runtime = runtimeState.Value;
-        if (runtime.IsValid == 0)
+        if (runtimeState.Value.IsValid == 0 || !EnableTimestepContactSetCache)
             return;
+
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
+        ClearIncrementalDirtyBodySet();
+        for (int bodyIndex = 0; bodyIndex < EnvelopeEscapeFlags.Length; bodyIndex++)
+        {
+            if (EnvelopeEscapeFlags[bodyIndex] == 0)
+                continue;
+            MarkContactEnvelopeEscape(
+                bodyIndex,
+                substepIndex,
+                IncrementalBodyDirtyFlags.Motion,
+                ref statistics);
+        }
+        incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
+        Statistics.Value = statistics;
+        IncrementalStatistics.Value = incremental;
+    }
+
+    private void RepairP1P6SubstepContactView(
+        int substepIndex,
+        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+    {
+        if (runtimeState.Value.IsValid == 0)
+            return;
+
         PredictiveDiscContactStatistics statistics = Statistics.Value;
         IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
         int substepCount = math.max(1, SubstepCount);
@@ -1029,41 +1083,36 @@ public partial struct SolveXpbdUnitContactsJob
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }
-        else
+        else if (IncrementalDirtyBodies.Length > 0)
         {
-            ClearIncrementalDirtyBodySet();
-            for (int bodyIndex = 0; bodyIndex < EnvelopeEscapeFlags.Length; bodyIndex++)
-            {
-                if (EnvelopeEscapeFlags[bodyIndex] == 0)
-                    continue;
-                MarkContactEnvelopeEscape(
-                    bodyIndex,
-                    substepIndex,
-                    IncrementalBodyDirtyFlags.Motion,
-                    ref statistics);
-            }
-            incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
-            if (IncrementalDirtyBodies.Length > 0)
-            {
-                RepairOrRebuildContactViewForRemainingTime(
-                    substepIndex,
-                    substepCount,
-                    substepDeltaTime,
-                    true,
-                    ref statistics,
-                    ref incremental,
-                    false);
-                RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            }
+            RepairOrRebuildContactViewForRemainingTime(
+                substepIndex,
+                substepCount,
+                substepDeltaTime,
+                true,
+                ref statistics,
+                ref incremental,
+                false);
+            RebuildPersistentIncidentPairLookupIfNeededP1P6();
         }
+
+        Statistics.Value = statistics;
+        IncrementalStatistics.Value = incremental;
+    }
+
+    private void PrepareP1P6SoftWorkset(
+        NativeReference<ParallelJacobiRuntimeState> runtimeState,
+        NativeList<JacobiBlockStatistics> blockStatistics)
+    {
+        ParallelJacobiRuntimeState runtime = runtimeState.Value;
+        if (runtime.IsValid == 0)
+            return;
 
         BuildSoftIncidentIndexP1P6();
         SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
         blockStatistics.ResizeUninitialized(
             (SoftAvoidancePairs.Length + SoftPairBatchSize - 1) / SoftPairBatchSize);
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incremental;
         runtimeState.Value = runtime;
     }
 
