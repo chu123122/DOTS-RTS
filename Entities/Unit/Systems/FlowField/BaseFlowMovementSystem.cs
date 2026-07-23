@@ -254,6 +254,20 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var jacobiPairCorrections = new NativeList<JacobiPairCorrection>(
             math.max(unitCount * 4, 1),
             Allocator.TempJob);
+        var envelopeEscapeFlags = new NativeArray<byte>(
+            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        var parallelBodyStatistics = new NativeArray<ParallelBodyStageStatistics>(
+            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        var softIncidentOffsets = new NativeArray<int>(
+            unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        var softIncidentWriteCursors = new NativeArray<int>(
+            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        var softIncidentPairIndices = new NativeList<int>(
+            math.max(unitCount * 8, 1), Allocator.TempJob);
+        var softPairContributions = new NativeList<SoftAvoidancePairContribution>(
+            math.max(unitCount * 4, 1), Allocator.TempJob);
+        var activeIncidentIndexState =
+            new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob);
         var parallelJacobiRuntimeState =
             new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob);
         var parallelJacobiIterationState =
@@ -303,6 +317,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ActiveIncidentWriteCursors = activeIncidentWriteCursors,
             ActiveIncidentPairIndices = activeIncidentPairIndices,
             JacobiPairCorrections = jacobiPairCorrections,
+            EnvelopeEscapeFlags = envelopeEscapeFlags,
+            ParallelBodyStatistics = parallelBodyStatistics,
+            SoftIncidentOffsets = softIncidentOffsets,
+            SoftIncidentWriteCursors = softIncidentWriteCursors,
+            SoftIncidentPairIndices = softIncidentPairIndices,
+            SoftPairContributions = softPairContributions,
+            ActiveIncidentIndexState = activeIncidentIndexState,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
@@ -339,7 +360,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             contactSolverSettings.ContactPositionSolver == ContactPositionSolverMode.Jacobi &&
             !requiresSerialJacobiCapture;
         JobHandle solveContactHandle = useParallelJacobi
-            ? solveContactJob.ScheduleParallelJacobi(
+            ? solveContactJob.ScheduleParallelJacobiP1P6(
                 parallelJacobiRuntimeState,
                 parallelJacobiIterationState,
                 parallelJacobiBlockStatistics,
@@ -434,6 +455,20 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             activeIncidentPairIndices.Dispose(applyMovementHandle);
         JobHandle jacobiPairCorrectionDisposeHandle =
             jacobiPairCorrections.Dispose(applyMovementHandle);
+        JobHandle envelopeEscapeFlagDisposeHandle =
+            envelopeEscapeFlags.Dispose(applyMovementHandle);
+        JobHandle parallelBodyStatisticsDisposeHandle =
+            parallelBodyStatistics.Dispose(applyMovementHandle);
+        JobHandle softIncidentOffsetDisposeHandle =
+            softIncidentOffsets.Dispose(applyMovementHandle);
+        JobHandle softIncidentWriteCursorDisposeHandle =
+            softIncidentWriteCursors.Dispose(applyMovementHandle);
+        JobHandle softIncidentPairIndexDisposeHandle =
+            softIncidentPairIndices.Dispose(applyMovementHandle);
+        JobHandle softPairContributionDisposeHandle =
+            softPairContributions.Dispose(applyMovementHandle);
+        JobHandle activeIncidentIndexStateDisposeHandle =
+            activeIncidentIndexState.Dispose(applyMovementHandle);
         JobHandle parallelJacobiRuntimeStateDisposeHandle =
             parallelJacobiRuntimeState.Dispose(applyMovementHandle);
         JobHandle parallelJacobiIterationStateDisposeHandle =
@@ -502,6 +537,21 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   solverScratchDisposeHandle,
   jacobiPairCorrectionDisposeHandle,
   incrementalStatisticsDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            envelopeEscapeFlagDisposeHandle,
+            parallelBodyStatisticsDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            softIncidentOffsetDisposeHandle,
+            softIncidentWriteCursorDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            softIncidentPairIndexDisposeHandle,
+            softPairContributionDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            activeIncidentIndexStateDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
   parallelJacobiRuntimeStateDisposeHandle,
