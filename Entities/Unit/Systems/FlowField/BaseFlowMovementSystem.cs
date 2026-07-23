@@ -8,6 +8,7 @@ using RTS.Unit.Components;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 using RTS.Unit.FlowField.Jobs;
+using UnityEngine;
 
 namespace RTS.Unit.FlowField.Systems
 {
@@ -338,6 +339,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         bool useParallelJacobi =
             contactSolverSettings.ContactPositionSolver == ContactPositionSolverMode.Jacobi &&
             !requiresSerialJacobiCapture;
+        Debug.Log(
+            $"SingletonSolver={SystemAPI.GetSingleton<UnitContactSolverSettings>().ContactPositionSolver}, " +
+            $"ExperimentOverride={IncrementalContactPipelineExperimentRuntime.OverrideEnabled}, " +
+            $"ExperimentSolver={IncrementalContactPipelineExperimentRuntime.ContactPositionSolver}, " +
+            $"EffectiveSolver={contactSolverSettings.ContactPositionSolver}, " +
+            $"CaptureMask={SimulationDebuggerRuntime.CaptureMask}, " +
+            $"ParallelJacobi={useParallelJacobi}");
         JobHandle solveContactHandle = useParallelJacobi
             ? solveContactJob.ScheduleParallelJacobi(
                 parallelJacobiRuntimeState,
