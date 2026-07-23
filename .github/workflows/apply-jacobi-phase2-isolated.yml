@@ -18,17 +18,34 @@ jobs:
           ref: codex/migrate-contact-pipeline-stage-a-g
           fetch-depth: 0
       - name: Build atomic business commit
+        id: apply
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          base=99750116c6f3edac1402cddbfe2b86657359b3f3
-          base64 -d .github/jacobi/phase2.patch.gz.b64 | gzip -d > /tmp/phase2.patch
-          git reset --hard "$base"
-          git apply --check /tmp/phase2.patch
-          git apply /tmp/phase2.patch
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          tree=$(git write-tree)
-          commit=$(printf '%s\n' 'feat: add serial Jacobi contact reference' | git commit-tree "$tree" -p "$base")
-          git push --force origin "$commit":codex/migrate-contact-pipeline-stage-a-g
+          set +e
+          {
+            set -x
+            base=99750116c6f3edac1402cddbfe2b86657359b3f3
+            base64 -d .github/jacobi/phase2.patch.gz.b64 | gzip -d > /tmp/phase2.patch
+            git reset --hard "$base"
+            git apply --check /tmp/phase2.patch
+            git apply /tmp/phase2.patch
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add -A
+            tree=$(git write-tree)
+            commit=$(printf '%s\n' 'feat: add serial Jacobi contact reference' | git commit-tree "$tree" -p "$base")
+            git push --force origin "$commit":codex/migrate-contact-pipeline-stage-a-g
+          } > /tmp/jacobi-phase2.log 2>&1
+          status=$?
+          cat /tmp/jacobi-phase2.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jacobi-phase2-log
+          path: /tmp/jacobi-phase2.log
+          if-no-files-found: error
+      - name: Fail when apply failed
+        if: steps.apply.outputs.status != '0'
+        run: exit 1
