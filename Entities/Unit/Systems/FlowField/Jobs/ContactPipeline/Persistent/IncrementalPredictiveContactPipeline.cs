@@ -1401,7 +1401,10 @@ public partial struct SolveXpbdUnitContactsJob
             PairDiagnostics.Clear();
 
         RebuildPersistentIncidentPairLookupIfNeededP1P6();
-        if (!PersistentIncidentPairLookup.IsCreated)
+        if (!PersistentIncidentPairLookup.IsCreated ||
+            !PersistentIncidentLookupEpoch.IsCreated ||
+            PersistentIncidentLookupEpoch.Value !=
+                IncrementalCacheState.Value.TopologyEpoch)
             return false;
 
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)

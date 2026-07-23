@@ -756,35 +756,6 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
-    private struct PrepareSubstepContactPredictionBodiesJob : IJobParallelFor
-    {
-        public NativeArray<FlowMovementFrameState> States;
-        public float Skin;
-        public float Margin;
-        public byte Enabled;
-
-        public void Execute(int bodyIndex)
-        {
-            if (Enabled == 0)
-                return;
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid)
-                return;
-            float extent = math.max(0f, state.Radius) + math.max(0f, Skin) + math.max(0f, Margin);
-            state.TimestepStartPosition = state.StartPosition;
-            state.TimestepPredictedPosition = state.PredictedPosition;
-            state.TimestepEnvelopeMin = math.min(state.StartPosition.xz, state.PredictedPosition.xz) - extent;
-            state.TimestepEnvelopeMax = math.max(state.StartPosition.xz, state.PredictedPosition.xz) + extent;
-            // The interaction envelope was prepared for the authoritative timestep
-            // view. In B0 mode it is rebuilt by the following serial view builder.
-            state.TimestepInteractionEnvelopeMin = state.TimestepEnvelopeMin;
-            state.TimestepInteractionEnvelopeMax = state.TimestepEnvelopeMax;
-            state.TimestepEscaped = 0;
-            States[bodyIndex] = state;
-        }
-    }
-
-    [BurstCompile]
     private struct ValidatePredictedContactEnvelopeBodiesJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<FlowMovementFrameState> States;
@@ -1100,9 +1071,6 @@ public partial struct SolveXpbdUnitContactsJob
         if (EnablePersistentContactCache &&
             SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
             statistics.SoftAvoidanceFatAabbUseCount++;
-        if (EnablePersistentContactCache &&
-            SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
-            statistics.SoftAvoidanceFatAabbUseCount++;
         statistics.SoftAvoidanceCandidatePairCount += SoftAvoidancePairs.Length;
         statistics.SoftAvoidanceActivatedPairCount += activated;
         statistics.SoftAvoidanceEvaluationCount++;
@@ -1371,8 +1339,17 @@ public partial struct SolveXpbdUnitContactsJob
             !PersistentIncidentLookupEpoch.IsCreated)
             return;
         uint epoch = IncrementalCacheState.Value.TopologyEpoch;
+        int requiredEntryCount = PersistentNeighborPairs.Length * 2;
+        if (requiredEntryCount > PersistentIncidentPairLookup.Capacity)
+        {
+            // Never publish a partial incident index. The repair caller detects
+            // the invalid epoch and takes the authoritative full-rebuild path.
+            PersistentIncidentPairLookup.Clear();
+            PersistentIncidentLookupEpoch.Value = uint.MaxValue;
+            return;
+        }
         if (PersistentIncidentLookupEpoch.Value == epoch &&
-            PersistentIncidentPairLookup.Count() == PersistentNeighborPairs.Length * 2)
+            PersistentIncidentPairLookup.Count() == requiredEntryCount)
             return;
         PersistentIncidentPairLookup.Clear();
         for (int pairIndex = 0; pairIndex < PersistentNeighborPairs.Length; pairIndex++)
