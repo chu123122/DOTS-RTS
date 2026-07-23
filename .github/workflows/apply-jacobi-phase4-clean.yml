@@ -17,16 +17,34 @@ jobs:
         with:
           ref: codex/migrate-contact-pipeline-stage-a-g
           fetch-depth: 0
+      - name: Check parallel Jacobi patch
+        id: check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          base64 -d .github/jacobi/phase4-clean.patch.gz.b64 | gzip -d > /tmp/phase4.patch
+          git apply --check /tmp/phase4.patch > /tmp/phase4-check.log 2>&1
+          status=$?
+          cat /tmp/phase4-check.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase4-check-log
+          path: /tmp/phase4-check.log
+          if-no-files-found: error
       - name: Apply parallel Jacobi job graph
+        if: steps.check.outputs.status == '0'
         shell: bash
         run: |
           set -euo pipefail
-          # The payload contains only phase-4 changes relative to 574344c9.
-          base64 -d .github/jacobi/phase4-clean.patch.gz.b64 | gzip -d > /tmp/phase4.patch
-          git apply --check /tmp/phase4.patch
           git apply /tmp/phase4.patch
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Entities
           git commit -m 'feat: parallelize Jacobi contact projection'
           git push origin HEAD:codex/migrate-contact-pipeline-stage-a-g
+      - name: Fail when patch check failed
+        if: steps.check.outputs.status != '0'
+        run: exit 1
