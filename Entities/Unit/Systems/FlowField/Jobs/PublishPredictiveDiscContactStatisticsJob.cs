@@ -24,7 +24,9 @@ public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
         DynamicBuffer<Stage3ContactHeatSample> heatDestination)
     {
         destination = Source.Value;
-        shadowDestination = ShadowSource.Value;
+        // The legacy shadow broad-phase is retired. Keep its compatibility
+        // component cleared so old debugger assets cannot display stale data.
+        shadowDestination = default;
         selectedBodyDestination = SelectedBodySource.Value;
         iterationDestination.Clear();
         pairDestination.Clear();

@@ -1739,8 +1739,8 @@ public partial struct SolveXpbdUnitContactsJob
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         long broadPhaseStart = ProfilerUnsafeUtility.Timestamp;
-        ShadowCellEntries.Clear();
-        ShadowBodyPairs.Clear();
+        SweptCellEntries.Clear();
+        Pairs.Clear();
         PersistentSweptProxies.Clear();
         PersistentNeighborPairs.Clear();
         PersistentSweptProxies.AddRange(CurrentIncrementalProxies.AsArray());
@@ -1766,7 +1766,7 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 for (int y = minCell.y; y <= maxCell.y; y++)
                 {
-                    ShadowCellEntries.Add(new SweptDiscCellEntry
+                    SweptCellEntries.Add(new SweptDiscCellEntry
                     {
                         CellIndex = FlowFieldUtils.GetFlatIndex(new int2(x, y), GridDimensions),
                         BodyIndex = proxy.BodyIndex
@@ -1775,25 +1775,25 @@ public partial struct SolveXpbdUnitContactsJob
             }
         }
 
-        ShadowCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
+        SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
         int cellStart = 0;
-        while (cellStart < ShadowCellEntries.Length)
+        while (cellStart < SweptCellEntries.Length)
         {
-            int cellIndex = ShadowCellEntries[cellStart].CellIndex;
+            int cellIndex = SweptCellEntries[cellStart].CellIndex;
             int cellEnd = cellStart + 1;
-            while (cellEnd < ShadowCellEntries.Length &&
-                   ShadowCellEntries[cellEnd].CellIndex == cellIndex)
+            while (cellEnd < SweptCellEntries.Length &&
+                   SweptCellEntries[cellEnd].CellIndex == cellIndex)
                 cellEnd++;
 
             for (int first = cellStart; first < cellEnd; first++)
             {
-                int bodyA = ShadowCellEntries[first].BodyIndex;
+                int bodyA = SweptCellEntries[first].BodyIndex;
                 for (int second = first + 1; second < cellEnd; second++)
                 {
-                    int bodyB = ShadowCellEntries[second].BodyIndex;
+                    int bodyB = SweptCellEntries[second].BodyIndex;
                     if (bodyA == bodyB)
                         continue;
-                    ShadowBodyPairs.Add(new UnitCollisionPair
+                    Pairs.Add(new UnitCollisionPair
                     {
                         BodyA = math.min(bodyA, bodyB),
                         BodyB = math.max(bodyA, bodyB)
@@ -1804,11 +1804,11 @@ public partial struct SolveXpbdUnitContactsJob
             cellStart = cellEnd;
         }
 
-        SortAndDeduplicateBodyPairs(ShadowBodyPairs);
+        SortAndDeduplicateBodyPairs(Pairs);
         uint nextTopologyEpoch = IncrementalCacheState.Value.TopologyEpoch + 1u;
-        for (int pairIndex = 0; pairIndex < ShadowBodyPairs.Length; pairIndex++)
+        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            UnitCollisionPair bodyPair = ShadowBodyPairs[pairIndex];
+            UnitCollisionPair bodyPair = Pairs[pairIndex];
             FlowMovementFrameState stateA = States[bodyPair.BodyA];
             FlowMovementFrameState stateB = States[bodyPair.BodyB];
             if (!TryFindIncrementalProxy(stateA.Entity, out PersistentSweptProxy proxyA) ||
