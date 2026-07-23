@@ -7,12 +7,14 @@ on:
     paths:
       - .github/workflows/contact-pipeline-p1-p6-migration.yml
       - .github/scripts/apply_contact_pipeline_p1_p6.py
+      - .github/scripts/apply_contact_pipeline_p2.py
   pull_request:
     branches:
       - master
     paths:
       - .github/workflows/contact-pipeline-p1-p6-migration.yml
       - .github/scripts/apply_contact_pipeline_p1_p6.py
+      - .github/scripts/apply_contact_pipeline_p2.py
       - Entities/Unit/Systems/FlowField/**
 
 permissions:
@@ -33,8 +35,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Validate migration script
-        run: python3 -m py_compile .github/scripts/apply_contact_pipeline_p1_p6.py
+      - name: Validate migration scripts
+        run: |
+          python3 -m py_compile .github/scripts/apply_contact_pipeline_p1_p6.py
+          python3 -m py_compile .github/scripts/apply_contact_pipeline_p2.py
 
       - name: P1 clean baseline and preserve envelope semantics
         run: |
@@ -44,7 +48,7 @@ jobs:
 
       - name: P2 integrate staged body jobs
         run: |
-          python3 .github/scripts/apply_contact_pipeline_p1_p6.py --phase 2
+          python3 .github/scripts/apply_contact_pipeline_p2.py
           git add -A
           git commit -m "perf: parallelize independent contact body stages"
 
@@ -113,4 +117,4 @@ jobs:
       - name: Push phase commits
         run: git push origin HEAD:codex/contact-pipeline-parallel-p1-p6
 
-# Trigger revision 2
+# Trigger revision 3
