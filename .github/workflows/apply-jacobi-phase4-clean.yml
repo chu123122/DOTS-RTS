@@ -21,6 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The payload contains only phase-4 changes relative to 574344c9.
           base64 -d .github/jacobi/phase4-clean.patch.gz.b64 | gzip -d > /tmp/phase4.patch
           git apply --check /tmp/phase4.patch
           git apply /tmp/phase4.patch
