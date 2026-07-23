@@ -71,6 +71,8 @@ public partial struct SolveXpbdUnitContactsJob
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
+        int escapeBlockCount =
+            (States.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
         if (substepDeltaTime <= 0f)
         {
             return new FinalizeParallelJacobiPipelineJob
@@ -155,7 +157,34 @@ public partial struct SolveXpbdUnitContactsJob
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
-            handle = new CollectP1P6EnvelopeEscapesJob
+            handle = new CountP1P6EnvelopeEscapeBlocksJob
+            {
+                EscapeFlags = EnvelopeEscapeFlags,
+                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                BodyCount = States.Length,
+                Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
+            }.Schedule(escapeBlockCount, 1, handle);
+
+            handle = new PrefixP1P6EnvelopeEscapesJob
+            {
+                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                DirtyBodies = IncrementalDirtyBodies,
+                BlockCount = escapeBlockCount
+            }.Schedule(handle);
+
+            handle = new ScatterP1P6EnvelopeEscapesJob
+            {
+                EscapeFlags = EnvelopeEscapeFlags,
+                BlockOffsets = SoftIncidentWriteCursors,
+                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                States = States,
+                BodyStatistics = ParallelBodyStatistics,
+                BodyCount = States.Length
+            }.Schedule(escapeBlockCount, 1, handle);
+
+            handle = new FinalizeP1P6EnvelopeEscapesJob
             {
                 Solver = this,
                 RuntimeState = runtimeState,
@@ -492,12 +521,99 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
-    private struct CollectP1P6EnvelopeEscapesJob : IJob
+    private struct CountP1P6EnvelopeEscapeBlocksJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> EscapeFlags;
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public NativeArray<byte> DirtyFlagsByBody;
+        public int BodyCount;
+        public byte Enabled;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int count = 0;
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                DirtyFlagsByBody[bodyIndex] = 0;
+                if (Enabled != 0 && EscapeFlags[bodyIndex] != 0)
+                    count++;
+            }
+            BlockOffsetsAndCounts[blockIndex] = count;
+        }
+    }
+
+    [BurstCompile]
+    private struct PrefixP1P6EnvelopeEscapesJob : IJob
+    {
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public NativeList<IncrementalDirtyBody> DirtyBodies;
+        public int BlockCount;
+
+        public void Execute()
+        {
+            int offset = 0;
+            for (int blockIndex = 0; blockIndex < BlockCount; blockIndex++)
+            {
+                int count = BlockOffsetsAndCounts[blockIndex];
+                BlockOffsetsAndCounts[blockIndex] = offset;
+                offset += count;
+            }
+            DirtyBodies.ResizeUninitialized(offset);
+        }
+    }
+
+    [BurstCompile]
+    private struct ScatterP1P6EnvelopeEscapesJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> EscapeFlags;
+        [ReadOnly] public NativeArray<int> BlockOffsets;
+        public NativeArray<IncrementalDirtyBody> DirtyBodies;
+        public NativeArray<byte> DirtyFlagsByBody;
+        public NativeArray<FlowMovementFrameState> States;
+        public NativeArray<ParallelBodyStageStatistics> BodyStatistics;
+        public int BodyCount;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int writeIndex = BlockOffsets[blockIndex];
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                if (EscapeFlags[bodyIndex] == 0)
+                    continue;
+
+                const IncrementalBodyDirtyFlags flags =
+                    IncrementalBodyDirtyFlags.Topology |
+                    IncrementalBodyDirtyFlags.Motion;
+                DirtyBodies[writeIndex++] = new IncrementalDirtyBody
+                {
+                    BodyIndex = bodyIndex,
+                    Flags = flags
+                };
+                DirtyFlagsByBody[bodyIndex] = (byte)flags;
+
+                FlowMovementFrameState state = States[bodyIndex];
+                int newlyEscaped = state.TimestepEscaped == 0 ? 1 : 0;
+                state.TimestepEscaped = 1;
+                States[bodyIndex] = state;
+
+                ParallelBodyStageStatistics body = BodyStatistics[bodyIndex];
+                body.EscapeCount = newlyEscaped;
+                BodyStatistics[bodyIndex] = body;
+            }
+        }
+    }
+
+    [BurstCompile]
+    private struct FinalizeP1P6EnvelopeEscapesJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
         public int SubstepIndex;
-        public void Execute() => Solver.CollectP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
+        public void Execute() => Solver.FinalizeP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
     }
 
     [BurstCompile]
@@ -1039,7 +1155,7 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalStatistics.Value = incremental;
     }
 
-    private void CollectP1P6EnvelopeEscapes(
+    private void FinalizeP1P6EnvelopeEscapes(
         int substepIndex,
         NativeReference<ParallelJacobiRuntimeState> runtimeState)
     {
@@ -1048,16 +1164,17 @@ public partial struct SolveXpbdUnitContactsJob
 
         PredictiveDiscContactStatistics statistics = Statistics.Value;
         IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
-        ClearIncrementalDirtyBodySet();
-        for (int bodyIndex = 0; bodyIndex < EnvelopeEscapeFlags.Length; bodyIndex++)
+        int newlyEscaped = 0;
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
-            if (EnvelopeEscapeFlags[bodyIndex] == 0)
-                continue;
-            MarkContactEnvelopeEscape(
-                bodyIndex,
-                substepIndex,
-                IncrementalBodyDirtyFlags.Motion,
-                ref statistics);
+            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
+            newlyEscaped += ParallelBodyStatistics[bodyIndex].EscapeCount;
+        }
+        if (newlyEscaped > 0)
+        {
+            statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
+            if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
+                statistics.TimestepContactSetFirstEscapeSubstep = substepIndex;
         }
         incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
         Statistics.Value = statistics;
