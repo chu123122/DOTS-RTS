@@ -34,9 +34,11 @@ public abstract partial class BaseFlowMovementSystem
         if ((_simulationDebuggerUpdateCounter - 1) % (ulong)interval != 0)
             return;
 
-        // Diagnostics are explicitly opt-in. Completing here keeps the snapshot internally
-        // consistent without reintroducing a synchronization point when all debugger views
-        // are closed.
+        // Never turn optional diagnostics into a blocking point. The existing A/B
+        // managed snapshots are published only after the previous solver dependency has
+        // naturally completed; otherwise this sample is skipped and retried next update.
+        if (!Dependency.IsCompleted)
+            return;
         Dependency.Complete();
 
         SimulationDebuggerFrameSnapshot snapshot = AcquireSimulationDebuggerWriteSnapshot();

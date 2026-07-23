@@ -123,7 +123,11 @@ public static class IncrementalContactPipelineDiagnosticsRuntime
     public static IncrementalContactPipelineSnapshot Latest { get; internal set; }
 }
 
-[UpdateInGroup(typeof(PresentationSystemGroup))]
+// Read the previous completed snapshot before the current frame schedules a new
+// writer. This keeps the existing view one frame behind without forcing the
+// Presentation group to wait on the current solver chain.
+[UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
+[UpdateBefore(typeof(RTS.Unit.FlowField.Systems.LocalUnitFlowMovementSystem))]
 public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
 {
     protected override void OnUpdate()

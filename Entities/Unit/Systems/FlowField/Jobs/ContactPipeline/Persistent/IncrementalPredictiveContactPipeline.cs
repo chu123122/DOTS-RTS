@@ -40,6 +40,8 @@ public partial struct SolveXpbdUnitContactsJob
             long buildStart = ProfilerUnsafeUtility.Timestamp;
             long localBroadPhaseBefore = incrementalStatistics.LocalBroadPhaseNanoseconds;
             FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
+            RebuildPersistentSpatialMembershipP1P6(
+                IncrementalCacheState.Value.TopologyEpoch);
             long buildElapsed = TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - buildStart);
             long localBroadPhaseElapsed =
@@ -1185,6 +1187,26 @@ public partial struct SolveXpbdUnitContactsJob
         return (GetDirtyFlags(bodyIndex) & IncrementalBodyDirtyFlags.Topology) != 0;
     }
 
+    private int FindPersistentProxyIndex(Entity entity)
+    {
+        int low = 0;
+        int high = PersistentSweptProxies.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            int comparison = StableEntityPairKey.CompareEntity(
+                PersistentSweptProxies[middle].Entity,
+                entity);
+            if (comparison == 0)
+                return middle;
+            if (comparison < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return -1;
+    }
+
     private void IncrementallyRepairPersistentNeighborTopology(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool advanceTimestep = true)
@@ -1207,6 +1229,8 @@ public partial struct SolveXpbdUnitContactsJob
         uint nextTopologyEpoch = IncrementalCacheState.Value.TopologyEpoch + 1u;
         uint nextTimestep = IncrementalCacheState.Value.Timestep +
                             (advanceTimestep ? 1u : 0u);
+        bool spatialMembershipReady =
+            RebuildPersistentSpatialMembershipP1P6(nextTopologyEpoch);
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
             IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
@@ -1221,6 +1245,17 @@ public partial struct SolveXpbdUnitContactsJob
                 dirtyProxy.IsValid == 0)
                 continue;
 
+            int dirtyProxyIndex = FindPersistentProxyIndex(dirtyState.Entity);
+            if (spatialMembershipReady && dirtyProxyIndex >= 0 &&
+                TryAppendPersistentSpatialNeighborsP1P6(
+                    dirtyProxyIndex,
+                    nextTopologyEpoch,
+                    nextTimestep,
+                    ref incrementalStatistics))
+                continue;
+
+            // Capacity failure or an invalid membership epoch takes the original
+            // authoritative O(N) path. This is a correctness fallback, not a partial query.
             for (int proxyIndex = 0; proxyIndex < PersistentSweptProxies.Length; proxyIndex++)
             {
                 PersistentSweptProxy other = PersistentSweptProxies[proxyIndex];
@@ -1400,24 +1435,41 @@ public partial struct SolveXpbdUnitContactsJob
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
 
-        for (int pairIndex = 0;
-             pairIndex < PersistentNeighborPairs.Length;
-             pairIndex++)
+        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        if (!PersistentIncidentPairLookup.IsCreated ||
+            !PersistentIncidentLookupEpoch.IsCreated ||
+            PersistentIncidentLookupEpoch.Value !=
+                IncrementalCacheState.Value.TopologyEpoch)
+            return false;
+
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
-            StableEntityPairKey key = PersistentNeighborPairs[pairIndex].Key;
-            if (!IsDirtyEntity(key.EntityA) && !IsDirtyEntity(key.EntityB))
+            int dirtyBodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
+            Entity entity = States[dirtyBodyIndex].Entity;
+            NativeParallelMultiHashMapIterator<Entity> iterator;
+            if (!PersistentIncidentPairLookup.TryGetFirstValue(
+                    entity, out int persistentPairIndex, out iterator))
                 continue;
-            if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
-                !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
-                return false;
-            Pairs.Add(new UnitCollisionPair
+            do
             {
-                BodyA = math.min(bodyA, bodyB),
-                BodyB = math.max(bodyA, bodyB)
-            });
+                if ((uint)persistentPairIndex >= (uint)PersistentNeighborPairs.Length)
+                    return false;
+                StableEntityPairKey key =
+                    PersistentNeighborPairs[persistentPairIndex].Key;
+                if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
+                    !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
+                    return false;
+                Pairs.Add(new UnitCollisionPair
+                {
+                    BodyA = math.min(bodyA, bodyB),
+                    BodyB = math.max(bodyA, bodyB)
+                });
+            }
+            while (PersistentIncidentPairLookup.TryGetNextValue(
+                out persistentPairIndex, ref iterator));
         }
 
-        SortAndDeduplicatePairs();
+        SortAndDeduplicateBodyPairs(Pairs);
         return true;
     }
 
