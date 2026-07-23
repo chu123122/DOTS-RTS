@@ -24,20 +24,33 @@ jobs:
           ref: codex/migrate-contact-pipeline-stage-a-g
           fetch-depth: 0
           path: work
-      - name: Build and publish phase 4 business commit
+      - name: Verify patch payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat payload/.github/jacobi/phase4-entities.part* > /tmp/phase4.b64
+          echo '2dbfda1403d20e2adbc5f5de066a50fa6c175e82566a848e5456fc67aa32397b  /tmp/phase4.b64' | sha256sum -c -
+          base64 -d /tmp/phase4.b64 | gzip -d > /tmp/phase4.patch
+          echo '207d9ad6da5c716cec92b2700682ec0173ada6e7df87579d65f266cbab85b4fb  /tmp/phase4.patch' | sha256sum -c -
+      - name: Validate phase 4 patch
         shell: bash
         run: |
           set -euo pipefail
           base=37bc10a8d727a6608b23a98fbe8ced6aa4cbca87
-          cat payload/.github/jacobi/phase4-entities.part* > /tmp/phase4.b64
-          base64 -d /tmp/phase4.b64 | gzip -d > /tmp/phase4.patch
           cd work
           git reset --hard "$base"
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git apply --check /tmp/phase4.patch
           git apply /tmp/phase4.patch
           git diff --check
+          test -f Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelJacobiSolver.cs
+      - name: Publish phase 4 business commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=37bc10a8d727a6608b23a98fbe8ced6aa4cbca87
+          cd work
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add Entities
           tree=$(git write-tree)
           commit=$(printf '%s\n' 'feat: schedule parallel Jacobi contact solve' | git commit-tree "$tree" -p "$base")
