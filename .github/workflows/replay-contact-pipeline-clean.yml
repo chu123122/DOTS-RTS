@@ -6,6 +6,11 @@ on:
       - codex/contact-pipeline-parallel-p1-p6-clean
     paths:
       - .github/workflows/replay-contact-pipeline-clean.yml
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/replay-contact-pipeline-clean.yml
 
 permissions:
   contents: write
@@ -83,7 +88,6 @@ jobs:
           support = (root / 'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.PersistentIncidentIndex.cs').read_text()
           debugger = (root / 'Entities/Unit/Systems/FlowField/Diagnostics/SimulationDebuggerSnapshotPublishing.cs').read_text()
           diagnostics = (root / 'Entities/Unit/Systems/FlowField/Diagnostics/IncrementalContactPipelineDiagnostics.cs').read_text()
-
           scheduler_prefix = p5.split(
               'private struct EvaluatePersistentPairClassificationsP1P6Job', 1)[0]
           required = {
@@ -109,7 +113,6 @@ jobs:
           failed = [name for name, ok in required.items() if not ok]
           if failed:
               raise SystemExit('missing contracts: ' + ', '.join(failed))
-
           for path in [
               root / 'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs',
               root / 'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs',
@@ -148,5 +151,3 @@ jobs:
           test "$(git diff --cached --name-only | wc -l)" -eq 9
           git commit -m "perf: parallelize contact pipeline coordination"
           git push --force-with-lease origin HEAD:codex/contact-pipeline-parallel-p1-p6-clean
-
-# Trigger revision 1
