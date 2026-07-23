@@ -1,5 +1,6 @@
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -305,11 +306,20 @@ public partial struct SolveXpbdUnitContactsJob
                 ClampToEnvelope = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+            handle = new ReduceP1P6SoftEscapeBlocksJob
+            {
+                EscapeFlags = EnvelopeEscapeFlags,
+                EscapeCountsByBlock = SoftIncidentWriteCursors,
+                BodyCount = States.Length
+            }.Schedule(escapeBlockCount, 1, handle);
+
             handle = new FinalizeP1P6SoftAvoidanceJob
             {
                 Solver = this,
                 RuntimeState = runtimeState,
-                BlockStatistics = blockStatistics
+                BlockStatistics = blockStatistics,
+                EscapeCountsByBlock = SoftIncidentWriteCursors,
+                EscapeBlockCount = escapeBlockCount
             }.Schedule(handle);
 
             handle = new PredictUnconstrainedBodiesJob
@@ -419,10 +429,17 @@ public partial struct SolveXpbdUnitContactsJob
                 SubstepDeltaTime = substepDeltaTime
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+            handle = new ReduceP1P6VelocityBodyBlocksJob
+            {
+                BodyStatistics = ParallelBodyStatistics,
+                BodyCount = States.Length
+            }.Schedule(escapeBlockCount, 1, handle);
+
             handle = new FinalizeP1P6VelocityStatisticsJob
             {
                 Solver = this,
-                RuntimeState = runtimeState
+                RuntimeState = runtimeState,
+                BlockCount = escapeBlockCount
             }.Schedule(handle);
         }
 
@@ -576,6 +593,7 @@ public partial struct SolveXpbdUnitContactsJob
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         public NativeArray<int> BlockOffsetsAndCounts;
+        [NativeDisableParallelForRestriction]
         public NativeArray<byte> DirtyFlagsByBody;
         public int BodyCount;
         public byte Enabled;
@@ -620,9 +638,13 @@ public partial struct SolveXpbdUnitContactsJob
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         [ReadOnly] public NativeArray<int> BlockOffsets;
+        [NativeDisableParallelForRestriction]
         public NativeArray<IncrementalDirtyBody> DirtyBodies;
+        [NativeDisableParallelForRestriction]
         public NativeArray<byte> DirtyFlagsByBody;
+        [NativeDisableParallelForRestriction]
         public NativeArray<FlowMovementFrameState> States;
+        [NativeDisableParallelForRestriction]
         public NativeArray<ParallelBodyStageStatistics> BodyStatistics;
         public int BodyCount;
 
@@ -983,12 +1005,36 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
+    private struct ReduceP1P6SoftEscapeBlocksJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> EscapeFlags;
+        public NativeArray<int> EscapeCountsByBlock;
+        public int BodyCount;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int escaped = 0;
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+                escaped += EscapeFlags[bodyIndex] != 0 ? 1 : 0;
+            EscapeCountsByBlock[blockIndex] = escaped;
+        }
+    }
+
+    [BurstCompile]
     private struct FinalizeP1P6SoftAvoidanceJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
         [ReadOnly] public NativeList<JacobiBlockStatistics> BlockStatistics;
-        public void Execute() => Solver.FinalizeP1P6SoftAvoidance(RuntimeState, BlockStatistics);
+        [ReadOnly] public NativeArray<int> EscapeCountsByBlock;
+        public int EscapeBlockCount;
+        public void Execute() => Solver.FinalizeP1P6SoftAvoidance(
+            RuntimeState,
+            BlockStatistics,
+            EscapeCountsByBlock,
+            EscapeBlockCount);
     }
 
     [BurstCompile]
@@ -1211,11 +1257,40 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
+    private struct ReduceP1P6VelocityBodyBlocksJob : IJobParallelFor
+    {
+        [NativeDisableParallelForRestriction]
+        public NativeArray<ParallelBodyStageStatistics> BodyStatistics;
+        public int BodyCount;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            ParallelBodyStageStatistics aggregate = default;
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                ParallelBodyStageStatistics body = BodyStatistics[bodyIndex];
+                aggregate.Total += body.Total;
+                aggregate.Maximum = math.max(aggregate.Maximum, body.Maximum);
+                aggregate.SecondaryTotal += body.SecondaryTotal;
+                aggregate.TertiaryTotal += body.TertiaryTotal;
+                aggregate.Count += body.Count;
+            }
+            if (begin < BodyCount)
+                BodyStatistics[begin] = aggregate;
+        }
+    }
+
+    [BurstCompile]
     private struct FinalizeP1P6VelocityStatisticsJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
-        public void Execute() => Solver.FinalizeP1P6VelocityStatistics(RuntimeState);
+        public int BlockCount;
+        public void Execute() => Solver.FinalizeP1P6VelocityStatistics(
+            RuntimeState,
+            BlockCount);
     }
 
     private void InitializeP1P6Pipeline(
@@ -1390,7 +1465,10 @@ public partial struct SolveXpbdUnitContactsJob
             ProfilerUnsafeUtility.Timestamp - pairDiffStart);
         long localBroadPhaseElapsed =
             incremental.LocalBroadPhaseNanoseconds - localBroadPhaseBefore;
-        incremental.PairDiffNanoseconds += math.max(0L, pairDiffElapsed - localBroadPhaseElapsed);
+        long pairDiffExclusive = pairDiffElapsed - localBroadPhaseElapsed;
+        incremental.PairDiffNanoseconds += pairDiffExclusive > 0L
+            ? pairDiffExclusive
+            : 0L;
 
         PreviousTimestepContactPairs.Clear();
         PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
@@ -1646,7 +1724,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void FinalizeP1P6SoftAvoidance(
         NativeReference<ParallelJacobiRuntimeState> runtimeState,
-        NativeList<JacobiBlockStatistics> blocks)
+        NativeList<JacobiBlockStatistics> blocks,
+        NativeArray<int> escapeCountsByBlock,
+        int escapeBlockCount)
     {
         ParallelJacobiRuntimeState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
@@ -1657,8 +1737,8 @@ public partial struct SolveXpbdUnitContactsJob
         for (int i = 0; i < blocks.Length; i++)
             activated += blocks[i].NewlyActivatedPairCount;
         int escaped = 0;
-        for (int i = 0; i < EnvelopeEscapeFlags.Length; i++)
-            escaped += EnvelopeEscapeFlags[i] != 0 ? 1 : 0;
+        for (int blockIndex = 0; blockIndex < escapeBlockCount; blockIndex++)
+            escaped += escapeCountsByBlock[blockIndex];
         if (EnablePersistentContactCache &&
             SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
             statistics.SoftAvoidanceFatAabbUseCount++;
@@ -1824,7 +1904,8 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void FinalizeP1P6VelocityStatistics(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiRuntimeState> runtimeState,
+        int blockCount)
     {
         if (runtimeState.Value.IsValid == 0)
             return;
@@ -1832,8 +1913,9 @@ public partial struct SolveXpbdUnitContactsJob
         float speedBefore = 0f;
         float speedAfter = 0f;
         int count = 0;
-        for (int bodyIndex = 0; bodyIndex < ParallelBodyStatistics.Length; bodyIndex++)
+        for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
         {
+            int bodyIndex = blockIndex * ParallelBodyBatchSize;
             ParallelBodyStageStatistics body = ParallelBodyStatistics[bodyIndex];
             statistics.TotalVelocityChange += body.Total;
             statistics.MaxVelocityChange = math.max(statistics.MaxVelocityChange, body.Maximum);
