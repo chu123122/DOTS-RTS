@@ -24,7 +24,19 @@ jobs:
           ref: codex/migrate-contact-pipeline-stage-a-g
           fetch-depth: 0
           path: work
-      - name: Verify patch payload
+      - name: Verify patch chunk 0
+        run: echo '702dafb43adf0de7b1a823ddd5bf3077da71df16dd8bc288eebcfa0042db99f3  payload/.github/jacobi/phase4-entities.part00' | sha256sum -c -
+      - name: Verify patch chunk 1
+        run: echo '456dd5968ac2e9dc2f86bdc06e82fd9dc3dca58f7f6aa52da699806e8f8202ae  payload/.github/jacobi/phase4-entities.part01' | sha256sum -c -
+      - name: Verify patch chunk 2
+        run: echo 'b790456a43b83cdb171a17284a7da2f1ba9b44b423a5434befcd14ebc6c90de3  payload/.github/jacobi/phase4-entities.part02' | sha256sum -c -
+      - name: Verify patch chunk 3
+        run: echo 'df817a7bff3b641c727dc08bbbb80cc9bdd59464e9df2d865ad90292b629c466  payload/.github/jacobi/phase4-entities.part03' | sha256sum -c -
+      - name: Verify patch chunk 4
+        run: echo 'e9e0d462431ccbcba8fb76663ac276347cabe1019aafc6fa5313531ef4db2911  payload/.github/jacobi/phase4-entities.part04' | sha256sum -c -
+      - name: Verify patch chunk 5
+        run: echo '81d0e9d96893c56783ea74d4b84048f07b421443b0c169d29b18dbfddf9181cb  payload/.github/jacobi/phase4-entities.part05' | sha256sum -c -
+      - name: Assemble patch payload
         shell: bash
         run: |
           set -euo pipefail
