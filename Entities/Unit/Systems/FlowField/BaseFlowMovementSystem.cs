@@ -240,14 +240,20 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var correctedBodyIndices = new NativeList<int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
-        var jacobiBodyCorrectionSums = new NativeArray<float3>(
+        var activeIncidentOffsets = new NativeArray<int>(
+            unitCount + 1,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var activeIncidentWriteCursors = new NativeArray<int>(
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.ClearMemory);
-        var jacobiBodyCorrectionCounts = new NativeArray<int>(
-            unitCount,
-            Allocator.TempJob,
-            NativeArrayOptions.ClearMemory);
+        var activeIncidentPairIndices = new NativeList<int>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
+        var jacobiPairCorrections = new NativeList<JacobiPairCorrection>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -286,8 +292,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SoftAvoidancePairs = softAvoidancePairs,
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
-            JacobiBodyCorrectionSums = jacobiBodyCorrectionSums,
-            JacobiBodyCorrectionCounts = jacobiBodyCorrectionCounts,
+            ActiveIncidentOffsets = activeIncidentOffsets,
+            ActiveIncidentWriteCursors = activeIncidentWriteCursors,
+            ActiveIncidentPairIndices = activeIncidentPairIndices,
+            JacobiPairCorrections = jacobiPairCorrections,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
@@ -399,10 +407,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
-        JobHandle jacobiBodyCorrectionSumDisposeHandle =
-            jacobiBodyCorrectionSums.Dispose(applyMovementHandle);
-        JobHandle jacobiBodyCorrectionCountDisposeHandle =
-            jacobiBodyCorrectionCounts.Dispose(applyMovementHandle);
+        JobHandle activeIncidentOffsetDisposeHandle =
+            activeIncidentOffsets.Dispose(applyMovementHandle);
+        JobHandle activeIncidentWriteCursorDisposeHandle =
+            activeIncidentWriteCursors.Dispose(applyMovementHandle);
+        JobHandle activeIncidentPairIndexDisposeHandle =
+            activeIncidentPairIndices.Dispose(applyMovementHandle);
+        JobHandle jacobiPairCorrectionDisposeHandle =
+            jacobiPairCorrections.Dispose(applyMovementHandle);
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -456,10 +468,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
   correctedBodyIndexDisposeHandle,
-  jacobiBodyCorrectionSumDisposeHandle);
+  activeIncidentOffsetDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
-  jacobiBodyCorrectionCountDisposeHandle,
+  activeIncidentWriteCursorDisposeHandle,
+  activeIncidentPairIndexDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  jacobiPairCorrectionDisposeHandle,
   incrementalStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
