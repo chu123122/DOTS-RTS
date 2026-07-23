@@ -22,6 +22,7 @@ public struct ParallelBodyStageStatistics
     public float Total;
     public float Maximum;
     public float SecondaryTotal;
+    public float TertiaryTotal;
     public int Count;
     public int ActivatedCount;
     public int EscapeCount;
@@ -81,7 +82,11 @@ public partial struct SolveXpbdUnitContactsJob
                 Margin = Configuration.TimestepContactMargin,
                 GridOrigin = GridOrigin,
                 CellRadius = CellRadius,
-                FromSolvedPosition = 0
+                FromSolvedPosition = 0,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
         }
 
@@ -111,7 +116,11 @@ public partial struct SolveXpbdUnitContactsJob
                     Margin = Configuration.TimestepContactMargin,
                     GridOrigin = GridOrigin,
                     CellRadius = CellRadius,
-                    FromSolvedPosition = 1
+                    FromSolvedPosition = 1,
+                    SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                    SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                    SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
+                    RvoTimeHorizon = Configuration.RvoTimeHorizon
                 }.Schedule(States.Length, ParallelBodyBatchSize, handle);
             }
 
@@ -119,7 +128,13 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 States = States,
                 EscapeFlags = EnvelopeEscapeFlags,
-                Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
+                Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0),
+                PredictiveSkin = Configuration.PredictiveSkin,
+                TimestepContactMargin = Configuration.TimestepContactMargin,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
             handle = new BeginP1P6SubstepJob
@@ -341,6 +356,10 @@ public partial struct SolveXpbdUnitContactsJob
         public float3 GridOrigin;
         public float CellRadius;
         public byte FromSolvedPosition;
+        public float SoftAvoidanceShell;
+        public float SoftAvoidanceResponseRate;
+        public SoftAvoidanceVelocitySolverMode SoftSolverMode;
+        public float RvoTimeHorizon;
 
         public void Execute(int bodyIndex)
         {
@@ -367,8 +386,16 @@ public partial struct SolveXpbdUnitContactsJob
             state.BasePredictedVelocity = velocity;
             state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
             state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
-            state.TimestepInteractionEnvelopeMin = state.TimestepEnvelopeMin;
-            state.TimestepInteractionEnvelopeMax = state.TimestepEnvelopeMax;
+            CalculateInteractionBounds(
+                state,
+                Skin,
+                Margin,
+                SoftAvoidanceShell,
+                SoftAvoidanceResponseRate,
+                SoftSolverMode,
+                RvoTimeHorizon,
+                out state.TimestepInteractionEnvelopeMin,
+                out state.TimestepInteractionEnvelopeMax);
             if (FromSolvedPosition == 0)
                 state.TimestepEscaped = 0;
             States[bodyIndex] = state;
@@ -403,6 +430,12 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<FlowMovementFrameState> States;
         public NativeArray<byte> EscapeFlags;
         public byte Enabled;
+        public float PredictiveSkin;
+        public float TimestepContactMargin;
+        public float SoftAvoidanceShell;
+        public float SoftAvoidanceResponseRate;
+        public SoftAvoidanceVelocitySolverMode SoftSolverMode;
+        public float RvoTimeHorizon;
 
         public void Execute(int bodyIndex)
         {
@@ -417,10 +450,16 @@ public partial struct SolveXpbdUnitContactsJob
                 EscapeFlags[bodyIndex] = 0;
                 return;
             }
-            float extent = math.max(0f, state.Radius);
-            float2 predictedEnd = (state.PredictedPosition + state.BasePredictedVelocity).xz;
-            float2 min = math.min(state.PredictedPosition.xz, predictedEnd) - extent;
-            float2 max = math.max(state.PredictedPosition.xz, predictedEnd) + extent;
+            CalculateValidationBounds(
+                state,
+                PredictiveSkin,
+                TimestepContactMargin,
+                SoftAvoidanceShell,
+                SoftAvoidanceResponseRate,
+                SoftSolverMode,
+                RvoTimeHorizon,
+                out float2 min,
+                out float2 max);
             EscapeFlags[bodyIndex] = (byte)(Contains(
                 state.TimestepInteractionEnvelopeMin,
                 state.TimestepInteractionEnvelopeMax,
@@ -736,6 +775,8 @@ public partial struct SolveXpbdUnitContactsJob
             state.TimestepPredictedPosition = state.PredictedPosition;
             state.TimestepEnvelopeMin = math.min(state.StartPosition.xz, state.PredictedPosition.xz) - extent;
             state.TimestepEnvelopeMax = math.max(state.StartPosition.xz, state.PredictedPosition.xz) + extent;
+            // The interaction envelope was prepared for the authoritative timestep
+            // view. In B0 mode it is rebuilt by the following serial view builder.
             state.TimestepInteractionEnvelopeMin = state.TimestepEnvelopeMin;
             state.TimestepInteractionEnvelopeMax = state.TimestepEnvelopeMax;
             state.TimestepEscaped = 0;
@@ -916,8 +957,8 @@ public partial struct SolveXpbdUnitContactsJob
                 Total = change,
                 Maximum = change,
                 SecondaryTotal = math.length(state.VelocityBeforeContact),
-                Count = 1,
-                ActivatedCount = (int)math.round(math.length(state.IntegratedVelocity) * 100000f)
+                TertiaryTotal = math.length(state.IntegratedVelocity),
+                Count = 1
             };
             States[bodyIndex] = state;
         }
@@ -958,8 +999,10 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentSweptProxies.Clear();
             PersistentNeighborPairs.Clear();
             PersistentPredictiveContacts.Clear();
-            PersistentIncidentPairLookup.Clear();
-            PersistentIncidentLookupEpoch.Value = 0;
+            if (PersistentIncidentPairLookup.IsCreated)
+                PersistentIncidentPairLookup.Clear();
+            if (PersistentIncidentLookupEpoch.IsCreated)
+                PersistentIncidentLookupEpoch.Value = 0;
             IncrementalCacheState.Value = default;
         }
         runtimeState.Value = runtime;
@@ -1222,7 +1265,7 @@ public partial struct SolveXpbdUnitContactsJob
             statistics.TotalVelocityChange += body.Total;
             statistics.MaxVelocityChange = math.max(statistics.MaxVelocityChange, body.Maximum);
             speedBefore += body.SecondaryTotal;
-            speedAfter += body.ActivatedCount / 100000f;
+            speedAfter += body.TertiaryTotal;
             count += body.Count;
         }
         if (count > 0)
@@ -1312,7 +1355,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void RebuildPersistentIncidentPairLookupIfNeededP1P6()
     {
-        if (!EnablePersistentContactCache || !PersistentIncidentPairLookup.IsCreated)
+        if (!EnablePersistentContactCache ||
+            !PersistentIncidentPairLookup.IsCreated ||
+            !PersistentIncidentLookupEpoch.IsCreated)
             return;
         uint epoch = IncrementalCacheState.Value.TopologyEpoch;
         if (PersistentIncidentLookupEpoch.Value == epoch &&
@@ -1353,14 +1398,97 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static bool Contains(float2 outerMin, float2 outerMax, float2 innerMin, float2 innerMax)
     {
-        return math.all(innerMin >= outerMin) && math.all(innerMax <= outerMax);
+        const float tolerance = 0.00001f;
+        return math.all(innerMin >= outerMin - tolerance) &&
+               math.all(innerMax <= outerMax + tolerance);
     }
 
     private static float3 DeterministicPairNormal(int a, int b)
     {
-        uint hash = math.hash(new int2(math.min(a, b), math.max(a, b)));
-        float angle = (hash & 0xFFFFu) * (2f * math.PI / 65536f);
-        return new float3(math.cos(angle), 0f, math.sin(angle));
+        return DeterministicFallbackNormal(a, b);
+    }
+
+    private static void CalculateInteractionBounds(
+        FlowMovementFrameState state,
+        float predictiveSkin,
+        float margin,
+        float softShell,
+        float softResponseRate,
+        SoftAvoidanceVelocitySolverMode softSolverMode,
+        float rvoTimeHorizon,
+        out float2 min,
+        out float2 max)
+    {
+        CalculatePathBounds(
+            state,
+            softShell,
+            softResponseRate,
+            softSolverMode,
+            rvoTimeHorizon,
+            out float2 pathMin,
+            out float2 pathMax);
+        float contactPadding = math.max(0f, predictiveSkin) +
+                               math.max(0f, margin) * 2f;
+        float avoidancePadding = math.max(0f, softShell) * 0.5f;
+        float extent = math.max(0f, state.Radius) +
+                       math.max(contactPadding, avoidancePadding);
+        min = pathMin - extent;
+        max = pathMax + extent;
+    }
+
+    private static void CalculateValidationBounds(
+        FlowMovementFrameState state,
+        float predictiveSkin,
+        float margin,
+        float softShell,
+        float softResponseRate,
+        SoftAvoidanceVelocitySolverMode softSolverMode,
+        float rvoTimeHorizon,
+        out float2 min,
+        out float2 max)
+    {
+        CalculatePathBounds(
+            state,
+            softShell,
+            softResponseRate,
+            softSolverMode,
+            rvoTimeHorizon,
+            out float2 pathMin,
+            out float2 pathMax);
+        float contactPadding = math.max(0f, predictiveSkin) + math.max(0f, margin);
+        float avoidancePadding = math.max(0f, softShell) * 0.5f;
+        float extent = math.max(0f, state.Radius) +
+                       math.max(contactPadding, avoidancePadding);
+        min = pathMin - extent;
+        max = pathMax + extent;
+    }
+
+    private static void CalculatePathBounds(
+        FlowMovementFrameState state,
+        float softShell,
+        float softResponseRate,
+        SoftAvoidanceVelocitySolverMode softSolverMode,
+        float rvoTimeHorizon,
+        out float2 min,
+        out float2 max)
+    {
+        min = math.min(
+            state.TimestepStartPosition.xz,
+            math.min(
+                state.TimestepPredictedPosition.xz,
+                math.min(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz)));
+        max = math.max(
+            state.TimestepStartPosition.xz,
+            math.max(
+                state.TimestepPredictedPosition.xz,
+                math.max(state.UnconstrainedPredictedPosition.xz, state.PredictedPosition.xz)));
+        if (softSolverMode != SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
+            softShell <= 0f || softResponseRate <= 0f)
+            return;
+        float2 horizonEnd = state.PredictedPosition.xz +
+                            state.BasePredictedVelocity.xz * math.max(0f, rvoTimeHorizon);
+        min = math.min(min, horizonEnd);
+        max = math.max(max, horizonEnd);
     }
 
     private static bool SoftOutputInsideEnvelope(
