@@ -4,6 +4,14 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+public struct JacobiPairCorrection
+{
+    public float3 DeltaA;
+    public float3 DeltaB;
+    public byte ActiveA;
+    public byte ActiveB;
+}
+
 /// <summary>
 /// XPBD projection for the compact frame-local active contact view.
 /// Gauss-Seidel writes each pair immediately; Jacobi evaluates from one
@@ -137,18 +145,15 @@ public partial struct SolveXpbdUnitContactsJob
 
         totalPositionCorrection = 0f;
         maxPositionCorrection = 0f;
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
-        {
-            JacobiBodyCorrectionSums[bodyIndex] = float3.zero;
-            JacobiBodyCorrectionCounts[bodyIndex] = 0;
-        }
+        JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
 
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
         incrementalStatistics.ActiveConstraintEvaluationCount +=
             TimestepContactPairs.Length;
 
-        // All pairs read the same predicted-position state. No body position is
-        // changed until every pair has produced its contribution.
+        // All pairs read the same predicted-position state and write only their
+        // own contribution slot. The body gather below is the same data shape
+        // used by the parallel Jacobi path.
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
@@ -172,44 +177,66 @@ public partial struct SolveXpbdUnitContactsJob
                 evaluation.ConstraintValue,
                 evaluation.PairCorrection);
 
-            if (math.abs(evaluation.AppliedLambda) <= 0.0000001f)
-                continue;
-
-            MarkPairCorrectedThisTimestep(
-                pairIndex,
-                ref pair,
-                ref incrementalStatistics);
-            totalPositionCorrection += evaluation.PairCorrection;
-            maxPositionCorrection = math.max(
-                maxPositionCorrection,
-                evaluation.PairCorrection);
-
-            if (bodyA.InverseMass > 0f)
+            JacobiPairCorrection correction = default;
+            if (math.abs(evaluation.AppliedLambda) > 0.0000001f)
             {
-                JacobiBodyCorrectionSums[pair.BodyA] += evaluation.Normal *
-                    (bodyA.InverseMass * evaluation.AppliedLambda);
-                JacobiBodyCorrectionCounts[pair.BodyA]++;
+                MarkPairCorrectedThisTimestep(
+                    pairIndex,
+                    ref pair,
+                    ref incrementalStatistics);
+                totalPositionCorrection += evaluation.PairCorrection;
+                maxPositionCorrection = math.max(
+                    maxPositionCorrection,
+                    evaluation.PairCorrection);
+
+                if (bodyA.InverseMass > 0f)
+                {
+                    correction.DeltaA = evaluation.Normal *
+                        (bodyA.InverseMass * evaluation.AppliedLambda);
+                    correction.ActiveA = 1;
+                }
+                if (bodyB.InverseMass > 0f)
+                {
+                    correction.DeltaB = -evaluation.Normal *
+                        (bodyB.InverseMass * evaluation.AppliedLambda);
+                    correction.ActiveB = 1;
+                }
             }
-            if (bodyB.InverseMass > 0f)
-            {
-                JacobiBodyCorrectionSums[pair.BodyB] -= evaluation.Normal *
-                    (bodyB.InverseMass * evaluation.AppliedLambda);
-                JacobiBodyCorrectionCounts[pair.BodyB]++;
-            }
+            JacobiPairCorrections[pairIndex] = correction;
         }
 
-        // Constraint averaging prevents a high-degree body from applying every
-        // simultaneously-computed correction at full strength in one Jacobi step.
+        // Each body owns one disjoint output slot and gathers only the pair
+        // contributions listed in its CSR incident range. No atomics are needed.
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
-            int correctionCount = JacobiBodyCorrectionCounts[bodyIndex];
+            float3 correctionSum = float3.zero;
+            int correctionCount = 0;
+            int begin = ActiveIncidentOffsets[bodyIndex];
+            int end = ActiveIncidentOffsets[bodyIndex + 1];
+            for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
+            {
+                int pairIndex = ActiveIncidentPairIndices[incidentIndex];
+                UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+                JacobiPairCorrection contribution = JacobiPairCorrections[pairIndex];
+                if (pair.BodyA == bodyIndex && contribution.ActiveA != 0)
+                {
+                    correctionSum += contribution.DeltaA;
+                    correctionCount++;
+                }
+                else if (pair.BodyB == bodyIndex && contribution.ActiveB != 0)
+                {
+                    correctionSum += contribution.DeltaB;
+                    correctionCount++;
+                }
+            }
+
             if (correctionCount <= 0)
                 continue;
 
-            float3 correction = JacobiBodyCorrectionSums[bodyIndex] /
-                                correctionCount;
+            // Constraint averaging prevents a high-degree body from applying
+            // all simultaneous corrections at full strength in one Jacobi step.
             FlowMovementFrameState body = States[bodyIndex];
-            ApplyContactCorrection(ref body, correction);
+            ApplyContactCorrection(ref body, correctionSum / correctionCount);
             States[bodyIndex] = body;
             if (trackCorrectedBodies)
                 MarkCorrectedBody(bodyIndex);

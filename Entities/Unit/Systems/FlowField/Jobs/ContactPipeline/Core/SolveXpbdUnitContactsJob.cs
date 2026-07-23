@@ -65,8 +65,10 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<UnitCollisionPair> SoftAvoidancePairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
-    public NativeArray<float3> JacobiBodyCorrectionSums;
-    public NativeArray<int> JacobiBodyCorrectionCounts;
+    public NativeArray<int> ActiveIncidentOffsets;
+    public NativeArray<int> ActiveIncidentWriteCursors;
+    public NativeList<int> ActiveIncidentPairIndices;
+    public NativeList<JacobiPairCorrection> JacobiPairCorrections;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
@@ -210,6 +212,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 EnableTimestepContactSetCache ? substepCount : 1,
                 ref incrementalStatistics);
             ResetTimestepContactSetForSubstep();
+            RebuildActiveConstraintIncidentIndexIfNeeded();
             statistics.TimestepContactSetSubstepUseCount++;
 
             long iterationStart = ProfilerUnsafeUtility.Timestamp;
@@ -242,6 +245,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         ref statistics,
                         ref incrementalStatistics);
                     ResetTimestepContactSetForSubstep();
+                    RebuildActiveConstraintIncidentIndexIfNeeded();
                 }
 
                 SolveConfiguredContactIteration(
@@ -287,6 +291,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                         EnableTimestepContactSetCache,
                         ref statistics,
                         ref incrementalStatistics);
+                    RebuildActiveConstraintIncidentIndexIfNeeded();
 
                     // 最后一轮之后没有正常恢复机会；补一轮只处理新发现的单位接触。
                     if (iterationIndex == iterationCount - 1)
