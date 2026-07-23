@@ -271,6 +271,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             math.max(unitCount * 4, 1), Allocator.TempJob);
         var activeIncidentIndexState =
             new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob);
+        var persistentClassificationResults =
+            new NativeList<PersistentPairClassificationResult>(
+                math.max(unitCount * 8, 1), Allocator.TempJob);
+        var persistentClassificationState =
+            new NativeReference<ParallelPersistentClassificationState>(Allocator.TempJob);
+        var persistentSpatialVisitStampByProxy = new NativeArray<uint>(
+            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        var persistentSpatialVisitStamp =
+            new NativeReference<uint>(Allocator.TempJob);
         var parallelJacobiRuntimeState =
             new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob);
         var parallelJacobiIterationState =
@@ -346,6 +355,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             IncrementalStatistics = incrementalStatistics,
             PersistentIncidentPairLookup = _persistentIncidentPairLookup,
             PersistentIncidentLookupEpoch = _persistentIncidentLookupEpoch,
+            PersistentSpatialMembership = _persistentSpatialMembership,
+            PersistentSpatialMembershipEpoch = _persistentSpatialMembershipEpoch,
+            PersistentSpatialVisitStampByProxy = persistentSpatialVisitStampByProxy,
+            PersistentSpatialVisitStamp = persistentSpatialVisitStamp,
+            PersistentClassificationResults = persistentClassificationResults,
+            PersistentClassificationState = persistentClassificationState,
             SimulationDebuggerCaptureMask = SimulationDebuggerRuntime.CaptureMask,
             SimulationDebuggerMaximumPairs = SimulationDebuggerRuntime.MaximumVisualizedPairs,
             SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
@@ -474,6 +489,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             softPairContributions.Dispose(applyMovementHandle);
         JobHandle activeIncidentIndexStateDisposeHandle =
             activeIncidentIndexState.Dispose(applyMovementHandle);
+        JobHandle persistentClassificationResultDisposeHandle =
+            persistentClassificationResults.Dispose(applyMovementHandle);
+        JobHandle persistentClassificationStateDisposeHandle =
+            persistentClassificationState.Dispose(applyMovementHandle);
+        JobHandle persistentSpatialVisitStampArrayDisposeHandle =
+            persistentSpatialVisitStampByProxy.Dispose(applyMovementHandle);
+        JobHandle persistentSpatialVisitStampDisposeHandle =
+            persistentSpatialVisitStamp.Dispose(applyMovementHandle);
         JobHandle parallelJacobiRuntimeStateDisposeHandle =
             parallelJacobiRuntimeState.Dispose(applyMovementHandle);
         JobHandle parallelJacobiIterationStateDisposeHandle =
@@ -558,6 +581,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             solverScratchDisposeHandle,
             activeIncidentIndexStateDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            persistentClassificationResultDisposeHandle,
+            persistentClassificationStateDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            persistentSpatialVisitStampArrayDisposeHandle,
+            persistentSpatialVisitStampDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
   parallelJacobiRuntimeStateDisposeHandle,
   parallelJacobiIterationStateDisposeHandle);
@@ -596,6 +627,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _persistentIncidentPairLookup.Clear();
         if (_persistentIncidentLookupEpoch.IsCreated)
             _persistentIncidentLookupEpoch.Value = 0;
+        if (_persistentSpatialMembership.IsCreated)
+            _persistentSpatialMembership.Clear();
+        if (_persistentSpatialMembershipEpoch.IsCreated)
+            _persistentSpatialMembershipEpoch.Value = 0;
     }
 }
 }

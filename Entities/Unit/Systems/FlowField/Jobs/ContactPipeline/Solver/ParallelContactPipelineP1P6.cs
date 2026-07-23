@@ -98,11 +98,21 @@ public partial struct SolveXpbdUnitContactsJob
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
         }
 
-        handle = new BuildInitialP1P6ContactSetJob
+        if (Configuration.EnableTimestepContactSetCache &&
+            Configuration.EnablePersistentContactCache)
         {
-            Solver = this,
-            RuntimeState = runtimeState
-        }.Schedule(handle);
+            handle = ScheduleInitialPersistentContactSetP1P6(
+                runtimeState,
+                handle);
+        }
+        else
+        {
+            handle = new BuildInitialP1P6ContactSetJob
+            {
+                Solver = this,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
+        }
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
