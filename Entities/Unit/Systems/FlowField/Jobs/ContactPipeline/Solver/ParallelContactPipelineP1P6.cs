@@ -33,7 +33,10 @@ public struct ActiveIncidentIndexState
     public ulong Fingerprint;
     public int PairCount;
     public int BodyCount;
+    public int SoftPairCount;
+    public int SoftBodyCount;
     public byte IsValid;
+    public byte SoftIsValid;
 }
 
 /// <summary>
@@ -1197,6 +1200,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepInteractionSet(ref statistics, ref incremental);
+            InvalidateSoftIncidentIndexP1P6();
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }
@@ -1210,6 +1214,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incremental,
                 false);
+            InvalidateSoftIncidentIndexP1P6();
             RebuildPersistentIncidentPairLookupIfNeededP1P6();
         }
 
@@ -1225,7 +1230,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtime.IsValid == 0)
             return;
 
-        BuildSoftIncidentIndexP1P6();
+        EnsureSoftIncidentIndexP1P6();
         SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
         blockStatistics.ResizeUninitialized(
             (SoftAvoidancePairs.Length + SoftPairBatchSize - 1) / SoftPairBatchSize);
@@ -1297,6 +1302,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incremental,
                 false);
+            InvalidateSoftIncidentIndexP1P6();
             RebuildPersistentIncidentPairLookupIfNeededP1P6();
             rebuilt = true;
         }
@@ -1309,6 +1315,7 @@ public partial struct SolveXpbdUnitContactsJob
             PrepareSubstepContactPrediction();
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepContactView(ref statistics, ref incremental);
+            InvalidateSoftIncidentIndexP1P6();
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }
@@ -1380,6 +1387,7 @@ public partial struct SolveXpbdUnitContactsJob
                 EnableTimestepContactSetCache,
                 ref statistics,
                 ref incremental);
+            InvalidateSoftIncidentIndexP1P6();
             ResetTimestepContactSetForSubstep();
             RebuildPersistentIncidentPairLookupIfNeededP1P6();
             ActiveIncidentIndexState.Value = default;
@@ -1433,6 +1441,29 @@ public partial struct SolveXpbdUnitContactsJob
             statistics.AverageSpeedAfterContact += speedAfter / count;
         }
         Statistics.Value = statistics;
+    }
+
+    private void EnsureSoftIncidentIndexP1P6()
+    {
+        ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
+        if (state.SoftIsValid != 0 &&
+            state.SoftPairCount == SoftAvoidancePairs.Length &&
+            state.SoftBodyCount == States.Length)
+            return;
+
+        BuildSoftIncidentIndexP1P6();
+        state = ActiveIncidentIndexState.Value;
+        state.SoftPairCount = SoftAvoidancePairs.Length;
+        state.SoftBodyCount = States.Length;
+        state.SoftIsValid = 1;
+        ActiveIncidentIndexState.Value = state;
+    }
+
+    private void InvalidateSoftIncidentIndexP1P6()
+    {
+        ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
+        state.SoftIsValid = 0;
+        ActiveIncidentIndexState.Value = state;
     }
 
     private void BuildSoftIncidentIndexP1P6()
@@ -1503,13 +1534,12 @@ public partial struct SolveXpbdUnitContactsJob
             ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyA]++] = pairIndex;
             ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyB]++] = pairIndex;
         }
-        ActiveIncidentIndexState.Value = new ActiveIncidentIndexState
-        {
-            Fingerprint = fingerprint,
-            PairCount = TimestepContactPairs.Length,
-            BodyCount = States.Length,
-            IsValid = 1
-        };
+        state = ActiveIncidentIndexState.Value;
+        state.Fingerprint = fingerprint;
+        state.PairCount = TimestepContactPairs.Length;
+        state.BodyCount = States.Length;
+        state.IsValid = 1;
+        ActiveIncidentIndexState.Value = state;
     }
 
     private void RebuildPersistentIncidentPairLookupIfNeededP1P6()
