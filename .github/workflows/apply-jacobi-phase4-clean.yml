@@ -1,9 +1,9 @@
 name: Apply clean Jacobi phase 4
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/migrate-contact-pipeline-stage-a-g
+      - Simulation
 
 permissions:
   contents: write
