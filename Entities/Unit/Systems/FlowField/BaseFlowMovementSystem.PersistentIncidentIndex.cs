@@ -6,6 +6,8 @@ namespace RTS.Unit.FlowField.Systems
 {
 public abstract partial class BaseFlowMovementSystem
 {
+    // Cross-frame views are system-owned so their lifetime follows the scheduled
+    // solver dependency instead of being recreated inside each contact job.
     private NativeParallelMultiHashMap<Entity, int> _persistentIncidentPairLookup;
     private NativeReference<uint> _persistentIncidentLookupEpoch;
     private NativeParallelMultiHashMap<int, int> _persistentSpatialMembership;
