@@ -1,0 +1,61 @@
+name: Apply P1P6 substep commits
+
+on:
+  push:
+    branches:
+      - codex/p1p6-substep-apply-runner
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for complete bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=true
+          for part in .codex/p1p6-bundle/part-{0..3}.b64; do
+            if [[ ! -f "$part" ]]; then
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Apply six commits
+        if: steps.bundle.outputs.ready == 'true'
+        shell: bash
+        env:
+          TARGET_BRANCH: codex/contact-pipeline-parallel-p1-p6-final
+        run: |
+          set -euo pipefail
+          cat .codex/p1p6-bundle/part-{0..3}.b64 | base64 --decode > /tmp/p1p6.bundle
+          rm -rf /tmp/p1p6-source
+          git clone -q /tmp/p1p6.bundle /tmp/p1p6-source
+
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B p1p6-result "origin/$TARGET_BRANCH"
+          git config user.name "Codex"
+          git config user.email "codex@openai.com"
+
+          mapfile -t commits < <(git -C /tmp/p1p6-source rev-list --reverse export-six)
+          if [[ ${#commits[@]} -ne 7 ]]; then
+            echo "Expected root plus six commits, got ${#commits[@]}" >&2
+            exit 1
+          fi
+          for ((i = 1; i < ${#commits[@]}; i++)); do
+            git -C /tmp/p1p6-source format-patch -1 --stdout "${commits[$i]}" | git am
+          done
+
+          test "$(git rev-list --count "origin/$TARGET_BRANCH"..HEAD)" -eq 6
+          test "$(git diff --name-only "origin/$TARGET_BRANCH"..HEAD | wc -l)" -eq 1
+          git diff --check "origin/$TARGET_BRANCH"..HEAD
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
