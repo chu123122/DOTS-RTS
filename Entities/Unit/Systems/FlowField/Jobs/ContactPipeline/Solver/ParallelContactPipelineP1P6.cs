@@ -209,14 +209,6 @@ public partial struct SolveXpbdUnitContactsJob
                 SubstepDeltaTime = substepDeltaTime
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
-            handle = new PrepareSubstepContactPredictionBodiesJob
-            {
-                States = States,
-                Skin = Configuration.PredictiveSkin,
-                Margin = Configuration.TimestepContactMargin,
-                Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 0 : 1)
-            }.Schedule(States.Length, ParallelBodyBatchSize, handle);
-
             handle = new ValidatePredictedContactEnvelopeBodiesJob
             {
                 States = States,
@@ -1097,6 +1089,9 @@ public partial struct SolveXpbdUnitContactsJob
         int escaped = 0;
         for (int i = 0; i < EnvelopeEscapeFlags.Length; i++)
             escaped += EnvelopeEscapeFlags[i] != 0 ? 1 : 0;
+        if (EnablePersistentContactCache &&
+            SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
+            statistics.SoftAvoidanceFatAabbUseCount++;
         statistics.SoftAvoidanceCandidatePairCount += SoftAvoidancePairs.Length;
         statistics.SoftAvoidanceActivatedPairCount += activated;
         statistics.SoftAvoidanceEvaluationCount++;
@@ -1148,6 +1143,11 @@ public partial struct SolveXpbdUnitContactsJob
         }
         if (!EnableTimestepContactSetCache && !rebuilt)
         {
+            // Preserve the reference ordering: first validate the pre-soft swept
+            // envelope, then publish the actual solved substep trajectory used by
+            // Narrow Phase. Preparing this before validation would make every B0
+            // validation trivially pass.
+            PrepareSubstepContactPrediction();
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepContactView(ref statistics, ref incremental);
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
