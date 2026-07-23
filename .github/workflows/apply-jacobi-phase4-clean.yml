@@ -1,0 +1,31 @@
+name: Apply clean Jacobi phase 4
+
+on:
+  push:
+    branches:
+      - codex/migrate-contact-pipeline-stage-a-g
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/migrate-contact-pipeline-stage-a-g
+          fetch-depth: 0
+      - name: Apply parallel Jacobi job graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/jacobi/phase4-clean.patch.gz.b64 | gzip -d > /tmp/phase4.patch
+          git apply --check /tmp/phase4.patch
+          git apply /tmp/phase4.patch
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Entities
+          git commit -m 'feat: parallelize Jacobi contact projection'
+          git push origin HEAD:codex/migrate-contact-pipeline-stage-a-g
