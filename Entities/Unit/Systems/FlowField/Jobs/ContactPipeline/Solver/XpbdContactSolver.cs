@@ -8,8 +8,96 @@ public struct JacobiPairCorrection
 {
     public float3 DeltaA;
     public float3 DeltaB;
+    public float PairCorrection;
     public byte ActiveA;
     public byte ActiveB;
+    public byte NewlyActivated;
+    public byte NewlyCorrected;
+}
+
+public struct ContactConstraintEvaluation
+{
+    public float3 Normal;
+    public float ConstraintValue;
+    public float AppliedLambda;
+    public float PairCorrection;
+    public byte NewlyActivated;
+}
+
+public static class XpbdContactConstraintMath
+{
+    public static ContactConstraintEvaluation Evaluate(
+        ref UnitCollisionPair pair,
+        FlowMovementFrameState bodyA,
+        FlowMovementFrameState bodyB,
+        float alpha,
+        int substepIndex)
+    {
+        float denominator = bodyA.InverseMass + bodyB.InverseMass + alpha;
+        if (denominator <= 0f)
+            return default;
+
+        float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+        currentDelta.y = 0f;
+        float radiusSum = bodyA.Radius + bodyB.Radius;
+        float3 normal;
+        float constraintValue;
+
+        if (pair.ContactMode == UnitContactMode.Predictive)
+        {
+            normal = pair.PredictiveNormal;
+            if (pair.PredictiveNormalOriented == 0)
+            {
+                if (math.dot(currentDelta, normal) < 0f)
+                    normal = -normal;
+                normal = math.normalizesafe(
+                    normal,
+                    SolveXpbdUnitContactsJob.DeterministicFallbackNormal(
+                        pair.BodyA,
+                        pair.BodyB));
+                pair.PredictiveNormal = normal;
+                pair.PredictiveNormalOriented = 1;
+            }
+            constraintValue = math.dot(currentDelta, normal) - radiusSum;
+        }
+        else
+        {
+            float distance = math.length(currentDelta);
+            normal = distance > 0.00001f
+                ? currentDelta / distance
+                : SolveXpbdUnitContactsJob.DeterministicFallbackNormal(
+                    pair.BodyA,
+                    pair.BodyB);
+            constraintValue = distance - radiusSum;
+        }
+
+        float deltaLambda = -(constraintValue + alpha * pair.Lambda) / denominator;
+        float nextLambda = math.max(0f, pair.Lambda + deltaLambda);
+        float appliedLambda = nextLambda - pair.Lambda;
+        pair.Lambda = nextLambda;
+        byte newlyActivated = 0;
+        if (nextLambda > 0.0000001f && pair.WasActivated == 0)
+        {
+            pair.WasActivated = 1;
+            pair.ActivatedSubstepCount++;
+            if (pair.WasActivatedThisTimestep == 0)
+            {
+                pair.WasActivatedThisTimestep = 1;
+                pair.FirstActivatedSubstep = substepIndex;
+                newlyActivated = 1;
+            }
+        }
+
+        return new ContactConstraintEvaluation
+        {
+            Normal = normal,
+            ConstraintValue = constraintValue,
+            AppliedLambda = appliedLambda,
+            PairCorrection = (bodyA.InverseMass + bodyB.InverseMass) *
+                             math.abs(appliedLambda),
+            NewlyActivated = newlyActivated
+        };
+    }
 }
 
 /// <summary>
@@ -19,14 +107,6 @@ public struct JacobiPairCorrection
 /// </summary>
 public partial struct SolveXpbdUnitContactsJob
 {
-    private struct ContactConstraintEvaluation
-    {
-        public float3 Normal;
-        public float ConstraintValue;
-        public float AppliedLambda;
-        public float PairCorrection;
-    }
-
     private void SolveConfiguredContactIteration(
         float substepDeltaTime,
         int substepIndex,
@@ -82,13 +162,14 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            ContactConstraintEvaluation evaluation = EvaluateContactConstraint(
+            ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
                 ref pair,
                 bodyA,
                 bodyB,
                 alpha,
-                substepIndex,
-                ref statistics);
+                substepIndex);
+            statistics.TimestepContactSetUniqueActivatedPairCount +=
+                evaluation.NewlyActivated;
             TimestepContactPairs[pairIndex] = pair;
 
             CaptureSimulationDebuggerPair(
@@ -159,13 +240,14 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            ContactConstraintEvaluation evaluation = EvaluateContactConstraint(
+            ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
                 ref pair,
                 bodyA,
                 bodyB,
                 alpha,
-                substepIndex,
-                ref statistics);
+                substepIndex);
+            statistics.TimestepContactSetUniqueActivatedPairCount +=
+                evaluation.NewlyActivated;
             TimestepContactPairs[pairIndex] = pair;
 
             CaptureSimulationDebuggerPair(
@@ -241,75 +323,6 @@ public partial struct SolveXpbdUnitContactsJob
             if (trackCorrectedBodies)
                 MarkCorrectedBody(bodyIndex);
         }
-    }
-
-    private ContactConstraintEvaluation EvaluateContactConstraint(
-        ref UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
-        float alpha,
-        int substepIndex,
-        ref PredictiveDiscContactStatistics statistics)
-    {
-        float denominator = bodyA.InverseMass + bodyB.InverseMass + alpha;
-        if (denominator <= 0f)
-            return default;
-
-        float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
-        currentDelta.y = 0f;
-        float radiusSum = bodyA.Radius + bodyB.Radius;
-        float3 normal;
-        float constraintValue;
-
-        if (pair.ContactMode == UnitContactMode.Predictive)
-        {
-            normal = pair.PredictiveNormal;
-            if (pair.PredictiveNormalOriented == 0)
-            {
-                if (math.dot(currentDelta, normal) < 0f)
-                    normal = -normal;
-                normal = math.normalizesafe(
-                    normal,
-                    DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
-                pair.PredictiveNormal = normal;
-                pair.PredictiveNormalOriented = 1;
-            }
-            constraintValue = math.dot(currentDelta, normal) - radiusSum;
-        }
-        else
-        {
-            float distance = math.length(currentDelta);
-            normal = distance > 0.00001f
-                ? currentDelta / distance
-                : DeterministicFallbackNormal(pair.BodyA, pair.BodyB);
-            constraintValue = distance - radiusSum;
-        }
-
-        float deltaLambda = -(constraintValue + alpha * pair.Lambda) / denominator;
-        float nextLambda = math.max(0f, pair.Lambda + deltaLambda);
-        float appliedLambda = nextLambda - pair.Lambda;
-        pair.Lambda = nextLambda;
-
-        if (nextLambda > 0.0000001f && pair.WasActivated == 0)
-        {
-            pair.WasActivated = 1;
-            pair.ActivatedSubstepCount++;
-            if (pair.WasActivatedThisTimestep == 0)
-            {
-                pair.WasActivatedThisTimestep = 1;
-                pair.FirstActivatedSubstep = substepIndex;
-                statistics.TimestepContactSetUniqueActivatedPairCount++;
-            }
-        }
-
-        return new ContactConstraintEvaluation
-        {
-            Normal = normal,
-            ConstraintValue = constraintValue,
-            AppliedLambda = appliedLambda,
-            PairCorrection = (bodyA.InverseMass + bodyB.InverseMass) *
-                             math.abs(appliedLambda)
-        };
     }
 
     private void MarkPairCorrectedThisTimestep(
