@@ -6,8 +6,8 @@
   index is the next structural optimization.
 - Local topology repair is currently O(K + D×N) in the conservative path. Persistent spatial
   membership or a dedicated proxy index is required before claiming mature incremental broadphase.
-- Gauss-Seidel remains serial. The Jacobi mode currently provides a deterministic serial reference;
-  active-constraint incident indexing and the parallel evaluate/gather/apply job graph are pending.
+- Gauss-Seidel remains serial. Jacobi now uses a deterministic frame-local active-constraint CSR;
+  the parallel evaluate/gather/apply job graph is still pending.
 
 ## Engineering debt
 

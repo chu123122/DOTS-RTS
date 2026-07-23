@@ -240,16 +240,28 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var correctedBodyIndices = new NativeList<int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
-        // Serial Jacobi reference scratch. Phase 3 replaces pair scatter with a
-        // deterministic body-to-active-constraint incident gather.
         var jacobiPositionCorrections = new NativeArray<float3>(
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.ClearMemory);
-        var jacobiConstraintCounts = new NativeArray<int>(
+        var jacobiConstraintProjections = new NativeList<JacobiContactProjection>(
+            math.max(unitCount * 4, 1),
+            Allocator.TempJob);
+        // Frame-local CSR index: BodyIndex -> active TimestepContactPair indices.
+        var activeConstraintIncidentOffsets = new NativeArray<int>(
+            unitCount + 1,
+            Allocator.TempJob,
+            NativeArrayOptions.ClearMemory);
+        var activeConstraintIncidentPairIndices = new NativeList<int>(
+            math.max(unitCount * 8, 1),
+            Allocator.TempJob);
+        var activeConstraintIncidentWriteCursors = new NativeArray<int>(
             unitCount,
             Allocator.TempJob,
             NativeArrayOptions.ClearMemory);
+        var activeConstraintIncidentIndexDirty =
+            new NativeReference<byte>(Allocator.TempJob);
+        activeConstraintIncidentIndexDirty.Value = 1;
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -289,7 +301,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             CorrectedBodyFlags = correctedBodyFlags,
             CorrectedBodyIndices = correctedBodyIndices,
             JacobiPositionCorrections = jacobiPositionCorrections,
-            JacobiConstraintCounts = jacobiConstraintCounts,
+            JacobiConstraintProjections = jacobiConstraintProjections,
+            ActiveConstraintIncidentOffsets = activeConstraintIncidentOffsets,
+            ActiveConstraintIncidentPairIndices = activeConstraintIncidentPairIndices,
+            ActiveConstraintIncidentWriteCursors = activeConstraintIncidentWriteCursors,
+            ActiveConstraintIncidentIndexDirty = activeConstraintIncidentIndexDirty,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
             PersistentNeighborPairs = _persistentNeighborPairs,
@@ -403,8 +419,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyIndices.Dispose(applyMovementHandle);
         JobHandle jacobiPositionCorrectionDisposeHandle =
             jacobiPositionCorrections.Dispose(applyMovementHandle);
-        JobHandle jacobiConstraintCountDisposeHandle =
-            jacobiConstraintCounts.Dispose(applyMovementHandle);
+        JobHandle jacobiProjectionDisposeHandle =
+            jacobiConstraintProjections.Dispose(applyMovementHandle);
+        JobHandle activeIncidentOffsetDisposeHandle =
+            activeConstraintIncidentOffsets.Dispose(applyMovementHandle);
+        JobHandle activeIncidentPairIndexDisposeHandle =
+            activeConstraintIncidentPairIndices.Dispose(applyMovementHandle);
+        JobHandle activeIncidentCursorDisposeHandle =
+            activeConstraintIncidentWriteCursors.Dispose(applyMovementHandle);
+        JobHandle activeIncidentDirtyDisposeHandle =
+            activeConstraintIncidentIndexDirty.Dispose(applyMovementHandle);
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -461,7 +485,15 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   jacobiPositionCorrectionDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
-  jacobiConstraintCountDisposeHandle,
+  jacobiProjectionDisposeHandle,
+  activeIncidentOffsetDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  activeIncidentPairIndexDisposeHandle,
+  activeIncidentCursorDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+  solverScratchDisposeHandle,
+  activeIncidentDirtyDisposeHandle,
   incrementalStatisticsDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(

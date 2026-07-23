@@ -167,12 +167,9 @@ public partial struct SolveXpbdUnitContactsJob
 
 
     /// <summary>
-    /// Deterministic serial Jacobi reference. Every constraint reads the same
-    /// iteration-start positions, scatters a contribution into body-local
-    /// accumulators, and positions are updated only after all constraints have
-    /// been evaluated. The average by active contribution count is the initial
-    /// constraint-averaging policy; phase 3 replaces the scatter scratch with a
-    /// body-to-active-constraint incident gather before phase 4 parallelizes it.
+    /// Deterministic serial Jacobi reference using the same CSR gather layout
+    /// that phase 4 parallelizes. Constraints read a shared iteration snapshot;
+    /// each body then gathers and averages only its non-zero incident projections.
     /// </summary>
     private void SolveSerialJacobiContactIteration(
         float substepDeltaTime,
@@ -186,12 +183,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (trackCorrectedBodies)
             ResetCorrectedBodyTracking();
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
-        {
-            JacobiPositionCorrections[bodyIndex] = float3.zero;
-            JacobiConstraintCounts[bodyIndex] = 0;
-        }
-
+        EnsureActiveConstraintIncidentIndex();
+        JacobiConstraintProjections.ResizeUninitialized(TimestepContactPairs.Length);
         totalPositionCorrection = 0f;
         maxPositionCorrection = 0f;
         float alpha = Compliance / (substepDeltaTime * substepDeltaTime);
@@ -203,10 +196,14 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = TimestepContactPairs[i];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
+            JacobiContactProjection projection = default;
 
             float denominator = bodyA.InverseMass + bodyB.InverseMass + alpha;
             if (denominator <= 0f)
+            {
+                JacobiConstraintProjections[i] = projection;
                 continue;
+            }
 
             float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
             currentDelta.y = 0f;
@@ -273,42 +270,62 @@ public partial struct SolveXpbdUnitContactsJob
                     pair.WasCorrectedThisTimestep = 1;
                     incrementalStatistics.UniqueCorrectedPairCount++;
                 }
-
                 totalPositionCorrection += pairCorrection;
                 maxPositionCorrection = math.max(maxPositionCorrection, pairCorrection);
-
-                if (bodyA.InverseMass > 0f)
-                {
-                    JacobiPositionCorrections[pair.BodyA] +=
-                        normal * (bodyA.InverseMass * appliedLambda);
-                    JacobiConstraintCounts[pair.BodyA]++;
-                }
-                if (bodyB.InverseMass > 0f)
-                {
-                    JacobiPositionCorrections[pair.BodyB] -=
-                        normal * (bodyB.InverseMass * appliedLambda);
-                    JacobiConstraintCounts[pair.BodyB]++;
-                }
+                projection.Normal = normal;
+                projection.AppliedLambda = appliedLambda;
+                projection.ConstraintValue = constraintValue;
+                projection.PairCorrection = pairCorrection;
             }
 
             TimestepContactPairs[i] = pair;
+            JacobiConstraintProjections[i] = projection;
         }
 
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
-            int contributionCount = JacobiConstraintCounts[bodyIndex];
-            if (contributionCount <= 0)
+            float3 correctionSum = float3.zero;
+            int activeContributionCount = 0;
+            int begin = ActiveConstraintIncidentOffsets[bodyIndex];
+            int endIndex = ActiveConstraintIncidentOffsets[bodyIndex + 1];
+            FlowMovementFrameState body = States[bodyIndex];
+
+            for (int incidentIndex = begin; incidentIndex < endIndex; incidentIndex++)
+            {
+                int pairIndex = ActiveConstraintIncidentPairIndices[incidentIndex];
+                JacobiContactProjection projection =
+                    JacobiConstraintProjections[pairIndex];
+                if (math.abs(projection.AppliedLambda) <= 0.0000001f)
+                    continue;
+
+                UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+                float direction = pair.BodyA == bodyIndex ? 1f : -1f;
+                correctionSum += projection.Normal *
+                    (direction * body.InverseMass * projection.AppliedLambda);
+                activeContributionCount++;
+            }
+
+            if (activeContributionCount <= 0)
+            {
+                JacobiPositionCorrections[bodyIndex] = float3.zero;
+                continue;
+            }
+            JacobiPositionCorrections[bodyIndex] =
+                correctionSum / activeContributionCount;
+        }
+
+        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        {
+            float3 correction = JacobiPositionCorrections[bodyIndex];
+            if (math.lengthsq(correction) <= 0.00000000000001f)
                 continue;
 
-            float3 correction =
-                JacobiPositionCorrections[bodyIndex] / contributionCount;
             FlowMovementFrameState body = States[bodyIndex];
             body.PredictedPosition += correction;
             body.ContactPositionCorrection += correction;
             body.TimestepContactCorrection += correction;
             body.PredictedPosition.y = body.CurrentPosition.y;
             States[bodyIndex] = body;
-
             if (trackCorrectedBodies)
                 MarkCorrectedBody(bodyIndex);
         }

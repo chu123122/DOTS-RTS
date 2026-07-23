@@ -840,7 +840,10 @@ public partial struct SolveXpbdUnitContactsJob
 
         PredictiveContactScheduleCursor.Value = cursor;
         if (addedPair)
+        {
             TimestepContactPairs.AsArray().Sort(new UnitCollisionPairComparer());
+            InvalidateActiveConstraintIncidentIndex();
+        }
         UpdateActiveConstraintGauges(
             ref incrementalStatistics,
             TimestepContactPairs.Length);
@@ -1565,6 +1568,7 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepContactPairs.Add(pair);
         }
         SortAndDeduplicateBodyPairs(TimestepContactPairs);
+        InvalidateActiveConstraintIncidentIndex();
 
         RefreshCurrentContactStateGauges(
             ref incrementalStatistics,

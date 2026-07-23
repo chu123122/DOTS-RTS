@@ -209,6 +209,7 @@ public partial struct SolveXpbdUnitContactsJob
     {
         TimestepContactPairs.Clear();
         TimestepContactPairs.AddRange(Pairs.AsArray());
+        InvalidateActiveConstraintIncidentIndex();
         statistics.TimestepContactSetBuildCount++;
         statistics.TimestepContactSetClassificationPassCount++;
         statistics.TimestepContactSetUniquePairCount = TimestepContactPairs.Length;
