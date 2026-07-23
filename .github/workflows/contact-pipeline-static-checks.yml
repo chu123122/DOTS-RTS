@@ -138,11 +138,40 @@ jobs:
               'Entities/Unit/Systems/FlowField/Diagnostics/'
               'IncrementalContactPipelineCsvRecorder.cs')
           csv_text = csv_path.read_text(encoding='utf-8')
-          if 'CsvSchemaVersion = 6' not in csv_text:
+          if 'CsvSchemaVersion = 7' not in csv_text:
               raise SystemExit('Unexpected contact CSV schema')
           if ('LegacyCacheUseCount' in csv_text or
                   'LegacyBroadPhaseStatistics' in csv_text):
               raise SystemExit('Legacy CSV columns returned')
+          PY
+
+      - name: Validate parallel Jacobi contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          solver = Path(
+              'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
+              'ParallelJacobiSolver.cs').read_text(encoding='utf-8')
+          base = Path(
+              'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs'
+          ).read_text(encoding='utf-8')
+          required = [
+              'IJobParallelForDefer',
+              'EvaluateParallelJacobiPairsJob',
+              'GatherAndApplyParallelJacobiBodiesJob',
+              'ActiveIncidentOffsets',
+              'ScheduleParallelJacobi'
+          ]
+          missing = [token for token in required if token not in solver]
+          if missing:
+              raise SystemExit('Parallel Jacobi contract missing: ' + repr(missing))
+          if 'Interlocked' in solver or 'Atomic' in solver:
+              raise SystemExit('Parallel Jacobi must not use floating-point atomics')
+          if ('requiresSerialJacobiCapture' not in base or
+                  'SimulationDebuggerCaptureMask.SelectedPairs' not in base):
+              raise SystemExit('Selected-pair capture must route to serial Jacobi')
           PY
 
       - name: Validate simple source structure
