@@ -8,6 +8,7 @@ paths = {
     "composition": ROOT / "BaseFlowMovementComposition.cs",
     "resources": ROOT / "ContactPipelineResources.cs",
     "frame": ROOT / "Jobs/FlowMovementFrameState.cs",
+    "intent": ROOT / "Jobs/CalculateIndependentFlowForceJob.cs",
     "body_contracts": PIPE / "Core/CrowdSimulationDataContracts.cs",
     "environment": PIPE / "Core/CrowdEnvironmentViews.cs",
     "configuration": PIPE / "Core/ContactPipelineConfiguration.cs",
@@ -19,6 +20,7 @@ paths = {
     "soft": PIPE / "SoftAvoidance/SoftAvoidanceSubstep.cs",
     "motion": PIPE / "Motion/ContactMotionIntegration.cs",
     "wall": PIPE / "Solver/WallConstraintSolver.cs",
+    "parallel": PIPE / "Solver/ParallelContactPipelineP1P6.cs",
     "telemetry": ROOT / "Diagnostics/Capture/ContactPipelineTelemetry.cs",
     "pipeline_snapshot": ROOT / "Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs",
     "oracle": ROOT / "Diagnostics/Validation/IncrementalContactOracle.cs",
@@ -100,6 +102,12 @@ for required in (
 ):
     if required not in text["frame"]:
         raise SystemExit(f"Frame state did not adopt explicit data contract: {required}")
+for forbidden in ("FlowFieldCell", "NavigationCell", "public FlowFieldCell Cell"):
+    if forbidden in text["frame"]:
+        raise SystemExit(f"Frame state again retains complete navigation cells: {forbidden}")
+for required in ("Navigation.IsBlocked", "MotionIntent.PreferredVelocity"):
+    if required not in text["intent"] + text["parallel"]:
+        raise SystemExit(f"Compact navigation semantic missing: {required}")
 
 for required in (
     "ContactConstraintDefinition",
@@ -112,11 +120,16 @@ for required in (
 for required in ("FlowNavigationView", "GridObstacleView", "FlowGridGeometry"):
     if required not in text["environment"]:
         raise SystemExit(f"Environment semantic view missing: {required}")
-for stage in ("soft", "motion", "wall"):
-    if ".Cost" in text[stage]:
-        raise SystemExit(f"{stage} again interprets FlowField navigation cost directly")
-if "FlowNavigationView" not in (ROOT / "Jobs/CalculateIndependentFlowForceJob.cs").read_text(encoding="utf-8"):
+for stage in ("soft", "motion", "wall", "parallel"):
+    for forbidden in (".Cost", "state.Cell"):
+        if forbidden in text[stage]:
+            raise SystemExit(
+                f"{stage} again interprets or retains FlowField cell semantics: {forbidden}"
+            )
+if "FlowNavigationView" not in text["intent"]:
     raise SystemExit("Navigation intent bypasses FlowNavigationView")
+if text["parallel"].count("GridObstacleView.IsBlocked(") < 2:
+    raise SystemExit("Parallel soft/hard wall stages bypass GridObstacleView")
 
 for required in (
     "BaseMotionEnvelopeEscape",
@@ -127,6 +140,8 @@ for required in (
         raise SystemExit(f"Certificate violation evidence missing: {required}")
 if "RevokeInteractionCertificate(" not in text["guard"]:
     raise SystemExit("Envelope validation does not revoke its expired certificate")
+if "ValidateSolverCorrectionContactEnvelope(" not in text["parallel"]:
+    raise SystemExit("P1-P6 solver correction bypasses the certificate guard")
 
 persistent_tokens = (
     "PersistentSweptProxies",
