@@ -484,7 +484,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             PrepareTimestepContactPrediction(DeltaTime, false);
             long start = ProfilerUnsafeUtility.Timestamp;
-            BuildTimestepContactSet(
+            BuildOrRefreshTimestepContactViews(
                 ref statistics,
                 ref incrementalStatistics,
                 false,
@@ -516,7 +516,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             PrepareTimestepContactPrediction(substepDeltaTime, true);
             long start = ProfilerUnsafeUtility.Timestamp;
-            BuildSubstepInteractionSet(ref statistics, ref incrementalStatistics);
+            BuildSubstepInteractionAndSoftViews(ref statistics, ref incrementalStatistics);
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }

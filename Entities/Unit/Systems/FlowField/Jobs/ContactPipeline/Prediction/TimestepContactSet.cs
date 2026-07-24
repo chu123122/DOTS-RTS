@@ -75,7 +75,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    private void BuildSubstepInteractionSet(
+    private void BuildSubstepInteractionAndSoftViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
@@ -96,16 +96,19 @@ public partial struct SolveXpbdUnitContactsJob
     {
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
         PreviousTimestepContactPairs.Clear();
-        FinalizeTimestepContactView(
+        ClassifyTimestepContacts(
             ref statistics,
             ref incrementalStatistics,
-            false,
             0);
+        CommitTimestepContactViews(
+            ref statistics,
+            ref incrementalStatistics,
+            false);
         statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
     }
 
-    private bool BuildTimestepContactSet(
+    private bool BuildOrRefreshTimestepContactViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullBroadPhase,
@@ -142,7 +145,7 @@ public partial struct SolveXpbdUnitContactsJob
                 PersistentNeighborPairs.Length;
             ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
                 ref incrementalStatistics);
-            CommitFinalizedTimestepContactView(
+            CommitTimestepContactViews(
                 ref statistics,
                 ref incrementalStatistics,
                 fallback);
@@ -152,11 +155,14 @@ public partial struct SolveXpbdUnitContactsJob
             incrementalStatistics.CurrentInteractionPairCount =
                 TimestepInteractionPairs.Length;
             BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
-            FinalizeTimestepContactView(
+            ClassifyTimestepContacts(
                 ref statistics,
                 ref incrementalStatistics,
-                fallback,
                 scheduleStartSubstep);
+            CommitTimestepContactViews(
+                ref statistics,
+                ref incrementalStatistics,
+                fallback);
         }
 
         long elapsed = TimestampToNanoseconds(
@@ -170,10 +176,9 @@ public partial struct SolveXpbdUnitContactsJob
         return sourcedFromIncrementalCache;
     }
 
-    private void FinalizeTimestepContactView(
+    private void ClassifyTimestepContacts(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
-        bool fallback,
         int scheduleStartSubstep)
     {
         Pairs.Clear();
@@ -196,13 +201,9 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - scheduleStart);
 
-        CommitFinalizedTimestepContactView(
-            ref statistics,
-            ref incrementalStatistics,
-            fallback);
     }
 
-    private void CommitFinalizedTimestepContactView(
+    private void CommitTimestepContactViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool fallback)
