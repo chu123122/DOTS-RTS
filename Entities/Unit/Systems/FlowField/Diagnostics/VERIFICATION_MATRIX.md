@@ -49,6 +49,11 @@ The following are enforced by repository CI:
 - contact-view source resolution, classification and commit are explicit stages;
 - persistent classification phase state is separate from diagnostics telemetry;
 - normal and diagnostics Jacobi jobs share one pair-evaluation implementation;
-- legacy Fat-AABB configuration names survive only as serialization migration attributes.
+- legacy Fat-AABB configuration names survive only as serialization migration attributes;
+- solver heat samples are aggregated into published cell heatmaps and guarded proxies;
+- contact-set diagnostics preserve full-rebuild and fallback-added-pair counts separately;
+- each GUI pass consumes Frame and Pipeline from one published snapshot generation;
+- effective settings and recorder output include `TimestepContactMargin`;
+- Oracle warnings describe observation-only behavior.
 
 These checks are not substitutes for the Unity-required matrix above.
