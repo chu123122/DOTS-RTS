@@ -1098,21 +1098,18 @@ public partial struct SolveXpbdUnitContactsJob
                 state.PredictedPosition,
                 GridOrigin,
                 CellRadius);
+            FlowGridGeometry obstacleGeometry = new FlowGridGeometry(
+                GridOrigin, GridDimensions, CellRadius);
             for (int x = -1; x <= 1; x++)
             {
                 for (int y = -1; y <= 1; y++)
                 {
                     int2 checkCell = currentCell + new int2(x, y);
-                    if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                        checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                    if (!GridObstacleView.IsBlocked(
+                            Grid, obstacleGeometry, checkCell))
                         continue;
-                    int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                    if (Grid[checkIndex].Cost != 0)
-                        continue;
-                    float3 wallPosition = GridOrigin + new float3(
-                        checkCell.x * CellRadius * 2f + CellRadius,
-                        state.PredictedPosition.y,
-                        checkCell.y * CellRadius * 2f + CellRadius);
+                    float3 wallPosition = GridObstacleView.CellCenter(
+                        obstacleGeometry, checkCell, state.PredictedPosition.y);
                     float wallRadius = CellRadius + math.max(0f, state.Radius) + math.max(0f, SoftShell);
                     state.WallAvoidanceVelocity += SoftAvoidanceMath.CalculateWallVelocity(
                         state.PredictedPosition,
@@ -1545,21 +1542,18 @@ public partial struct SolveXpbdUnitContactsJob
                     state.PredictedPosition,
                     GridOrigin,
                     CellRadius);
+                FlowGridGeometry obstacleGeometry = new FlowGridGeometry(
+                    GridOrigin, GridDimensions, CellRadius);
                 for (int x = -1; x <= 1; x++)
                 {
                     for (int y = -1; y <= 1; y++)
                     {
                         int2 checkCell = currentCell + new int2(x, y);
-                        if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                            checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                        if (!GridObstacleView.IsBlocked(
+                                Grid, obstacleGeometry, checkCell))
                             continue;
-                        int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                        if (Grid[checkIndex].Cost != 0)
-                            continue;
-                        float3 wallPosition = GridOrigin + new float3(
-                            checkCell.x * CellRadius * 2f + CellRadius,
-                            state.PredictedPosition.y,
-                            checkCell.y * CellRadius * 2f + CellRadius);
+                        float3 wallPosition = GridObstacleView.CellCenter(
+                            obstacleGeometry, checkCell, state.PredictedPosition.y);
                         float3 delta = state.PredictedPosition - wallPosition;
                         delta.y = 0f;
                         float distance = math.length(delta);
@@ -2567,7 +2561,7 @@ public partial struct SolveXpbdUnitContactsJob
         float cellRadius)
     {
         float3 totalForce = state.IndependentForce;
-        if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
+        if (state.Navigation.IsBlocked != 0 && math.lengthsq(totalForce) < 0.1f)
         {
             float3 center = gridOrigin + new float3(
                 state.CellPosition.x * cellRadius * 2f + cellRadius,
