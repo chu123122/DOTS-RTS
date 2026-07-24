@@ -38,18 +38,24 @@ jobs:
           git diff --check
           test "$(git diff --name-only | wc -l)" -eq 1
           test "$(git diff --name-only)" = "$TARGET_FILE"
-          grep -F '.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);' "$TARGET_FILE"
-          ! grep -F 'IncrementalBodyDirtyFlags.Topology |' "$TARGET_FILE"
-          grep -F 'IncrementalBodyDirtyFlags.CorrectedEscape' "$TARGET_FILE"
-          grep -F 'DirtyFlagsByBody[bodyIndex] = 0;' "$TARGET_FILE"
           python - <<'PY'
           from pathlib import Path
           p = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs')
           text = p.read_text(encoding='utf-8')
-          # Only the Prefix compact is allowed to clear DirtyFlagsByBody.
-          assert text.count('DirtyFlagsByBody[bodyIndex] = 0;') == 1
-          assert text.count('DirtyFlagsByBody = IncrementalDirtyFlagsByBody,') == 2
-          assert text.count('}.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);') == 1
+          assert '.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);' in text
+          assert 'IncrementalBodyDirtyFlags.Motion |\n                    IncrementalBodyDirtyFlags.CorrectedEscape' in text
+          count_start = text.index('    private struct CountP1P6EnvelopeEscapeBlocksJob')
+          count_end = text.index('    private struct PrefixP1P6EnvelopeEscapesJob', count_start)
+          prefix_end = text.index('    private struct ScatterP1P6EnvelopeEscapesJob', count_end)
+          count_slice = text[count_start:count_end]
+          prefix_slice = text[count_end:prefix_end]
+          assert 'DirtyFlagsByBody[bodyIndex] = 0;' not in count_slice
+          assert 'DirtyFlagsByBody[bodyIndex] = 0;' in prefix_slice
+          repair_start = text.index('    private struct PrepareP1P6RepairPredictionBodiesJob')
+          repair_end = text.index('    private struct PrepareP1P6SubstepRepairClassificationJob', repair_start)
+          repair_slice = text[repair_start:repair_end]
+          assert 'public void Execute(int dirtyIndex)' in repair_slice
+          assert 'int bodyIndex = DirtyBodies[dirtyIndex].BodyIndex;' in repair_slice
           depth = 0
           in_string = False
           escape = False
