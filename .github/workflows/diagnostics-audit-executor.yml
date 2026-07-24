@@ -1,0 +1,30 @@
+name: Diagnostics audit executor
+
+on:
+  pull_request:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/refactor/**'
+      - '.github/workflows/diagnostics-audit-executor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'codex/diagnostics-audit-runner'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/diagnostics-audit-runner
+          fetch-depth: 0
+      - name: Apply audit remediation batches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python .github/refactor/execute_audit_batches.py
+          git push origin HEAD:codex/diagnostics-audit-runner
