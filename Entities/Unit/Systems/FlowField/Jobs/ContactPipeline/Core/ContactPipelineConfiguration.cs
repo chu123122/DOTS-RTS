@@ -7,6 +7,12 @@ namespace RTS.Unit.FlowField.Jobs
 /// </summary>
 public struct ContactPipelineConfiguration
 {
+#if RTS_CONTACT_DIAGNOSTICS
+    private const bool DiagnosticsCompiled = true;
+#else
+    private const bool DiagnosticsCompiled = false;
+#endif
+
     public float DeltaTime;
     public int SubstepCount;
     public int IterationCount;
@@ -48,7 +54,7 @@ public struct ContactPipelineConfiguration
             RvoTimeHorizon = flowSettings.RvoTimeHorizon,
             EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
             EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
-            EnableDiagnostics = solverSettings.EnableDiagnostics,
+            EnableDiagnostics = DiagnosticsCompiled && solverSettings.EnableDiagnostics,
             EnablePersistentContactCache = enablePersistentContactCache,
             EnableTimestepContactSetCache = enableTimestepContactSetCache,
             // Compatibility translation: the serialized FatAabb margin now means
