@@ -15,9 +15,8 @@ public enum IncrementalContactPipelineMode : byte
 }
 
 /// <summary>
-/// Metadata captured when a simulation step is scheduled. The publishing job
-/// stamps the authoritative solver timestep after that step completes, so UI
-/// consumers never reconstruct old-step settings from the next update.
+/// Metadata captured when a simulation step is scheduled. SimulationStepId is
+/// assigned by the composition root and never reconstructed from cache age.
 /// </summary>
 public struct CompletedSimulationStepMetadata
 {
@@ -140,6 +139,12 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
         IncrementalContactPipelineStatistics statistics)
     {
 #if RTS_CONTACT_DIAGNOSTICS
+        // Solver telemetry historically used Timestep for persistent-cache age.
+        // Preserve that value explicitly, then stamp the authoritative scheduled
+        // simulation identity captured by the composition root.
+        statistics.CacheGeneration = statistics.Timestep;
+        statistics.Timestep = completedStep.SimulationStepId;
+
         IncrementalContactPipelineMode mode = IncrementalContactPipelineMode.Disabled;
         if (statistics.UsedFullRebuild != 0)
             mode = IncrementalContactPipelineMode.FullRebuild;
@@ -148,7 +153,6 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
         else if (statistics.UsedIncrementalTopology != 0)
             mode = IncrementalContactPipelineMode.IncrementalReuse;
 
-        completedStep.SimulationStepId = statistics.Timestep;
         return new IncrementalContactPipelineSnapshot
         {
             SchemaVersion = IncrementalContactPipelineStatistics.CurrentSchemaVersion,
