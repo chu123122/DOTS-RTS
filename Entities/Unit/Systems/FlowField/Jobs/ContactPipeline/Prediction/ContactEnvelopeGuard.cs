@@ -116,7 +116,7 @@ public partial struct SolveXpbdUnitContactsJob
             allInside = false;
             SetIncrementalDirtyFlags(
                 bodyIndex,
-                IncrementalBodyDirtyFlags.Topology |
+                IncrementalBodyDirtyFlags.Motion |
                 IncrementalBodyDirtyFlags.CorrectedEscape);
             if (state.TimestepEscaped == 0)
             {
