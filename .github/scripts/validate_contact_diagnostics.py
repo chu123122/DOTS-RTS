@@ -8,6 +8,7 @@ helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs').
 solver = (flow / 'Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
 snapshot = (flow / 'Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
+resources = (flow / 'ContactPipelineResources.cs').read_text(encoding='utf-8')
 
 
 def preprocess_diagnostics(source: str, enabled: bool) -> str:
@@ -81,3 +82,10 @@ for token in ('ParallelJacobiIterationTelemetry', 'JacobiBlockTelemetry',
               'ReduceParallelJacobiBlocksJob', 'ReduceP1P6VelocityBodyBlocksJob'):
     if token in release_parallel:
         raise SystemExit('Gameplay telemetry scheduling returned: ' + token)
+
+
+release_resources = preprocess_diagnostics(resources, False)
+if 'PersistentClassificationTelemetryState' in release_resources:
+    raise SystemExit('Persistent classification telemetry is allocated in gameplay resources')
+if 'DirtyBodyBlockOffsets' not in resources:
+    raise SystemExit('Dedicated dirty-body block scratch owner missing')
