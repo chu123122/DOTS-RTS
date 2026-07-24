@@ -22,8 +22,8 @@ public struct CrowdBodySnapshot
 }
 
 /// <summary>
-/// Navigation-only result for one body. It describes path availability and
-/// arrival policy without exposing the FlowField cell to contact or solver code.
+/// Navigation-only result for one body. It exposes compact semantics required by
+/// later motion stages without retaining a complete FlowFieldCell.
 /// </summary>
 public struct CrowdNavigationState
 {
@@ -31,6 +31,7 @@ public struct CrowdNavigationState
     public int BestDirectionIndex;
     public ushort IntegrationValue;
     public byte IsReachable;
+    public byte IsBlocked;
     public byte IsSettled;
 }
 
