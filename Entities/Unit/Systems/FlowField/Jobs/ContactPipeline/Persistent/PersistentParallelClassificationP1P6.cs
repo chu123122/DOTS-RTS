@@ -17,8 +17,13 @@ public struct PersistentPairClassificationResult
 
 public struct ParallelPersistentClassificationState
 {
+#if RTS_CONTACT_DIAGNOSTICS
     public long BuildStartTimestamp;
     public long ClassificationStartTimestamp;
+#else
+    public long BuildStartTimestamp { get => default; set { } }
+    public long ClassificationStartTimestamp { get => default; set { } }
+#endif
     public uint Timestep;
     public uint ClassificationEpoch;
     public byte NeedsCommit;
@@ -211,7 +216,9 @@ public partial struct SolveXpbdUnitContactsJob
     {
         ParallelPersistentClassificationState phase = new ParallelPersistentClassificationState
         {
+#if RTS_CONTACT_DIAGNOSTICS
             BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp,
+#endif
             NeedsCommit = 0
         };
         PersistentClassificationResults.Clear();
@@ -232,7 +239,9 @@ public partial struct SolveXpbdUnitContactsJob
             ref incremental);
         if (needsClassification)
         {
+#if RTS_CONTACT_DIAGNOSTICS
             phase.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
             phase.Timestep = IncrementalCacheState.Value.Timestep;
             phase.ClassificationEpoch = CalculateClassificationEpoch();
             PersistentClassificationResults.ResizeUninitialized(
