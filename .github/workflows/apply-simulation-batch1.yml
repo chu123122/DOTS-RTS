@@ -1,0 +1,83 @@
+name: Apply simulation integration batch 1
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: codex/simulation-integration
+      TARGET_FILE: Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve patch script
+        run: cp .codex/apply_simulation_batch1.py /tmp/apply_simulation_batch1.py
+
+      - name: Apply batch to integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B integration "origin/$TARGET_BRANCH"
+          python /tmp/apply_simulation_batch1.py
+
+      - name: Validate batch boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+          grep -F '.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);' "$TARGET_FILE"
+          ! grep -F 'IncrementalBodyDirtyFlags.Topology |' "$TARGET_FILE"
+          grep -F 'IncrementalBodyDirtyFlags.CorrectedEscape' "$TARGET_FILE"
+          grep -F 'DirtyFlagsByBody[bodyIndex] = 0;' "$TARGET_FILE"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs')
+          text = p.read_text(encoding='utf-8')
+          # Only the Prefix compact is allowed to clear DirtyFlagsByBody.
+          assert text.count('DirtyFlagsByBody[bodyIndex] = 0;') == 1
+          assert text.count('DirtyFlagsByBody = IncrementalDirtyFlagsByBody,') == 2
+          assert text.count('}.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);') == 1
+          depth = 0
+          in_string = False
+          escape = False
+          for ch in text:
+              if in_string:
+                  if escape:
+                      escape = False
+                  elif ch == '\\':
+                      escape = True
+                  elif ch == '"':
+                      in_string = False
+                  continue
+              if ch == '"':
+                  in_string = True
+              elif ch == '{':
+                  depth += 1
+              elif ch == '}':
+                  depth -= 1
+                  assert depth >= 0
+          assert depth == 0
+          PY
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Codex"
+          git config user.email "codex@openai.com"
+          git add "$TARGET_FILE"
+          git commit -m "perf: restrict p1p6 repair work to dirty bodies"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
