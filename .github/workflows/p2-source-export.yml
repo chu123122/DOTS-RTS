@@ -1,0 +1,36 @@
+name: P2 source export
+
+on:
+  pull_request:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/p2-export-trigger'
+      - '.github/workflows/p2-source-export.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.head_ref == 'codex/p2-source-export'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/p2-source-export
+          fetch-depth: 0
+      - name: Package current sources
+        run: |
+          tar -czf /tmp/p2-current-source.tar.gz \
+            Entities/Unit/Systems/FlowField \
+            Entities/Unit/Components/FlowField \
+            Entities/Unit/Authoring/FlowField \
+            .github/scripts \
+            .github/workflows/contact-pipeline-static-checks.yml \
+            .github/workflows/contact-pipeline-audit-contracts.yml \
+            README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p2-current-source
+          path: /tmp/p2-current-source.tar.gz
