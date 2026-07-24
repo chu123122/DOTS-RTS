@@ -23,41 +23,25 @@ public struct ParallelJacobiExecutionState
 #endif
 }
 
+#if RTS_CONTACT_DIAGNOSTICS
 public struct ParallelJacobiIterationTelemetry
 {
-#if RTS_CONTACT_DIAGNOSTICS
     public float MaxViolationBeforeSolve;
     public float AverageViolationBeforeSolve;
     public float TotalWallPositionCorrection;
     public float MaxWallPositionCorrection;
-#else
-    private byte _disabledStorage;
-    public float MaxViolationBeforeSolve { get => default; set { } }
-    public float AverageViolationBeforeSolve { get => default; set { } }
-    public float TotalWallPositionCorrection { get => default; set { } }
-    public float MaxWallPositionCorrection { get => default; set { } }
-#endif
 }
 
 public struct JacobiBlockTelemetry
 {
-#if RTS_CONTACT_DIAGNOSTICS
     public float TotalPositionCorrection;
     public float MaxPositionCorrection;
     public int NewlyActivatedPairCount;
     public int NewlyCorrectedPairCount;
     public int SelectedPairCount;
     public int SelectedPairOffset;
-#else
-    private byte _disabledStorage;
-    public float TotalPositionCorrection { get => default; set { } }
-    public float MaxPositionCorrection { get => default; set { } }
-    public int NewlyActivatedPairCount { get => default; set { } }
-    public int NewlyCorrectedPairCount { get => default; set { } }
-    public int SelectedPairCount { get => default; set { } }
-    public int SelectedPairOffset { get => default; set { } }
-#endif
 }
+#endif
 
 /// <summary>
 /// Multi-job Jacobi path. The topology, lifecycle, envelope validation and fallback
@@ -71,8 +55,10 @@ public partial struct SolveXpbdUnitContactsJob
 
     public JobHandle ScheduleParallelJacobi(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
         NativeReference<ParallelJacobiIterationTelemetry> iterationState,
         NativeList<JacobiBlockTelemetry> blockStatistics,
+#endif
         JobHandle dependency)
     {
         JobHandle handle = new InitializeParallelJacobiPipelineJob
@@ -98,8 +84,10 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
                     IterationState = iterationState,
                     BlockStatistics = blockStatistics,
+#endif
                     SubstepIndex = substepIndex
                 }.Schedule(handle);
 
@@ -118,12 +106,14 @@ public partial struct SolveXpbdUnitContactsJob
                     JacobiPairBatchSize,
                     handle);
 
+#if RTS_CONTACT_DIAGNOSTICS
                 var reduceBlocksJob = new ReduceParallelJacobiBlocksJob
                 {
                     Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                     Blocks = blockStatistics.AsDeferredJobArray()
                 };
                 handle = reduceBlocksJob.Schedule(blockStatistics, 1, handle);
+#endif
 
                 var gatherBodiesJob = new GatherAndApplyParallelJacobiBodiesJob
                 {
@@ -140,8 +130,10 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
                     IterationState = iterationState,
                     BlockStatistics = blockStatistics,
+#endif
                     SubstepIndex = substepIndex,
                     IterationIndex = iterationIndex
                 }.Schedule(handle);
@@ -154,11 +146,15 @@ public partial struct SolveXpbdUnitContactsJob
             }.Schedule(handle);
         }
 
+#if RTS_CONTACT_DIAGNOSTICS
         return new FinalizeParallelJacobiPipelineJob
         {
             Solver = this,
             RuntimeState = runtimeState
         }.Schedule(handle);
+#else
+        return handle;
+#endif
     }
 
     [BurstCompile]
@@ -191,17 +187,22 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+#if RTS_CONTACT_DIAGNOSTICS
         public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
         public NativeList<JacobiBlockTelemetry> BlockStatistics;
+#endif
         public int SubstepIndex;
 
         public void Execute()
         {
             Solver.PrepareParallelJacobiIteration(
                 SubstepIndex,
-                RuntimeState,
-                IterationState,
-                BlockStatistics);
+                RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+                , IterationState,
+                BlockStatistics
+#endif
+            );
         }
     }
 
@@ -326,6 +327,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct ReduceParallelJacobiBlocksJob : IJobParallelForDefer
     {
@@ -353,6 +355,8 @@ public partial struct SolveXpbdUnitContactsJob
             Blocks[blockIndex] = block;
         }
     }
+
+#endif
 
     [BurstCompile]
     private struct GatherAndApplyParallelJacobiBodiesJob : IJobParallelFor
@@ -406,8 +410,10 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+#if RTS_CONTACT_DIAGNOSTICS
         public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
         [ReadOnly] public NativeList<JacobiBlockTelemetry> BlockStatistics;
+#endif
         public int SubstepIndex;
         public int IterationIndex;
 
@@ -416,9 +422,12 @@ public partial struct SolveXpbdUnitContactsJob
             Solver.FinalizeParallelJacobiIteration(
                 SubstepIndex,
                 IterationIndex,
-                RuntimeState,
-                IterationState,
-                BlockStatistics);
+                RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+                , IterationState,
+                BlockStatistics
+#endif
+            );
         }
     }
 
@@ -451,9 +460,11 @@ public partial struct SolveXpbdUnitContactsJob
     {
         var state = new ParallelJacobiExecutionState
         {
-            SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp,
             IsValid = 1
         };
+#if RTS_CONTACT_DIAGNOSTICS
+        state.SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
         var statistics = new PredictiveDiscContactStatistics
         {
             TimestepContactSetFirstEscapeSubstep = -1
@@ -580,7 +591,9 @@ public partial struct SolveXpbdUnitContactsJob
         ResetTimestepContactSetForSubstep();
         RebuildActiveConstraintIncidentIndexIfNeeded();
         statistics.TimestepContactSetSubstepUseCount++;
+#if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
 
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);
@@ -589,9 +602,12 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void PrepareParallelJacobiIteration(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
-        NativeList<JacobiBlockTelemetry> blockStatistics)
+        NativeReference<ParallelJacobiExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics
+#endif
+        )
     {
         if (runtimeState.Value.IsValid == 0)
             return;
@@ -600,19 +616,21 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
+#if RTS_CONTACT_DIAGNOSTICS
         ParallelJacobiIterationTelemetry iteration = default;
-
         if (EnableDiagnostics)
         {
             MeasureContactResidual(
                 out iteration.MaxViolationBeforeSolve,
                 out iteration.AverageViolationBeforeSolve);
         }
-
         SolveWallConstraintIteration(
             true,
             out iteration.TotalWallPositionCorrection,
             out iteration.MaxWallPositionCorrection);
+#else
+        SolveWallConstraintIteration(true, out _, out _);
+#endif
         if (!ValidateSolverCorrectionContactEnvelope(
                 substepIndex,
                 ref statistics,
@@ -633,21 +651,28 @@ public partial struct SolveXpbdUnitContactsJob
         // in the serial solver: the wall set has already been envelope-validated.
         ResetCorrectedBodyTracking();
         JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
+#if RTS_CONTACT_DIAGNOSTICS
         int blockCount = (TimestepContactPairs.Length + JacobiPairBatchSize - 1) /
                          JacobiPairBatchSize;
         blockStatistics.ResizeUninitialized(blockCount);
+#endif
 
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);
+#if RTS_CONTACT_DIAGNOSTICS
         iterationState.Value = iteration;
+#endif
     }
 
     private void FinalizeParallelJacobiIteration(
         int substepIndex,
         int iterationIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
-        NativeList<JacobiBlockTelemetry> blockStatistics)
+        NativeReference<ParallelJacobiExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics
+#endif
+        )
     {
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
@@ -655,7 +680,9 @@ public partial struct SolveXpbdUnitContactsJob
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
+#if RTS_CONTACT_DIAGNOSTICS
         ParallelJacobiIterationTelemetry iteration = iterationState.Value;
+#endif
         // Parallel bodies only set disjoint flags. Rebuild the corrected-body
         // list in body-index order so envelope repair stays deterministic.
         CorrectedBodyIndices.Clear();
@@ -664,6 +691,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (CorrectedBodyFlags[bodyIndex] != 0)
                 CorrectedBodyIndices.Add(bodyIndex);
         }
+#if RTS_CONTACT_DIAGNOSTICS
         float totalPositionCorrection = 0f;
         float maxPositionCorrection = 0f;
         int newlyActivated = 0;
@@ -705,6 +733,7 @@ public partial struct SolveXpbdUnitContactsJob
                 iteration.TotalWallPositionCorrection,
                 iteration.MaxWallPositionCorrection);
         }
+#endif
 
         if (!ValidateSolverCorrectionContactEnvelope(
                 substepIndex,
@@ -756,9 +785,11 @@ public partial struct SolveXpbdUnitContactsJob
             return;
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+#if RTS_CONTACT_DIAGNOSTICS
         statistics.IterationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - runtime.IterationStartTimestamp);
         AccumulateConstraintStatistics(ref statistics, ref runtime.PenetrationSum);
+#endif
         ReconstructVelocities(
             DeltaTime / math.max(1, SubstepCount),
             ref statistics);
@@ -773,6 +804,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtime.IsValid == 0)
             return;
 
+#if RTS_CONTACT_DIAGNOSTICS
         int substepCount = math.max(1, SubstepCount);
         int iterationCount = math.max(1, IterationCount);
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
@@ -848,6 +880,7 @@ public partial struct SolveXpbdUnitContactsJob
         CaptureSimulationDebuggerSelectedUnit();
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);
+#endif
     }
 }
 }

@@ -73,8 +73,10 @@ public partial struct SolveXpbdUnitContactsJob
 
     public JobHandle ScheduleParallelJacobiP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
         NativeReference<ParallelJacobiIterationTelemetry> iterationState,
         NativeList<JacobiBlockTelemetry> blockStatistics,
+#endif
         JobHandle dependency)
     {
         JobHandle handle = new InitializeP1P6PipelineJob
@@ -86,21 +88,27 @@ public partial struct SolveXpbdUnitContactsJob
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
+#if RTS_CONTACT_DIAGNOSTICS
         bool captureSelectedPairs =
             Configuration.EnableDiagnostics && DiagnosticSelectedEntity != Entity.Null &&
             (SimulationDebuggerCaptureMask &
              SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
             (SimulationDebuggerCaptureMask &
              SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+#endif
         int escapeBlockCount =
             (States.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
         if (substepDeltaTime <= 0f)
         {
+#if RTS_CONTACT_DIAGNOSTICS
             return new FinalizeParallelJacobiPipelineJob
             {
                 Solver = this,
                 RuntimeState = runtimeState
             }.Schedule(handle);
+#else
+            return handle;
+#endif
         }
 
         if (Configuration.EnableTimestepContactSetCache)
@@ -300,8 +308,10 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new PrepareP1P6SoftWorksetJob
             {
                 Solver = this,
-                RuntimeState = runtimeState,
-                BlockStatistics = blockStatistics
+                RuntimeState = runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+                , BlockStatistics = blockStatistics
+#endif
             }.Schedule(handle);
 
             handle = new InitializeSoftAvoidanceBodiesJob
@@ -329,11 +339,13 @@ public partial struct SolveXpbdUnitContactsJob
                 SoftPairBatchSize,
                 handle);
 
+#if RTS_CONTACT_DIAGNOSTICS
             handle = new ReduceSoftAvoidanceBlocksJob
             {
                 Contributions = SoftPairContributions.AsDeferredJobArray(),
                 Blocks = blockStatistics.AsDeferredJobArray()
             }.Schedule(blockStatistics, 1, handle);
+#endif
 
             handle = new GatherSoftAvoidanceBodiesJob
             {
@@ -353,6 +365,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ClampToEnvelope = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+#if RTS_CONTACT_DIAGNOSTICS
             handle = new ReduceP1P6SoftEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
@@ -368,6 +381,7 @@ public partial struct SolveXpbdUnitContactsJob
                 EscapeCountsByBlock = SoftIncidentWriteCursors,
                 EscapeBlockCount = escapeBlockCount
             }.Schedule(handle);
+#endif
 
             handle = new PredictUnconstrainedBodiesJob
             {
@@ -429,7 +443,9 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
                     IterationState = iterationState,
+#endif
                     SubstepIndex = substepIndex
                 }.Schedule(handle);
 
@@ -471,12 +487,15 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
                     IterationState = iterationState,
                     BlockStatistics = blockStatistics,
+#endif
                     SubstepIndex = substepIndex,
                     BodyBlockCount = escapeBlockCount
                 }.Schedule(handle);
 
+#if RTS_CONTACT_DIAGNOSTICS
                 if (captureSelectedPairs)
                 {
                     handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
@@ -496,6 +515,7 @@ public partial struct SolveXpbdUnitContactsJob
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
                 else
+#endif
                 {
                     handle = new EvaluateParallelJacobiPairsJob
                     {
@@ -510,12 +530,15 @@ public partial struct SolveXpbdUnitContactsJob
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
 
+#if RTS_CONTACT_DIAGNOSTICS
                 handle = new ReduceParallelJacobiBlocksJob
                 {
                     Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                     Blocks = blockStatistics.AsDeferredJobArray()
                 }.Schedule(blockStatistics, 1, handle);
+#endif
 
+#if RTS_CONTACT_DIAGNOSTICS
                 if (captureSelectedPairs)
                 {
                     handle = new CountParallelSimulationDebuggerPairBlocksJob
@@ -546,6 +569,7 @@ public partial struct SolveXpbdUnitContactsJob
                         Solver = this
                     }.Schedule(handle);
                 }
+#endif
 
                 handle = new GatherAndApplyParallelJacobiBodiesJob
                 {
@@ -561,18 +585,22 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
+#if RTS_CONTACT_DIAGNOSTICS
                     IterationState = iterationState,
                     BlockStatistics = blockStatistics,
+#endif
                     SubstepIndex = substepIndex,
                     IterationIndex = iterationIndex
                 }.Schedule(handle);
             }
 
+#if RTS_CONTACT_DIAGNOSTICS
             handle = new BeginP1P6FinalizeSubstepJob
             {
                 Solver = this,
                 RuntimeState = runtimeState
             }.Schedule(handle);
+#endif
 
             handle = new ReconstructVelocityBodiesJob
             {
@@ -581,6 +609,7 @@ public partial struct SolveXpbdUnitContactsJob
                 SubstepDeltaTime = substepDeltaTime
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+#if RTS_CONTACT_DIAGNOSTICS
             handle = new ReduceP1P6VelocityBodyBlocksJob
             {
                 BodyStatistics = ParallelBodyStatistics,
@@ -593,13 +622,18 @@ public partial struct SolveXpbdUnitContactsJob
                 RuntimeState = runtimeState,
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
+#endif
         }
 
+#if RTS_CONTACT_DIAGNOSTICS
         return new FinalizeParallelJacobiPipelineJob
         {
             Solver = this,
             RuntimeState = runtimeState
         }.Schedule(handle);
+#else
+        return handle;
+#endif
     }
 
     [BurstCompile]
@@ -1008,8 +1042,15 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+#if RTS_CONTACT_DIAGNOSTICS
         public NativeList<JacobiBlockTelemetry> BlockStatistics;
-        public void Execute() => Solver.PrepareP1P6SoftWorkset(RuntimeState, BlockStatistics);
+#endif
+        public void Execute() => Solver.PrepareP1P6SoftWorkset(
+            RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+            , BlockStatistics
+#endif
+        );
     }
 
     [BurstCompile]
@@ -1113,6 +1154,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct ReduceSoftAvoidanceBlocksJob : IJobParallelForDefer
     {
@@ -1132,6 +1174,8 @@ public partial struct SolveXpbdUnitContactsJob
             };
         }
     }
+
+#endif
 
     [BurstCompile]
     private struct GatherSoftAvoidanceBodiesJob : IJobParallelFor
@@ -1241,6 +1285,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct ReduceP1P6SoftEscapeBlocksJob : IJobParallelFor
     {
@@ -1273,6 +1318,8 @@ public partial struct SolveXpbdUnitContactsJob
             EscapeCountsByBlock,
             EscapeBlockCount);
     }
+
+#endif
 
     [BurstCompile]
     private struct PredictUnconstrainedBodiesJob : IJobParallelFor
@@ -1359,6 +1406,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct CountParallelSimulationDebuggerPairBlocksJob :
         IJobParallelForDefer
@@ -1435,14 +1483,24 @@ public partial struct SolveXpbdUnitContactsJob
         public void Execute() => Solver.MergeParallelSimulationDebuggerPairScratch();
     }
 
+#endif
+
     [BurstCompile]
     private struct BeginP1P6IterationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+#if RTS_CONTACT_DIAGNOSTICS
         public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
+#endif
         public int SubstepIndex;
-        public void Execute() => Solver.BeginP1P6Iteration(SubstepIndex, RuntimeState, IterationState);
+        public void Execute() => Solver.BeginP1P6Iteration(
+            SubstepIndex,
+            RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+            , IterationState
+#endif
+        );
     }
 
     [BurstCompile]
@@ -1591,18 +1649,23 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public SolveXpbdUnitContactsJob Solver;
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+#if RTS_CONTACT_DIAGNOSTICS
         public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
         public NativeList<JacobiBlockTelemetry> BlockStatistics;
+#endif
         public int SubstepIndex;
         public int BodyBlockCount;
         public void Execute() => Solver.FinalizeP1P6WallIteration(
             SubstepIndex,
-            RuntimeState,
-            IterationState,
-            BlockStatistics,
-            BodyBlockCount);
+            RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+            , IterationState,
+            BlockStatistics
+#endif
+            , BodyBlockCount);
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct BeginP1P6FinalizeSubstepJob : IJob
     {
@@ -1610,6 +1673,8 @@ public partial struct SolveXpbdUnitContactsJob
         public NativeReference<ParallelJacobiExecutionState> RuntimeState;
         public void Execute() => Solver.BeginP1P6FinalizeSubstep(RuntimeState);
     }
+
+#endif
 
     [BurstCompile]
     private struct ReconstructVelocityBodiesJob : IJobParallelFor
@@ -1642,6 +1707,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     private struct ReduceP1P6VelocityBodyBlocksJob : IJobParallelFor
     {
@@ -1679,14 +1745,18 @@ public partial struct SolveXpbdUnitContactsJob
             BlockCount);
     }
 
+#endif
+
     private void InitializeP1P6Pipeline(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
         var runtime = new ParallelJacobiExecutionState
         {
-            SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp,
             IsValid = 1
         };
+#if RTS_CONTACT_DIAGNOSTICS
+        runtime.SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
         var statistics = new PredictiveDiscContactStatistics
         {
             TimestepContactSetFirstEscapeSubstep = -1
@@ -2077,8 +2147,11 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void PrepareP1P6SoftWorkset(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeList<JacobiBlockTelemetry> blockStatistics)
+        NativeReference<ParallelJacobiExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeList<JacobiBlockTelemetry> blockStatistics
+#endif
+        )
     {
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
@@ -2086,12 +2159,17 @@ public partial struct SolveXpbdUnitContactsJob
 
         EnsureSoftIncidentIndexP1P6();
         SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
+#if RTS_CONTACT_DIAGNOSTICS
         blockStatistics.ResizeUninitialized(
             (SoftAvoidancePairs.Length + SoftPairBatchSize - 1) / SoftPairBatchSize);
+#if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
+#endif
         runtimeState.Value = runtime;
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void FinalizeP1P6SoftAvoidance(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         NativeList<JacobiBlockTelemetry> blocks,
@@ -2122,6 +2200,8 @@ public partial struct SolveXpbdUnitContactsJob
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
     }
+
+#endif
 
     private void FinalizeP1P6PreparedSubstep(
         int substepIndex,
@@ -2178,7 +2258,9 @@ public partial struct SolveXpbdUnitContactsJob
             ref incremental);
         EnsureActiveConstraintIncidentIndexP1P6();
         statistics.TimestepContactSetSubstepUseCount++;
+#if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#endif
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
         runtimeState.Value = runtime;
@@ -2186,11 +2268,15 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void BeginP1P6Iteration(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeReference<ParallelJacobiIterationTelemetry> iterationState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeReference<ParallelJacobiIterationTelemetry> iterationState
+#endif
+        )
     {
         if (runtimeState.Value.IsValid == 0)
             return;
+#if RTS_CONTACT_DIAGNOSTICS
         ParallelJacobiIterationTelemetry iteration = default;
         if (EnableDiagnostics)
         {
@@ -2198,21 +2284,27 @@ public partial struct SolveXpbdUnitContactsJob
                 out iteration.MaxViolationBeforeSolve,
                 out iteration.AverageViolationBeforeSolve);
         }
+#endif
         ResetCorrectedBodyTracking();
+#if RTS_CONTACT_DIAGNOSTICS
         iterationState.Value = iteration;
+#endif
     }
 
     private void FinalizeP1P6WallIteration(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
-        NativeList<JacobiBlockTelemetry> blockStatistics,
-        int bodyBlockCount)
+        NativeReference<ParallelJacobiExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics
+#endif
+        , int bodyBlockCount)
     {
         if (runtimeState.Value.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
+#if RTS_CONTACT_DIAGNOSTICS
         ParallelJacobiIterationTelemetry iteration = iterationState.Value;
         for (int blockIndex = 0; blockIndex < bodyBlockCount; blockIndex++)
         {
@@ -2223,6 +2315,8 @@ public partial struct SolveXpbdUnitContactsJob
                 iteration.MaxWallPositionCorrection,
                 body.Maximum);
         }
+
+#endif
 
         if (!ValidateSolverCorrectionContactEnvelope(
                 substepIndex,
@@ -2247,6 +2341,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         ResetCorrectedBodyTracking();
         JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
+#if RTS_CONTACT_DIAGNOSTICS
         if (ParallelSimulationDebuggerPairCandidates.IsCreated)
         {
             ParallelSimulationDebuggerPairCandidates.ResizeUninitialized(
@@ -2254,11 +2349,15 @@ public partial struct SolveXpbdUnitContactsJob
         }
         blockStatistics.ResizeUninitialized(
             (TimestepContactPairs.Length + JacobiPairBatchSize - 1) / JacobiPairBatchSize);
+#endif
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
+#if RTS_CONTACT_DIAGNOSTICS
         iterationState.Value = iteration;
+#endif
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void BeginP1P6FinalizeSubstep(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
@@ -2300,6 +2399,8 @@ public partial struct SolveXpbdUnitContactsJob
         }
         StoreContactStatistics(statistics);
     }
+
+#endif
 
     private void EnsureSoftIncidentIndexP1P6()
     {

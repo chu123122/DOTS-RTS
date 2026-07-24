@@ -337,6 +337,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var parallelJacobiRuntimeState = useParallelJacobi
             ? new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob)
             : default;
+#if RTS_CONTACT_DIAGNOSTICS
         var parallelJacobiIterationState = useParallelJacobi
             ? new NativeReference<ParallelJacobiIterationTelemetry>(Allocator.TempJob)
             : default;
@@ -345,6 +346,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 math.max((unitCount * 4 + 63) / 64, 1),
                 Allocator.TempJob)
             : default;
+#endif
         NativeReference<PredictiveDiscContactStatistics> contactStatistics =
             diagnosticsScratch.ContactStatistics;
         NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics =
@@ -428,13 +430,25 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SelectedBodyDiagnostic = selectedBodyDiagnostic,
             HeatSamples = heatSamples
         };
-        JobHandle solveContactHandle = useParallelJacobi
-            ? solveContactJob.ScheduleParallelJacobiP1P6(
+        JobHandle solveContactHandle;
+        if (useParallelJacobi)
+        {
+#if RTS_CONTACT_DIAGNOSTICS
+            solveContactHandle = solveContactJob.ScheduleParallelJacobiP1P6(
                 parallelJacobiRuntimeState,
                 parallelJacobiIterationState,
                 parallelJacobiBlockTelemetry,
-                initializeSolverStateHandle)
-            : solveContactJob.Schedule(initializeSolverStateHandle);
+                initializeSolverStateHandle);
+#else
+            solveContactHandle = solveContactJob.ScheduleParallelJacobiP1P6(
+                parallelJacobiRuntimeState,
+                initializeSolverStateHandle);
+#endif
+        }
+        else
+        {
+            solveContactHandle = solveContactJob.Schedule(initializeSolverStateHandle);
+        }
 
         ContactDiagnosticsPublishHandles diagnosticsPublish = ScheduleContactDiagnosticsPublication(
             diagnosticsScratch,
@@ -558,6 +572,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             parallelJacobiRuntimeState.IsCreated
                 ? parallelJacobiRuntimeState.Dispose(applyMovementHandle)
                 : default;
+#if RTS_CONTACT_DIAGNOSTICS
         JobHandle parallelJacobiIterationStateDisposeHandle =
             parallelJacobiIterationState.IsCreated
                 ? parallelJacobiIterationState.Dispose(applyMovementHandle)
@@ -566,9 +581,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             parallelJacobiBlockTelemetry.IsCreated
                 ? parallelJacobiBlockTelemetry.Dispose(applyMovementHandle)
                 : default;
-        JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
-            publishStatisticsHandle,
-            publishIncrementalStatisticsHandle);
+#endif
         JobHandle statisticsDisposeHandle = default;
         JobHandle incrementalStatisticsDisposeHandle = default;
         JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameResources(
@@ -655,12 +668,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             persistentSpatialVisitStampArrayDisposeHandle,
             persistentSpatialVisitStampDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
-  solverScratchDisposeHandle,
-  parallelJacobiRuntimeStateDisposeHandle,
-  parallelJacobiIterationStateDisposeHandle);
+            solverScratchDisposeHandle,
+            parallelJacobiRuntimeStateDisposeHandle);
+#if RTS_CONTACT_DIAGNOSTICS
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
-  solverScratchDisposeHandle,
-  parallelJacobiBlockTelemetryDisposeHandle);
+            solverScratchDisposeHandle,
+            parallelJacobiIterationStateDisposeHandle,
+            parallelJacobiBlockTelemetryDisposeHandle);
+#endif
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
             statisticsDisposeHandle,
