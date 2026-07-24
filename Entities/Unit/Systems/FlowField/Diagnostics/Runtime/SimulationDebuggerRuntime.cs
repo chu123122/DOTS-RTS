@@ -78,6 +78,7 @@ public static class SimulationDebuggerRuntime
     public static bool TimestepContactSetCacheEnabled { get; set; } = true;
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        ulong worldId,
         SimulationDebuggerEffectiveSettings settings)
     {
         lock (Gate)
@@ -109,6 +110,17 @@ public static class SimulationDebuggerRuntime
             };
         }
     }
+
+    public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        SimulationDebuggerEffectiveSettings settings) =>
+        UpdateExperimentIdentity(0, settings);
+
+    public static SimulationDebuggerCaptureMask CaptureMaskFor(ulong worldId) => CaptureMask;
+    public static int SummarySampleIntervalFramesFor(ulong worldId) => SummarySampleIntervalFrames;
+    public static int SpatialSampleIntervalFramesFor(ulong worldId) => SpatialSampleIntervalFrames;
+    public static int MaximumVisualizedPairsFor(ulong worldId) => MaximumVisualizedPairs;
+    public static Entity SelectedEntityFor(ulong worldId) => SelectedEntity;
+    public static void SetSelectedEntityFor(ulong worldId, Entity entity) => SelectedEntity = entity;
 
     public static ulong PublishedVersion => PublishedSimulationDiagnosticsRuntime.Generation;
 
@@ -205,19 +217,25 @@ public static class SimulationDebuggerRuntime
     private static readonly SimulationDebuggerHistory _activeContactHistory = new(HistorySize);
 
     public static void Publish(
+        ulong worldId,
         SimulationDebuggerFrameSnapshot snapshot,
         IncrementalContactPipelineSnapshot pipeline)
     {
-        if (snapshot == null || FreezeSnapshot)
+        if (snapshot == null || FreezeSnapshot ||
+            !PublishedSimulationDiagnosticsRuntime.PublishComplete(worldId, snapshot, pipeline))
             return;
 
-        PublishedSimulationDiagnosticsRuntime.PublishComplete(snapshot, pipeline);
         _solverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
         _correctionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
         _cacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
         _contactPairHistory.PushValue(snapshot.ContactSet.ContactSetSize);
         _activeContactHistory.PushValue(snapshot.ContactSet.ActiveContactCount);
     }
+
+    public static void Publish(
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline) =>
+        Publish(snapshot?.WorldId ?? 0, snapshot, pipeline);
 
     public static SimulationDebuggerTrend GetSolverTrend(int windowFrames = 60)
         => _solverHistory.GetTrend(windowFrames);
@@ -353,7 +371,16 @@ public static class SimulationDebuggerRuntime
     public static bool TimestepContactSetCacheEnabled { get; set; } = true;
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        ulong worldId,
         SimulationDebuggerEffectiveSettings settings) => default;
+    public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        SimulationDebuggerEffectiveSettings settings) => default;
+    public static SimulationDebuggerCaptureMask CaptureMaskFor(ulong worldId) => SimulationDebuggerCaptureMask.None;
+    public static int SummarySampleIntervalFramesFor(ulong worldId) => int.MaxValue;
+    public static int SpatialSampleIntervalFramesFor(ulong worldId) => int.MaxValue;
+    public static int MaximumVisualizedPairsFor(ulong worldId) => 0;
+    public static Entity SelectedEntityFor(ulong worldId) => Entity.Null;
+    public static void SetSelectedEntityFor(ulong worldId, Entity entity) { }
 
     public static ulong PublishedVersion => 0;
     public static void CaptureBaselineSettings(SimulationDebuggerEffectiveSettings settings) { }
@@ -378,6 +405,10 @@ public static class SimulationDebuggerRuntime
 
     public static void RequestContactCacheReset() { }
     public static bool TryConsumeContactCacheReset() => false;
+    public static void Publish(
+        ulong worldId,
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline) { }
     public static void Publish(
         SimulationDebuggerFrameSnapshot snapshot,
         IncrementalContactPipelineSnapshot pipeline) { }

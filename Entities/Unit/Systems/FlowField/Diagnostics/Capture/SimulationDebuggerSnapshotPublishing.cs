@@ -13,11 +13,21 @@ public abstract partial class BaseFlowMovementSystem
     private ulong _simulationDebuggerFrameId;
     private ulong _simulationDebuggerUpdateCounter;
 
-    private void PublishSimulationDebuggerSnapshot(
-        FlowFieldGrid grid,
-        UnitContactSolverSettings solverSettings)
+    private void PublishSimulationDebuggerSnapshot(ulong worldId)
     {
-        SimulationDebuggerCaptureMask captureMask = SimulationDebuggerRuntime.CaptureMask;
+        if (!Dependency.IsCompleted)
+            return;
+        Dependency.Complete();
+        if (!TryGetCompletedIncrementalContactSnapshot(
+                out IncrementalContactPipelineSnapshot completedPipeline))
+            return;
+
+        CompletedSimulationStepMetadata completed = completedPipeline.CompletedStep;
+        if (completed.WorldId != worldId ||
+            completed.SimulationStepId != completedPipeline.Statistics.Timestep)
+            return;
+
+        SimulationDebuggerCaptureMask captureMask = completed.CaptureMask;
         if (captureMask == SimulationDebuggerCaptureMask.None)
             return;
 
@@ -29,57 +39,44 @@ public abstract partial class BaseFlowMovementSystem
             SimulationDebuggerCaptureMask.SelectedUnit |
             SimulationDebuggerCaptureMask.SelectedPairs)) != 0;
         int interval = spatial
-            ? math.max(1, SimulationDebuggerRuntime.SpatialSampleIntervalFrames)
-            : math.max(1, SimulationDebuggerRuntime.SummarySampleIntervalFrames);
+            ? math.max(1, SimulationDebuggerRuntime.SpatialSampleIntervalFramesFor(worldId))
+            : math.max(1, SimulationDebuggerRuntime.SummarySampleIntervalFramesFor(worldId));
         if ((_simulationDebuggerUpdateCounter - 1) % (ulong)interval != 0)
-            return;
-
-        // Never turn optional diagnostics into a blocking point. The existing A/B
-        // managed snapshots are published only after the previous solver dependency has
-        // naturally completed; otherwise this sample is skipped and retried next update.
-        if (!Dependency.IsCompleted)
-            return;
-        Dependency.Complete();
-        if (!TryGetCompletedIncrementalContactSnapshot(
-                out IncrementalContactPipelineSnapshot completedPipeline))
             return;
 
         SimulationDebuggerFrameSnapshot snapshot = AcquireSimulationDebuggerWriteSnapshot();
         snapshot.ClearCollections();
+        snapshot.WorldId = worldId;
         snapshot.FrameId = ++_simulationDebuggerFrameId;
-        snapshot.SimulationStepId = completedPipeline.Statistics.Timestep;
-        snapshot.ElapsedTime = SystemAPI.Time.ElapsedTime;
-        snapshot.DeltaTime = SystemAPI.Time.DeltaTime;
-        snapshot.SubstepCount = math.max(1, solverSettings.SubstepCount);
-        snapshot.IterationCount = math.max(1, solverSettings.IterationCount);
+        snapshot.SimulationStepId = completed.SimulationStepId;
+        snapshot.ElapsedTime = completed.ElapsedTime;
+        snapshot.DeltaTime = completed.DeltaTime;
+        snapshot.SubstepCount = math.max(1, completed.EffectiveSettings.SubstepCount);
+        snapshot.IterationCount = math.max(1, completed.EffectiveSettings.IterationCount);
         snapshot.CapturedMask = captureMask;
-        snapshot.EffectiveSettings = BuildEffectiveSettings(
-            SystemAPI.GetSingleton<FlowFieldSettings>(),
-            solverSettings,
-            AdaptiveFatAabbSettings.Default);
-        snapshot.Experiment = SimulationDebuggerRuntime.UpdateExperimentIdentity(
-            snapshot.EffectiveSettings);
+        snapshot.EffectiveSettings = completed.EffectiveSettings;
+        snapshot.Experiment = completed.Experiment;
 
-        PredictiveDiscContactStatistics contactStatistics = default;
-        bool hasContactStatistics =
-            SystemAPI.TryGetSingleton(out contactStatistics);
-
-        int unitCount = _movementQuery.CalculateEntityCount();
+        PredictiveDiscContactStatistics contactStatistics =
+            completedPipeline.SolverStatistics;
         snapshot.Overview = BuildOverviewMetrics(
-            unitCount,
-            hasContactStatistics,
+            completed.UnitCount,
+            true,
             contactStatistics);
         snapshot.BroadPhase = BuildRetiredBroadPhaseMetrics(
-            hasContactStatistics ? contactStatistics.ContactPairCount : 0);
+            contactStatistics.ContactPairCount);
         snapshot.ContactSet = BuildContactSetMetrics(
-            hasContactStatistics,
+            true,
             contactStatistics,
             snapshot.SubstepCount,
             0,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
-        CaptureSelectedEntityDetails(snapshot);
-        SimulationDebuggerRuntime.Publish(snapshot, completedPipeline);
+        CaptureSelectedEntityDetails(
+            snapshot,
+            completed.SelectedEntity,
+            completed.MaximumVisualizedPairs);
+        SimulationDebuggerRuntime.Publish(worldId, snapshot, completedPipeline);
     }
 
     private SimulationDebuggerFrameSnapshot AcquireSimulationDebuggerWriteSnapshot()
@@ -193,15 +190,11 @@ public abstract partial class BaseFlowMovementSystem
         return result;
     }
 
-    private void CaptureSelectedEntityDetails(SimulationDebuggerFrameSnapshot snapshot)
+    private void CaptureSelectedEntityDetails(
+        SimulationDebuggerFrameSnapshot snapshot,
+        Entity selected,
+        int maximumVisualizedPairs)
     {
-        Entity selected = SimulationDebuggerRuntime.SelectedEntity;
-        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection selection) &&
-            selection.SelectedEntity != Entity.Null)
-        {
-            selected = selection.SelectedEntity;
-            SimulationDebuggerRuntime.SelectedEntity = selected;
-        }
 
         if (_simulationDebuggerSelectedUnitValid.IsCreated &&
             _simulationDebuggerSelectedUnitValid.Value != 0)
@@ -216,7 +209,7 @@ public abstract partial class BaseFlowMovementSystem
 
         if ((snapshot.CapturedMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0)
         {
-            int limit = math.max(1, SimulationDebuggerRuntime.MaximumVisualizedPairs);
+            int limit = math.max(1, maximumVisualizedPairs);
             int count = math.min(limit, _simulationDebuggerSelectedPairs.Length);
             for (int i = 0; i < count; i++)
                 snapshot.SelectedPairs.Add(_simulationDebuggerSelectedPairs[i]);
