@@ -136,6 +136,25 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
+
+    private bool TryGetCompletedIncrementalContactSnapshot(
+        out IncrementalContactPipelineSnapshot snapshot)
+    {
+#if RTS_CONTACT_DIAGNOSTICS
+        if (_incrementalDiagnosticsEntity != Entity.Null &&
+            EntityManager.Exists(_incrementalDiagnosticsEntity) &&
+            EntityManager.HasComponent<IncrementalContactPipelineSnapshot>(
+                _incrementalDiagnosticsEntity))
+        {
+            snapshot = EntityManager.GetComponentData<IncrementalContactPipelineSnapshot>(
+                _incrementalDiagnosticsEntity);
+            return snapshot.Statistics.Timestep != 0;
+        }
+#endif
+        snapshot = default;
+        return false;
+    }
+
     private static JobHandle DisposeContactDiagnosticsFrameScratch(ContactDiagnosticsFrameScratch scratch, JobHandle solveContactHandle, JobHandle publishStatisticsHandle, JobHandle publishIncrementalStatisticsHandle)
     {
 #if RTS_CONTACT_DIAGNOSTICS

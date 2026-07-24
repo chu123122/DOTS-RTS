@@ -40,10 +40,14 @@ public abstract partial class BaseFlowMovementSystem
         if (!Dependency.IsCompleted)
             return;
         Dependency.Complete();
+        if (!TryGetCompletedIncrementalContactSnapshot(
+                out IncrementalContactPipelineSnapshot completedPipeline))
+            return;
 
         SimulationDebuggerFrameSnapshot snapshot = AcquireSimulationDebuggerWriteSnapshot();
         snapshot.ClearCollections();
         snapshot.FrameId = ++_simulationDebuggerFrameId;
+        snapshot.SimulationStepId = completedPipeline.Statistics.Timestep;
         snapshot.ElapsedTime = SystemAPI.Time.ElapsedTime;
         snapshot.DeltaTime = SystemAPI.Time.DeltaTime;
         snapshot.SubstepCount = math.max(1, solverSettings.SubstepCount);
@@ -75,7 +79,7 @@ public abstract partial class BaseFlowMovementSystem
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
         CaptureSelectedEntityDetails(snapshot);
-        SimulationDebuggerRuntime.Publish(snapshot);
+        SimulationDebuggerRuntime.Publish(snapshot, completedPipeline);
     }
 
     private SimulationDebuggerFrameSnapshot AcquireSimulationDebuggerWriteSnapshot()

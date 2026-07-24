@@ -1,2 +1,10 @@
 + git diff --check
 + git add -A
++ git commit -m fix: guard diagnostics native containers in gameplay Jacobi paths
+[codex/diagnostics-audit-runner 4324051] fix: guard diagnostics native containers in gameplay Jacobi paths
+ 5 files changed, 30 insertions(+), 8 deletions(-)
+ create mode 100644 Entities/Unit/Systems/FlowField/Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs
+ create mode 100644 Entities/Unit/Systems/FlowField/Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs.meta
+ create mode 100644 audit-batches.log
++ git diff --check
++ git add -A
