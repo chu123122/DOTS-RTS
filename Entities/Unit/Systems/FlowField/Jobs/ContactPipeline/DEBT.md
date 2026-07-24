@@ -4,16 +4,22 @@
 
 - Scheduled `SimulationStepId` is independent from persistent `CacheGeneration`.
 - Persistent containers are documented and guarded as certifier-owned candidate state.
-- `InteractionCertificate`, violation evidence and compact-view commit signing exist.
+- `InteractionCertificate`, explicit certification evidence, violation evidence and
+  compact-view commit signing exist.
 - Serial base-motion, predicted-position and solver-correction escapes revoke and
   reissue certificates through the certifier path.
+- The staged P1-P6 path shares the same compact-view commit/signing boundary and
+  routes solver-correction escapes through the common certificate guard.
 - `BaseFlowMovementSystem` is a small composition root; historical solver ABI
   expansion is isolated in `BaseFlowMovementComposition`.
 - Body, navigation and motion-intent data are physically composed from explicit
-  contracts inside the compatibility frame state.
+  contracts inside the compatibility frame state; complete `FlowFieldCell` values
+  are no longer retained there.
 - Contact definition, runtime state and timestep history are physically separated.
-- Navigation and obstacle semantics use different views over the current shared grid.
-- Architecture contracts are protected by a dedicated static CI workflow.
+- Serial and P1-P6 navigation/soft-wall/hard-wall code use separate navigation and
+  obstacle semantics over the current shared grid storage.
+- Architecture contracts are protected by a dedicated static CI workflow, including
+  forwarding-property `ref/out` checks after the contact-pair storage split.
 
 ## Remaining capability-boundary debt
 
@@ -27,9 +33,10 @@
   existing Burst jobs pass them through `ref`/`out`. They should migrate into
   `CrowdMotionEvidence` and `CrowdBodyStepState` in a dedicated differential-tested
   batch.
-- The staged P1-P6 body jobs still carry raw grid fields internally. Their wall and
-  base-motion access should be migrated to the same container-free obstacle helpers
-  used by the serial reference path.
+- P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
+  Native containers to remain direct job fields. Their interpretation is now routed
+  through `GridObstacleView`; a future backend split may change storage without
+  changing stage semantics.
 - Parallel escape jobs preserve correctness through the existing repair scheduler,
   but explicit per-body `InteractionCertificateViolation` records are currently
   richest on the serial path. Parallel compaction should eventually emit the same
