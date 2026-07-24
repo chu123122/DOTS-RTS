@@ -24,13 +24,28 @@ Motion integration + Soft Avoidance + XPBD / wall projection
 - **SoftAvoidance** consumes only the compact soft view.
 - **Solver** consumes only frame-local active constraints and may not mutate topology. Gauss–Seidel remains the serial reference; Jacobi evaluates pairs in parallel and gathers deterministic body corrections through a frame-local CSR incident index.
 - **Motion** owns substep velocity preparation, position prediction, and reconstruction.
-- **Diagnostics** observes completed snapshots; it is not a state authority.
+- **Diagnostics** observes completed telemetry snapshots; it is not a state authority.
+
+### Runtime state versus telemetry
+
+`IncrementalContactCacheState` and the persistent containers form the
+authoritative gameplay state. Cache validity, topology epochs, classification
+epochs, lifecycle state, dirty worksets and fallback decisions may only depend
+on those runtime structures and current solver inputs.
+
+`IncrementalContactPipelineStatistics` is diagnostics-owned telemetry. It may
+record counters, timings, ratios and oracle results after work is performed, but
+its fields are not valid control inputs. An oracle mismatch invalidates the
+runtime state through an explicit write to `IncrementalContactCacheState`; the
+telemetry counter itself never becomes the authority.
 
 ## Lifetimes
 
 | Data | Lifetime | Stable identity |
 |---|---|---|
 | Persistent proxy / neighbor / contact | Cross timestep | Entity pair |
+| Incremental cache state / dirty certificate | Cross timestep or current repair | Entity / topology epoch |
+| Pipeline telemetry | One completed timestep | Snapshot timestep |
 | Timestep interaction / soft / active view | One timestep or rebuild interval | Current BodyIndex mapping |
 | Lambda / activation flags | One substep or timestep | Frame-local pair |
 | Iteration correction | One XPBD iteration | Pair index / BodyIndex |
@@ -44,6 +59,7 @@ Motion integration + Soft Avoidance + XPBD / wall projection
 5. Failed incremental proof converges on one full-sweep fallback path.
 6. Jacobi pair evaluation reads one immutable position snapshot; body gather applies contributions in deterministic incident-pair order without float atomics.
 7. Oracle missing-pair count must remain zero when diagnostics are enabled.
+8. Telemetry fields are write-only observations for the simulation pipeline and cannot drive correctness decisions.
 
 ## Explicit exclusions
 

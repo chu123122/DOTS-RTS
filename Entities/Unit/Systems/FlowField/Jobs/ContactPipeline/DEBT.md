@@ -10,7 +10,7 @@
 
 ## Engineering debt
 
-- The implementation remains a partial-job migration. Module files define clear responsibilities, but Native container ownership can later move into explicit state/view structs.
+- Runtime correctness state and incremental telemetry now have separate source ownership, but solver method signatures still thread telemetry references through production stages. The diagnostics compile-gate phase must remove those parameters and containers when `RTS_CONTACT_DIAGNOSTICS` is disabled.
 - Serialized solver settings retain Fat AABB field names for scene compatibility. Only the normalized runtime configuration may expose production semantics.
 - Unity Editor, Collections safety checks, Burst compilation and runtime benchmarks are not executed by the lightweight static workflow.
 
