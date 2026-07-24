@@ -1,0 +1,93 @@
+name: Apply simulation integration batch 2
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: codex/simulation-integration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve patch scripts
+        run: |
+          cp .codex/batch2_1.py /tmp/batch2_1.py
+          cp .codex/batch2_2.py /tmp/batch2_2.py
+          cp .codex/batch2_3.py /tmp/batch2_3.py
+
+      - name: Apply batch 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B integration "origin/$TARGET_BRANCH"
+          python /tmp/batch2_1.py
+          python /tmp/batch2_2.py
+          python /tmp/batch2_3.py
+
+      - name: Validate batch 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only | wc -l)" -eq 6
+          ! grep -R "ValidateAndClassifyIncrementalDirtyBodies(" \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline
+          ! grep -R "UpdatePersistentProxyMetadata();" \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline
+          grep -R "PersistentProxyIndexByBody" \
+            Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline
+          grep -R "CountInitialP1P6DirtyBodyBlocksJob" \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs
+          grep -R "RefreshPreparedIncrementalDirtyBodiesP1P6" \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline
+          python - <<'PY'
+          from pathlib import Path
+          files = [
+              Path('Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/PersistentParallelClassificationP1P6.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Prediction/ContactEnvelopeGuard.cs'),
+          ]
+          text = '\n'.join(p.read_text() for p in files)
+          required = [
+              'ClassifyAndUpdatePersistentProxyForBodyP1P6',
+              'PrepareInitialPersistentDirtyBodySet',
+              'RebuildPersistentProxyIndexByBodyP1P6',
+              '.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);',
+          ]
+          for token in required:
+              assert token in text, token
+          for path in files:
+              source = path.read_text()
+              assert source.count('{') == source.count('}'), path
+          PY
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Codex"
+          git config user.email "codex@openai.com"
+          git add \
+            Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/IncrementalPredictiveContactPipeline.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Persistent/PersistentParallelClassificationP1P6.cs \
+            Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Prediction/ContactEnvelopeGuard.cs
+          git commit -m "perf: replace global proxy validation with dirty certificates"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
