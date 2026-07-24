@@ -1691,10 +1691,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             TimestepContactSetFirstEscapeSubstep = -1
         };
-        IterationDiagnostics.Clear();
-        PairDiagnostics.Clear();
-        SelectedBodyDiagnostic.Value = default;
-        ResetSimulationDebuggerCapture();
+        ResetContactDiagnosticsCapture();
         StoreIncrementalStatistics(default);
         StoreContactStatistics(statistics);
         ActiveIncidentIndexState.Value = default;

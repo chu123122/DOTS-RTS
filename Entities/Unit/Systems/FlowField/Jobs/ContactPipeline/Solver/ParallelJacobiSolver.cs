@@ -459,10 +459,7 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepContactSetFirstEscapeSubstep = -1
         };
         var incrementalStatistics = new IncrementalContactPipelineStatistics();
-        IterationDiagnostics.Clear();
-        PairDiagnostics.Clear();
-        SelectedBodyDiagnostic.Value = default;
-        ResetSimulationDebuggerCapture();
+        ResetContactDiagnosticsCapture();
 
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
