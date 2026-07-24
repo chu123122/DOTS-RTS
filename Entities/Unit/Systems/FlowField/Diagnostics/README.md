@@ -4,11 +4,13 @@ This directory owns observation, validation, recording, and presentation code fo
 
 ## Ownership
 
+- `Runtime/` contains diagnostics-only contracts, capture masks, runtime selection, and override state. These types coordinate observation and must never become contact correctness state.
 - `Capture/` contains telemetry schemas, ECS publication jobs, and the native-to-public snapshot boundary.
-- `Capture/Jobs/` contains Burst jobs whose only output is diagnostic data.
+- `Capture/Jobs/` contains Burst jobs whose only output is diagnostic data, including solver-side debugger capture helpers.
 - `Instrumentation/` contains compile-time probes such as the profiler clock facade.
 - `Validation/` contains optional correctness oracles. An oracle may invalidate authoritative runtime state through an explicit command, but its counters are never control state.
-- Presentation, recording, and experiment-control code remain consumers of the public snapshot and must not be referenced by the solver.
+- `Presentation/` contains panels, world overlays, unit picking, and camera-follow behavior. It consumes published snapshots and must not be referenced by solver modules.
+- Recording and experiment-control code remain snapshot consumers at the diagnostics root until the unified public snapshot replaces their current direct sources.
 
 ## Intended data flow
 
@@ -33,4 +35,4 @@ When `RTS_CONTACT_DIAGNOSTICS` is absent:
 
 ## Migration status
 
-The source ownership split is complete for capture, instrumentation, and validation files. The remaining migration work is to remove the telemetry `NativeReference` ABI and diagnostic scratch allocations from gameplay-only builds, then introduce bounded frame capture and ring-buffer rollups.
+Source ownership is split into runtime control, capture, instrumentation, validation, and presentation layers. Heat sampling and all diagnostics guards are compile-time disabled in gameplay-only builds. Remaining work is to remove telemetry `NativeReference` and diagnostic scratch allocation from the gameplay scheduler, then introduce bounded frame capture and ring-buffer rollups.
