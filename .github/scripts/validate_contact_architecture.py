@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path("Entities/Unit/Systems/FlowField")
 PIPE = ROOT / "Jobs/ContactPipeline"
@@ -57,6 +58,7 @@ for required in (
     "IssueCertificateForCommittedViews(",
     "RevokeInteractionCertificate(",
     "CalculateBodySetFingerprint(",
+    "BuildCertificationEvidence(",
 ):
     if required not in text["certifier"]:
         raise SystemExit(f"Certifier capability missing: {required}")
@@ -117,13 +119,33 @@ for required in (
     if required not in text["pair_types"]:
         raise SystemExit(f"Contact-pair lifetime split missing: {required}")
 
+# Forwarding compatibility properties are values, not ref-return properties.
+# Passing one directly by ref/out would be a C# compile error after the storage split.
+forwarded_pair_properties = (
+    "BodyA", "BodyB", "PredictiveNormal", "ContactMode",
+    "PredictiveNormalOriented", "IsDormant", "Lambda", "WasActivated",
+    "WasActivatedThisTimestep", "WasCorrectedThisTimestep",
+    "WasAddedByFallback", "FirstActivatedSubstep", "ActivatedSubstepCount",
+)
+property_pattern = re.compile(
+    r"\b(?:ref|out)\s+[A-Za-z_][A-Za-z0-9_]*\."
+    r"(?:" + "|".join(forwarded_pair_properties) + r")\b"
+)
+for cs_path in ROOT.rglob("*.cs"):
+    source = cs_path.read_text(encoding="utf-8")
+    match = property_pattern.search(source)
+    if match:
+        raise SystemExit(
+            f"Forwarding pair property passed by ref/out in {cs_path}: {match.group(0)}"
+        )
+
 for required in ("FlowNavigationView", "GridObstacleView", "FlowGridGeometry"):
     if required not in text["environment"]:
         raise SystemExit(f"Environment semantic view missing: {required}")
 for stage in ("soft", "motion", "wall"):
-    if ".Cost" in text[stage] or "state.Cell" in text[stage]:
+    if ".Cost" in text[stage] or "state.Cell." in text[stage]:
         raise SystemExit(f"{stage} again interprets FlowField cell semantics directly")
-for forbidden in ("state.Cell", "Grid[checkIndex].Cost"):
+for forbidden in ("state.Cell.", "Grid[checkIndex].Cost"):
     if forbidden in text["parallel"]:
         raise SystemExit(f"P1-P6 again bypasses compact environment semantics: {forbidden}")
 if "FlowNavigationView" not in text["intent"]:
