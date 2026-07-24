@@ -95,9 +95,44 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactScheduleScratch;
     public NativeReference<int> PredictiveContactScheduleCursor;
     public NativeReference<IncrementalContactCacheState> IncrementalCacheState;
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
+#if RTS_CONTACT_DIAGNOSTICS
+    private NativeReference<IncrementalContactPipelineStatistics> _incrementalTelemetry;
+    private NativeReference<PredictiveDiscContactStatistics> _contactTelemetry;
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics
+    {
+        get => _incrementalTelemetry;
+        set => _incrementalTelemetry = value;
+    }
+    public NativeReference<PredictiveDiscContactStatistics> Statistics
+    {
+        get => _contactTelemetry;
+        set => _contactTelemetry = value;
+    }
+    private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
+        _incrementalTelemetry.Value;
+    private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value) =>
+        _incrementalTelemetry.Value = value;
+    private PredictiveDiscContactStatistics LoadContactStatistics() =>
+        _contactTelemetry.Value;
+    private void StoreContactStatistics(PredictiveDiscContactStatistics value) =>
+        _contactTelemetry.Value = value;
+#else
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics
+    {
+        get => default;
+        set { }
+    }
+    public NativeReference<PredictiveDiscContactStatistics> Statistics
+    {
+        get => default;
+        set { }
+    }
+    private static IncrementalContactPipelineStatistics LoadIncrementalStatistics() => default;
+    private static void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value) { }
+    private static PredictiveDiscContactStatistics LoadContactStatistics() => default;
+    private static void StoreContactStatistics(PredictiveDiscContactStatistics value) { }
+#endif
     public NativeArray<FlowMovementFrameState> States;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
@@ -129,8 +164,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
         if (substepDeltaTime <= 0f)
         {
-            Statistics.Value = statistics;
-            IncrementalStatistics.Value = incrementalStatistics;
+            StoreContactStatistics(statistics);
+            StoreIncrementalStatistics(incrementalStatistics);
             return;
         }
         if (!EnablePersistentContactCache)
@@ -417,8 +452,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         // 记录本时间步的接触/修正结果，供下一帧热力图快照读取。
         CaptureSimulationDebuggerSelectedUnit();
 #endif
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
     }
 
 

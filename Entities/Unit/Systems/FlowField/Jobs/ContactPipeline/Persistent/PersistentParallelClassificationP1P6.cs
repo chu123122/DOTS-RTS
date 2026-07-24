@@ -223,8 +223,8 @@ public partial struct SolveXpbdUnitContactsJob
             return;
         }
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         PreviousTimestepContactPairs.Clear();
 
         bool needsClassification = PreparePersistentPairSourceP1P6(
@@ -246,8 +246,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics);
         }
 
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incremental;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incremental);
         PersistentClassificationState.Value = phase;
     }
 
@@ -365,8 +365,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtimeState.Value.IsValid == 0 || phase.NeedsCommit == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         PredictiveContactScratch.Clear();
         PredictiveContactSchedule.Clear();
         SoftAvoidancePairs.Clear();
@@ -458,8 +458,8 @@ public partial struct SolveXpbdUnitContactsJob
 
         phase.NeedsCommit = 0;
         PersistentClassificationState.Value = phase;
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incremental;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incremental);
     }
 
     private void FinalizePersistentBuildTimingP1P6(
