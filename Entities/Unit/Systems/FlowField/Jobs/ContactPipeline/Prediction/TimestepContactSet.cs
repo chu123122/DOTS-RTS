@@ -105,6 +105,11 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.CurrentInteractionPairCount =
             TimestepInteractionPairs.Length;
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
+
+        // B0 still publishes an explicit certificate before Soft Avoidance reads
+        // its compact pair view. Contact constraints are re-certified below after
+        // the unconstrained prediction has been classified.
+        IssueFullSweepSubstepCertificate();
     }
 
     private void BuildSubstepContactView(
@@ -123,6 +128,7 @@ public partial struct SolveXpbdUnitContactsJob
             false);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
+        IssueFullSweepSubstepCertificate();
         statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
     }
@@ -166,6 +172,7 @@ public partial struct SolveXpbdUnitContactsJob
             fallback);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
+        IssueInteractionCertificate(result, scheduleStartSubstep);
 
         long elapsed = TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
@@ -269,7 +276,6 @@ public partial struct SolveXpbdUnitContactsJob
             scheduleStartSubstep);
         incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - scheduleStart);
-
     }
 
     private void CommitTimestepContactViews(
@@ -319,13 +325,6 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepContactPairs[pairIndex] = pair;
         }
     }
-
-
-
-
-
-
-
 
     private static int FindPairIndex(
         Unity.Collections.NativeList<UnitCollisionPair> pairs,
