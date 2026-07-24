@@ -110,7 +110,7 @@ public static class SimulationDebuggerRuntime
         }
     }
 
-    public static ulong PublishedVersion => SimulationDiagnosticsSnapshotRuntime.Generation;
+    public static ulong PublishedVersion => PublishedSimulationDiagnosticsRuntime.Generation;
 
     public static void CaptureBaselineSettings(SimulationDebuggerEffectiveSettings settings)
     {
@@ -211,7 +211,7 @@ public static class SimulationDebuggerRuntime
         if (snapshot == null || FreezeSnapshot)
             return;
 
-        SimulationDiagnosticsSnapshotRuntime.PublishComplete(snapshot, pipeline);
+        PublishedSimulationDiagnosticsRuntime.PublishComplete(snapshot, pipeline);
         _solverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
         _correctionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
         _cacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
@@ -248,7 +248,7 @@ public static class SimulationDebuggerRuntime
 
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
     {
-        if (SimulationDiagnosticsSnapshotRuntime.TryGetLatest(out SimulationDiagnosticsSnapshot unified))
+        if (PublishedSimulationDiagnosticsRuntime.TryGetLatest(out PublishedSimulationDiagnosticsSnapshot unified))
         {
             snapshot = unified.Frame;
             return snapshot != null;
@@ -263,7 +263,7 @@ public static class SimulationDebuggerRuntime
         {
             _localRecordingCaptureMask = SimulationDebuggerCaptureMask.None;
         }
-        SimulationDiagnosticsSnapshotRuntime.Reset();
+        PublishedSimulationDiagnosticsRuntime.Reset();
         CaptureMask = SimulationDebuggerCaptureMask.Summary;
         ActiveView = SimulationDebuggerView.Overview;
         ActiveHeatmap = SimulationDebuggerHeatmap.None;

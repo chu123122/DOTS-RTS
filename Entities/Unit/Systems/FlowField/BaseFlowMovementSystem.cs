@@ -123,8 +123,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         bool useParallelJacobi = usesJacobiScratch;
         bool captureParallelSelectedPairs =
             ShouldCaptureParallelSelectedPairs(useParallelJacobi, diagnosticSelectedEntity);
-        ContactDiagnosticsFrameScratch diagnosticsScratch =
-            CreateContactDiagnosticsFrameScratch(unitCount, contactSolverSettings, captureParallelSelectedPairs);
+        ContactDiagnosticsFrameResources diagnosticsScratch =
+            CreateContactDiagnosticsFrameResources(unitCount, contactSolverSettings, captureParallelSelectedPairs);
 
         // 同一 EntityQuery 的各阶段通过 EntityIndexInQuery 访问相同槽位，
         // 避免把仅在本帧有效的中间状态写回 ECS 组件。
@@ -257,7 +257,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 NativeArrayOptions.ClearMemory)
             : default;
         var parallelBodyStatistics = useParallelJacobi
-            ? new NativeArray<ParallelBodyStageStatistics>(
+            ? new NativeArray<ParallelBodyStageResult>(
                 unitCount,
                 Allocator.TempJob,
                 NativeArrayOptions.ClearMemory)
@@ -303,13 +303,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var persistentSpatialVisitStamp =
             new NativeReference<uint>(Allocator.TempJob);
         var parallelJacobiRuntimeState = useParallelJacobi
-            ? new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob)
+            ? new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob)
             : default;
         var parallelJacobiIterationState = useParallelJacobi
-            ? new NativeReference<ParallelJacobiIterationState>(Allocator.TempJob)
+            ? new NativeReference<ParallelJacobiIterationTelemetry>(Allocator.TempJob)
             : default;
-        var parallelJacobiBlockStatistics = useParallelJacobi
-            ? new NativeList<JacobiBlockStatistics>(
+        var parallelJacobiBlockTelemetry = useParallelJacobi
+            ? new NativeList<JacobiBlockTelemetry>(
                 math.max((unitCount * 4 + 63) / 64, 1),
                 Allocator.TempJob)
             : default;
@@ -400,7 +400,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ? solveContactJob.ScheduleParallelJacobiP1P6(
                 parallelJacobiRuntimeState,
                 parallelJacobiIterationState,
-                parallelJacobiBlockStatistics,
+                parallelJacobiBlockTelemetry,
                 initializeSolverStateHandle)
             : solveContactJob.Schedule(initializeSolverStateHandle);
 
@@ -522,16 +522,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             parallelJacobiIterationState.IsCreated
                 ? parallelJacobiIterationState.Dispose(applyMovementHandle)
                 : default;
-        JobHandle parallelJacobiBlockStatisticsDisposeHandle =
-            parallelJacobiBlockStatistics.IsCreated
-                ? parallelJacobiBlockStatistics.Dispose(applyMovementHandle)
+        JobHandle parallelJacobiBlockTelemetryDisposeHandle =
+            parallelJacobiBlockTelemetry.IsCreated
+                ? parallelJacobiBlockTelemetry.Dispose(applyMovementHandle)
                 : default;
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
         JobHandle statisticsDisposeHandle = default;
         JobHandle incrementalStatisticsDisposeHandle = default;
-        JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameScratch(
+        JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameResources(
             diagnosticsScratch, solveContactHandle, publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle = default;
@@ -620,7 +620,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   parallelJacobiIterationStateDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
-  parallelJacobiBlockStatisticsDisposeHandle);
+  parallelJacobiBlockTelemetryDisposeHandle);
 
         JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
             statisticsDisposeHandle,
