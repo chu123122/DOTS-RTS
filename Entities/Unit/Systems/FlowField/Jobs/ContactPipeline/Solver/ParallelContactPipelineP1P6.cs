@@ -63,6 +63,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     public NativeArray<byte> EnvelopeEscapeFlags;
     public NativeArray<ParallelBodyStageResult> ParallelBodyStatistics;
+    // Dedicated block counts/offsets for dirty, escape and corrected-body compaction.
+    // SoftIncidentWriteCursors is now reserved for the soft incident index only.
+    public NativeArray<int> DirtyBodyBlockOffsets;
     public NativeArray<int> SoftIncidentOffsets;
     public NativeArray<int> SoftIncidentWriteCursors;
     public NativeList<int> SoftIncidentPairIndices;
@@ -139,19 +142,19 @@ public partial struct SolveXpbdUnitContactsJob
                 handle = new CountInitialP1P6DirtyBodyBlocksJob
                 {
                     DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     BodyCount = States.Length
                 }.Schedule(escapeBlockCount, 1, handle);
                 handle = new PrefixInitialP1P6DirtyBodiesJob
                 {
-                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     DirtyBodies = IncrementalDirtyBodies,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
                 handle = new ScatterInitialP1P6DirtyBodiesJob
                 {
                     DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                    BlockOffsets = SoftIncidentWriteCursors,
+                    BlockOffsets = DirtyBodyBlockOffsets,
                     DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
                     BodyCount = States.Length
                 }.Schedule(escapeBlockCount, 1, handle);
@@ -219,14 +222,14 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new CountP1P6EnvelopeEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 BodyCount = States.Length,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(escapeBlockCount, 1, handle);
 
             handle = new PrefixP1P6EnvelopeEscapesJob
             {
-                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies,
                 DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
@@ -235,7 +238,7 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new ScatterP1P6EnvelopeEscapesJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsets = SoftIncidentWriteCursors,
+                BlockOffsets = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
                 DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 States = States,
@@ -369,7 +372,7 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new ReduceP1P6SoftEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
-                EscapeCountsByBlock = SoftIncidentWriteCursors,
+                EscapeCountsByBlock = DirtyBodyBlockOffsets,
                 BodyCount = States.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
@@ -378,7 +381,7 @@ public partial struct SolveXpbdUnitContactsJob
                 Solver = this,
                 RuntimeState = runtimeState,
                 BlockStatistics = blockStatistics,
-                EscapeCountsByBlock = SoftIncidentWriteCursors,
+                EscapeCountsByBlock = DirtyBodyBlockOffsets,
                 EscapeBlockCount = escapeBlockCount
             }.Schedule(handle);
 #endif
@@ -401,14 +404,14 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new CountP1P6EnvelopeEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 BodyCount = States.Length,
                 Enabled = 1
             }.Schedule(escapeBlockCount, 1, handle);
 
             handle = new PrefixP1P6EnvelopeEscapesJob
             {
-                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies,
                 DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
@@ -417,7 +420,7 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new ScatterP1P6EnvelopeEscapesJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsets = SoftIncidentWriteCursors,
+                BlockOffsets = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
                 DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 States = States,
@@ -464,13 +467,13 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     CorrectedBodyFlags = CorrectedBodyFlags,
                     BodyStatistics = ParallelBodyStatistics,
-                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     BodyCount = States.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 handle = new PrefixP1P6CorrectedBodiesJob
                 {
-                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     CorrectedBodyIndices = CorrectedBodyIndices,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
@@ -478,7 +481,7 @@ public partial struct SolveXpbdUnitContactsJob
                 handle = new ScatterP1P6CorrectedBodiesJob
                 {
                     CorrectedBodyFlags = CorrectedBodyFlags,
-                    BlockOffsets = SoftIncidentWriteCursors,
+                    BlockOffsets = DirtyBodyBlockOffsets,
                     CorrectedBodyIndices = CorrectedBodyIndices.AsDeferredJobArray(),
                     BodyCount = States.Length
                 }.Schedule(escapeBlockCount, 1, handle);
