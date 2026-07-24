@@ -53,7 +53,9 @@ public partial struct SolveXpbdUnitContactsJob
 
                     float3 normal = distance > 0.00001f
                         ? delta / distance
-                        : DeterministicFallbackNormal(bodyIndex, checkCell.GetHashCode());
+                        : DeterministicFallbackNormal(
+                            bodyIndex,
+                            EnvironmentGeometry.FlatIndex(checkCell));
                     float3 correction =
                         normal * ((hardDistance - distance) * 0.5f);
                     state.PredictedPosition += correction;
