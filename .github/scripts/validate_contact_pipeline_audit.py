@@ -10,10 +10,13 @@ resources = flow / "ContactPipelineResources.cs"
 reset = flow / "Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs"
 snapshot = flow / "Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs"
 publishing = flow / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs"
+spatial_readback = flow / "Diagnostics/Capture/SimulationDebuggerSpatialReadback.cs"
 pipeline_snapshot = flow / "Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs"
 runtime = flow / "Diagnostics/Runtime/SimulationDebuggerRuntime.cs"
 experiment = flow / "Diagnostics/Experiments/IncrementalContactPipelineExperimentRuntime.cs"
 contracts = flow / "Diagnostics/Runtime/SimulationDebuggerContracts.cs"
+panel = flow / "Diagnostics/Presentation/SimulationDebuggerPanel.cs"
+recorder = flow / "Diagnostics/Recording/SimulationDebuggerLocalRecorder.cs"
 oracle = flow / "Diagnostics/Validation/IncrementalContactOracle.cs"
 authoring = Path("Entities/Unit/Authoring/FlowField/FlowFieldManagerAuthoring.cs")
 grid = Path("Entities/Unit/Components/FlowField/GridComponent.cs")
@@ -21,9 +24,11 @@ timestep = flow / "Jobs/ContactPipeline/Prediction/TimestepContactSet.cs"
 verification = flow / "Diagnostics/VERIFICATION_MATRIX.md"
 verification_meta = flow / "Diagnostics/VERIFICATION_MATRIX.md.meta"
 
-required_paths = (solver, p1p6, persistent, base, resources, reset, snapshot, publishing,
-                  pipeline_snapshot, runtime, experiment, contracts, oracle,
-                  authoring, grid, timestep, verification, verification_meta)
+required_paths = (
+    solver, p1p6, persistent, base, resources, reset, snapshot, publishing,
+    spatial_readback, pipeline_snapshot, runtime, experiment, contracts, panel,
+    recorder, oracle, authoring, grid, timestep, verification, verification_meta)
+
 for path in required_paths:
     if not path.exists():
         raise SystemExit(f"Missing audit target: {path}")
@@ -210,3 +215,38 @@ for forbidden in ("EnableFatAabbCache", "FatAabbCacheMargin",
 for required in ("EnablePersistentContactCache", "PersistentGuardEnvelopeMargin"):
     if required not in grid.read_text(encoding="utf-8"):
         raise SystemExit(f"Persistent contact setting missing: {required}")
+
+
+# Diagnostics presentation completion contracts.
+spatial_text = spatial_readback.read_text(encoding="utf-8")
+panel_text = panel.read_text(encoding="utf-8")
+recorder_text = recorder.read_text(encoding="utf-8")
+for required in (
+        "GetBuffer<Stage3ContactHeatSample>",
+        "snapshot.Cells.Add(new SimulationDebuggerCellSample",
+        "snapshot.Proxies.Add(new SimulationDebuggerProxySample",
+        "CaptureSpatialDiagnostics(snapshot, gridComponent, captureMask)"):
+    if required not in spatial_text + publishing_text:
+        raise SystemExit(f"Spatial diagnostics readback contract missing: {required}")
+for required in (
+        "TimestepContactSetFullRebuildCount",
+        "TimestepContactSetFallbackAddedPairCount",
+        "FullRebuildCount",
+        "FallbackAddedPairCount"):
+    if required not in publishing_text + contracts_text:
+        raise SystemExit(f"Contact fallback metric contract missing: {required}")
+if "SupplementOrFallbackCount" in all_source:
+    raise SystemExit("Ambiguous contact fallback metric returned")
+if "IncrementalContactPipelineDiagnosticsRuntime.Latest" in panel_text:
+    raise SystemExit("Panel again reads Frame and Pipeline through separate publications")
+for required in (
+        "PublishedSimulationDiagnosticsRuntime.TryGetLatest(",
+        "DrawPersistentBroadPhase(snapshot, pipeline)",
+        "TimestepContactMargin"):
+    if required not in panel_text + contracts_text + runtime.read_text(encoding="utf-8"):
+        raise SystemExit(f"Unified diagnostics presentation contract missing: {required}")
+if "下一步将失效并重建拓扑" in panel_text:
+    raise SystemExit("Oracle presentation still claims diagnostics invalidates gameplay cache")
+for required in ("full_rebuilds", "fallback_added_pairs", "timestep_contact_margin"):
+    if required not in recorder_text:
+        raise SystemExit(f"Recorder schema missing completed diagnostics field: {required}")
