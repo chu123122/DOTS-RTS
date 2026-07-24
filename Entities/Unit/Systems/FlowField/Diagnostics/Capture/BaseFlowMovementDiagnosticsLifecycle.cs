@@ -7,7 +7,7 @@ using RTS.Unit.FlowField.Jobs;
 
 namespace RTS.Unit.FlowField.Systems
 {
-internal struct ContactDiagnosticsFrameScratch
+internal struct ContactDiagnosticsFrameResources
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
@@ -112,9 +112,9 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
-    private static ContactDiagnosticsFrameScratch CreateContactDiagnosticsFrameScratch(int unitCount, UnitContactSolverSettings settings, bool captureParallelSelectedPairs)
+    private static ContactDiagnosticsFrameResources CreateContactDiagnosticsFrameResources(int unitCount, UnitContactSolverSettings settings, bool captureParallelSelectedPairs)
     {
-        ContactDiagnosticsFrameScratch scratch = default;
+        ContactDiagnosticsFrameResources scratch = default;
 #if RTS_CONTACT_DIAGNOSTICS
         scratch.IncrementalOracleContactPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
         scratch.ParallelPairCandidates = captureParallelSelectedPairs ? new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob) : default;
@@ -129,7 +129,7 @@ public abstract partial class BaseFlowMovementSystem
         return scratch;
     }
 
-    private ContactDiagnosticsPublishHandles ScheduleContactDiagnosticsPublication(ContactDiagnosticsFrameScratch scratch, NativeReference<PredictiveDiscContactStatistics> contactStatistics, NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics, int unitCount, float deltaTime, float softAvoidanceShell, UnitContactSolverSettings solverSettings, bool effectiveTimestepContactSetCache, bool effectivePersistentContactCache, JobHandle solveContactHandle)
+    private ContactDiagnosticsPublishHandles ScheduleContactDiagnosticsPublication(ContactDiagnosticsFrameResources scratch, NativeReference<PredictiveDiscContactStatistics> contactStatistics, NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics, int unitCount, float deltaTime, float softAvoidanceShell, UnitContactSolverSettings solverSettings, bool effectiveTimestepContactSetCache, bool effectivePersistentContactCache, JobHandle solveContactHandle)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         JobHandle statistics = new PublishPredictiveDiscContactStatisticsJob
@@ -169,7 +169,7 @@ public abstract partial class BaseFlowMovementSystem
         return false;
     }
 
-    private static JobHandle DisposeContactDiagnosticsFrameScratch(ContactDiagnosticsFrameScratch scratch, JobHandle solveContactHandle, JobHandle publishStatisticsHandle, JobHandle publishIncrementalStatisticsHandle)
+    private static JobHandle DisposeContactDiagnosticsFrameResources(ContactDiagnosticsFrameResources scratch, JobHandle solveContactHandle, JobHandle publishStatisticsHandle, JobHandle publishIncrementalStatisticsHandle)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         JobHandle a = scratch.IncrementalOracleContactPairs.IsCreated ? scratch.IncrementalOracleContactPairs.Dispose(solveContactHandle) : default;

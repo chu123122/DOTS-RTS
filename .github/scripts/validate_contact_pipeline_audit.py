@@ -5,7 +5,7 @@ flow = Path("Entities/Unit/Systems/FlowField")
 solver = flow / "Jobs/ContactPipeline/Solver/ParallelJacobiSolver.cs"
 p1p6 = flow / "Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs"
 reset = flow / "Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs"
-snapshot = flow / "Diagnostics/Capture/SimulationDiagnosticsSnapshot.cs"
+snapshot = flow / "Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs"
 contracts = flow / "Diagnostics/Runtime/SimulationDebuggerContracts.cs"
 oracle = flow / "Diagnostics/Validation/IncrementalContactOracle.cs"
 authoring = Path("Entities/Unit/Authoring/FlowField/FlowFieldManagerAuthoring.cs")
@@ -30,10 +30,14 @@ if "#if RTS_CONTACT_DIAGNOSTICS" not in reset_text:
     raise SystemExit("Diagnostic reset lost compile-time boundary")
 
 snapshot_text = snapshot.read_text(encoding="utf-8")
+if "public static class PublishedSimulationDiagnosticsRuntime" not in snapshot_text:
+    raise SystemExit("Published diagnostics runtime has an invalid declaration")
+if "PublishedPublishedSimulationDiagnosticsRuntime" in snapshot_text:
+    raise SystemExit("Duplicated Published prefix returned")
 for forbidden in ("SlotA", "SlotB", "AcquireWriteSlot", "PublishFrame(", "PublishPipeline("):
     if forbidden in snapshot_text:
         raise SystemExit(f"Mutable/partial snapshot publication returned: {forbidden}")
-for required in ("PublishComplete(", "new SimulationDiagnosticsSnapshot(", "DeepCopy()"):
+for required in ("PublishComplete(", "new PublishedSimulationDiagnosticsSnapshot(", "DeepCopy()"):
     if required not in snapshot_text:
         raise SystemExit(f"Immutable snapshot contract missing: {required}")
 if "class SimulationDiagnosticsRingBuffer" in snapshot_text:
