@@ -5,7 +5,7 @@ This directory owns observation, validation, recording, and presentation code fo
 ## Ownership
 
 - `Runtime/` contains diagnostics-only contracts, capture masks, runtime selection, settings overrides, and benchmark experiment state. These types coordinate observation and must never become contact correctness state.
-- `Capture/` contains telemetry schemas, ECS publication jobs, and the native-to-public snapshot boundary.
+- `Capture/` contains telemetry schemas, Stage3 diagnostic element contracts, ECS publication jobs, and the native-to-public snapshot boundary.
 - `Capture/Jobs/` contains Burst jobs whose only output is diagnostic data, including solver-side debugger capture helpers.
 - `Instrumentation/` contains compile-time probes such as the profiler clock facade.
 - `Validation/` contains optional correctness oracles. An oracle may invalidate authoritative runtime state through an explicit command, but its counters are never control state.
@@ -35,4 +35,4 @@ When `RTS_CONTACT_DIAGNOSTICS` is absent:
 
 ## Migration status
 
-Source ownership is split into runtime control, capture, instrumentation, validation, and presentation layers. Heat sampling, debugger runtime state, experiment overrides, and all diagnostics guards are compile-time disabled in gameplay-only builds. Remaining work is to remove telemetry `NativeReference` and diagnostic scratch allocation from the gameplay scheduler, then introduce bounded frame capture and ring-buffer rollups.
+Source ownership is split into runtime control, capture, instrumentation, validation, and presentation layers. Gameplay-only builds now use compact one-byte Stage3 and snapshot schemas, no managed debugger or experiment state, no diagnostics readback system, and an empty non-entity publication job. Remaining work is to remove the two telemetry `NativeReference` values and the still-created diagnostic scratch containers from the gameplay scheduler, then introduce bounded frame capture and ring-buffer rollups.
