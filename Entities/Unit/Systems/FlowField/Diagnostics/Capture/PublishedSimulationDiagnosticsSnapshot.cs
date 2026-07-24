@@ -120,7 +120,14 @@ public static class PublishedSimulationDiagnosticsRuntime
     }
 }
 #else
-public sealed class PublishedSimulationDiagnosticsSnapshot { }
+public sealed class PublishedSimulationDiagnosticsSnapshot
+{
+    public ulong WorldId => 0;
+    public ulong Generation => 0;
+    public uint SimulationStepId => 0;
+    public SimulationDebuggerFrameSnapshot Frame => null;
+    public IncrementalContactPipelineSnapshot Pipeline => default;
+}
 public static class PublishedSimulationDiagnosticsRuntime
 {
     public static ulong Generation=>0;

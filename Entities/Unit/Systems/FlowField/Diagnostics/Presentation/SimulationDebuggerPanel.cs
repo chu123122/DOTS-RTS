@@ -160,10 +160,28 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             GUIContent.none,
             _windowStyle);
 
-        DrawIndependentWindow(OverviewWindowId, SimulationDebuggerView.Overview, OverviewWindow);
-        DrawIndependentWindow(AabbWindowId, SimulationDebuggerView.PersistentBroadPhase, AabbWindow);
-        DrawIndependentWindow(ContactWindowId, SimulationDebuggerView.TimestepContactSet, ContactWindow);
-        DrawIndependentWindow(SettingsWindowId, SimulationDebuggerView.RuntimeSettings, SettingsWindow);
+        PublishedSimulationDiagnosticsRuntime.TryGetLatest(
+            out PublishedSimulationDiagnosticsSnapshot published);
+        DrawIndependentWindow(
+            OverviewWindowId,
+            SimulationDebuggerView.Overview,
+            OverviewWindow,
+            published);
+        DrawIndependentWindow(
+            AabbWindowId,
+            SimulationDebuggerView.PersistentBroadPhase,
+            AabbWindow,
+            published);
+        DrawIndependentWindow(
+            ContactWindowId,
+            SimulationDebuggerView.TimestepContactSet,
+            ContactWindow,
+            published);
+        DrawIndependentWindow(
+            SettingsWindowId,
+            SimulationDebuggerView.RuntimeSettings,
+            SettingsWindow,
+            published);
 
         // 在窗口绘制之后占用 hotControl，防止被 GUI.Window 内部重置。
         // 注意：IMGUI 的 Event 系统无法阻止 Unity Input 系统（GetAxis/GetMouseButton）
@@ -239,7 +257,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private void DrawIndependentWindow(
         int id,
         SimulationDebuggerView view,
-        SimulationDebuggerWindowState state)
+        SimulationDebuggerWindowState state,
+        PublishedSimulationDiagnosticsSnapshot published)
     {
         if (state == null || !state.Visible)
             return;
@@ -247,7 +266,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         Rect returnedRect = GUI.Window(
             id,
             state.Rect,
-            _ => DrawViewWindow(view, state),
+            _ => DrawViewWindow(view, state, published),
             GUIContent.none,
             _windowStyle);
 
@@ -267,7 +286,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawViewWindow(
         SimulationDebuggerView view,
-        SimulationDebuggerWindowState state)
+        SimulationDebuggerWindowState state,
+        PublishedSimulationDiagnosticsSnapshot published)
     {
         _currentView = view;
         _activeWindowState = state;
@@ -277,7 +297,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawWindowHeader(view, state);
         _scroll = GUILayout.BeginScrollView(_scroll, false, true);
 
-        if (!SimulationDebuggerRuntime.TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot))
+        if (published == null)
         {
             GUILayout.Space(20f);
             GUILayout.Label("等待仿真诊断快照…", _sectionStyle);
@@ -285,6 +305,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         }
         else
         {
+            SimulationDebuggerFrameSnapshot snapshot = published.Frame;
+            IncrementalContactPipelineSnapshot pipeline = published.Pipeline;
             DrawFrameStrip(snapshot);
             switch (view)
             {
@@ -292,7 +314,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                     DrawOverview(snapshot);
                     break;
                 case SimulationDebuggerView.PersistentBroadPhase:
-                    DrawPersistentBroadPhase(snapshot);
+                    DrawPersistentBroadPhase(snapshot, pipeline);
                     break;
                 case SimulationDebuggerView.TimestepContactSet:
                     DrawContactSet(snapshot);
@@ -511,10 +533,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawTrendRow("接触对数量", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
     }
 
-    private void DrawPersistentBroadPhase(SimulationDebuggerFrameSnapshot snapshot)
+    private void DrawPersistentBroadPhase(
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline)
     {
-        IncrementalContactPipelineSnapshot pipeline =
-            IncrementalContactPipelineDiagnosticsRuntime.Latest;
         var statistics = pipeline.Statistics;
         bool cacheEnabled = snapshot.EffectiveSettings.EnablePersistentContactCache != 0;
         bool hasPipelineSnapshot = statistics.Timestep != 0;
@@ -533,7 +555,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         else if (statistics.OracleMissingPairCount != 0 || statistics.OracleMismatch != 0)
         {
             health = SimulationDebuggerHealth.Critical;
-            status = "Oracle 发现缺失接触对，下一步将失效并重建拓扑。";
+            status = "Oracle 发现增量接触视图存在缺失 Pair；已记录不一致，但诊断系统不会自动改变 Gameplay cache 状态。";
         }
         else if (statistics.FullRebuildCount != 0)
         {
@@ -610,7 +632,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             metrics.ContactSetSize.ToString("N0"),
             metrics.CacheEnabled != 0 ? "一个时间步只生成一次并跨子步复用" : "每个子步重新生成，仅在迭代内复用");
         DrawMetric("接触激活率", Percent(metrics.ActivationRatio), "至少一次真正产生约束作用的接触");
-        DrawMetric("补充 / 回退", metrics.SupplementOrFallbackCount.ToString("N0"), "初始接触集未覆盖的异常路径");
+        DrawMetric(
+            "重建 / 补充 Pair",
+            $"{metrics.FullRebuildCount} / {metrics.FallbackAddedPairCount}",
+            "完整重建表示视图重新生成；补充 Pair 表示初始接触集遗漏");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
@@ -632,6 +657,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label("接触集组成", _sectionStyle);
         DrawDetailRow("生成模式", metrics.CacheEnabled != 0 ? "每时间步一次" : "每子步一次");
         DrawDetailRow("本帧生成次数", metrics.ContactGenerationCount.ToString("N0"));
+        DrawDetailRow("完整重建次数", metrics.FullRebuildCount.ToString("N0"));
+        DrawDetailRow("Fallback 补充 Pair", metrics.FallbackAddedPairCount.ToString("N0"));
         DrawDetailRow("当前 / 临近接触", metrics.ActualContactCount.ToString("N0"));
         DrawDetailRow("预测接触", metrics.PredictiveContactCount.ToString("N0"));
         DrawDetailRow("预测接触已激活", metrics.PredictiveActivatedCount.ToString("N0"));
@@ -856,6 +883,13 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             snapshot.EffectiveSettings.PredictiveSkin,
             0f,
             3f,
+            "0.00");
+        draft.TimestepContactMargin = DrawFloatSlider(
+            "时间步接触包络余量",
+            draft.TimestepContactMargin,
+            snapshot.EffectiveSettings.TimestepContactMargin,
+            0f,
+            5f,
             "0.00");
         GUI.enabled = previousEnabled;
 
@@ -1555,8 +1589,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     {
         if (metrics.CacheEnabled == 0)
             return "对比模式：每个子步重新生成接触集，不进行跨子步持久化。";
-        if (metrics.Health == SimulationDebuggerHealth.Critical)
-            return "本时间步出现后补或回退，初始接触集可能不完整。";
+        if (metrics.FallbackAddedPairCount > 0)
+            return "本时间步出现 fallback 补充 Pair，初始接触集存在遗漏。";
+        if (metrics.FullRebuildCount > 0)
+            return "本时间步执行了完整重建；正确性已保留，但缓存复用中断。";
         if (metrics.Health == SimulationDebuggerHealth.Warning)
             return "缓存中未激活接触较多，生成范围可能过于保守。";
         return "同一接触集正在跨子步稳定复用。";
