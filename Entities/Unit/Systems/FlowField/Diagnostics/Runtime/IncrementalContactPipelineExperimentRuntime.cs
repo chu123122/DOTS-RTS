@@ -10,6 +10,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public static class IncrementalContactPipelineExperimentRuntime
 {
+#if RTS_CONTACT_DIAGNOSTICS
     public static bool OverrideEnabled;
     public static bool TimestepCacheEnabled = true;
     public static bool CrossFrameContactCacheEnabled = true;
@@ -27,9 +28,30 @@ public static class IncrementalContactPipelineExperimentRuntime
     public static string ExperimentId = "manual";
     public static string Scenario = "unspecified";
     public static string ConfigurationLabel = "runtime";
+#else
+    public static bool OverrideEnabled { get => false; set { } }
+    public static bool TimestepCacheEnabled { get => true; set { } }
+    public static bool CrossFrameContactCacheEnabled { get => true; set { } }
+    public static bool PredictiveContactsEnabled { get => true; set { } }
+    public static bool DiagnosticsEnabled { get => false; set { } }
+    public static int SubstepCount { get => 4; set { } }
+    public static int IterationCount { get => 4; set { } }
+    public static ContactPositionSolverMode ContactPositionSolver
+    {
+        get => ContactPositionSolverMode.GaussSeidel;
+        set { }
+    }
+    public static float GuardEnvelopeMargin { get => 0.5f; set { } }
+    public static float PredictiveSkin { get => 0.05f; set { } }
+    public static float TimestepContactMargin { get => 0.02f; set { } }
+    public static string ExperimentId { get => "disabled"; set { } }
+    public static string Scenario { get => "disabled"; set { } }
+    public static string ConfigurationLabel { get => "gameplay"; set { } }
+#endif
 
     public static void Apply(ref UnitContactSolverSettings settings)
     {
+#if RTS_CONTACT_DIAGNOSTICS
         if (!OverrideEnabled)
             return;
 
@@ -42,6 +64,7 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.EnablePredictiveContacts = PredictiveContactsEnabled;
         settings.EnableFatAabbCache = CrossFrameContactCacheEnabled && TimestepCacheEnabled;
         settings.EnableDiagnostics = DiagnosticsEnabled;
+#endif
     }
 
     public static IncrementalContactPipelineConfiguration CaptureConfiguration(
@@ -52,6 +75,7 @@ public static class IncrementalContactPipelineExperimentRuntime
         bool effectiveTimestepCacheEnabled,
         bool effectiveCrossFrameTopologyEnabled)
     {
+#if RTS_CONTACT_DIAGNOSTICS
         return new IncrementalContactPipelineConfiguration
         {
             ExperimentId = ToFixedString(ExperimentId, "manual"),
@@ -71,12 +95,17 @@ public static class IncrementalContactPipelineExperimentRuntime
             PredictiveContactsEnabled = (byte)(settings.EnablePredictiveContacts ? 1 : 0),
             DiagnosticsEnabled = (byte)(settings.EnableDiagnostics ? 1 : 0)
         };
+#else
+        return default;
+#endif
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     private static FixedString64Bytes ToFixedString(string value, string fallback)
     {
         string resolved = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         return new FixedString64Bytes(resolved);
     }
+#endif
 }
 }
