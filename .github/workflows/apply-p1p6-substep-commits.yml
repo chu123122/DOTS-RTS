@@ -27,7 +27,7 @@ jobs:
           git bundle verify /tmp/p1p6.bundle
           rm -rf /tmp/p1p6-source
           git clone -q /tmp/p1p6.bundle /tmp/p1p6-source
-          mapfile -t commits < <(git -C /tmp/p1p6-source rev-list --reverse export-six)
+          mapfile -t commits < <(git -C /tmp/p1p6-source rev-list --reverse HEAD)
           test "${#commits[@]}" -eq 7
 
       - name: Apply six commits
@@ -38,7 +38,7 @@ jobs:
           git checkout -B p1p6-result "origin/$TARGET_BRANCH"
           git config user.name "Codex"
           git config user.email "codex@openai.com"
-          mapfile -t commits < <(git -C /tmp/p1p6-source rev-list --reverse export-six)
+          mapfile -t commits < <(git -C /tmp/p1p6-source rev-list --reverse HEAD)
           for ((i = 1; i < ${#commits[@]}; i++)); do
             git -C /tmp/p1p6-source format-patch -1 --stdout "${commits[$i]}" | git am
           done
