@@ -34,3 +34,12 @@ if 'SimulationDiagnosticsSnapshotRuntime' not in runtime or 'SimulationDiagnosti
     raise SystemExit('Unified current-frame snapshot handoff missing')
 if 'class SimulationDiagnosticsRingBuffer' in snapshot:
     raise SystemExit('RingBuffer is explicitly out of scope')
+required_consumers = [
+    flow / 'Diagnostics/Recording/IncrementalContactPipelineCsvRecorder.cs',
+    flow / 'Diagnostics/Recording/SimulationDebuggerLocalRecorder.cs',
+    flow / 'Diagnostics/Experiments/AdaptiveParameterTuner.cs',
+    flow / 'Diagnostics/Experiments/AdaptiveParameterTuner.Scenarios.cs',
+    flow / 'Diagnostics/Experiments/IncrementalContactPipelineExperimentRuntime.cs']
+missing = [str(path) for path in required_consumers if not path.exists()]
+if missing:
+    raise SystemExit('Final diagnostics consumer ownership missing: ' + repr(missing))
