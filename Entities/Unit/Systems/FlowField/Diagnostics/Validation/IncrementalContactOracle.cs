@@ -102,10 +102,9 @@ public partial struct SolveXpbdUnitContactsJob
         if (missingPairCount <= 0)
             return;
 
+        // Validation is observation-only. Cache invalidation belongs to an
+        // explicit gameplay correctness policy, never to diagnostics.
         incrementalStatistics.OracleMismatch = 1;
-        IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
-        cacheState.IsValid = 0;
-        IncrementalCacheState.Value = cacheState;
     }
 }
 }
