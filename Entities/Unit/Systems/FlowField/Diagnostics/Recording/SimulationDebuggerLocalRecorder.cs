@@ -111,9 +111,9 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
             _topologyWriter = CreateWriter("02_incremental_topology.csv",
                 "elapsed_s,frame,timestep,mode,proxy_count,topology_dirty_bodies,motion_dirty_bodies,escaped_bodies,local_proxy_queries,persistent_neighbor_pairs,pairs_added,pairs_removed,pairs_retained,full_rebuilds,incremental_repairs,clean_proxy_ratio,retained_pair_ratio,proxy_validation_us,local_broadphase_us,pair_diff_us,oracle_missing_pairs,oracle_extra_pairs");
             _contactWriter = CreateWriter("03_timestep_contact_set.csv",
-                "elapsed_s,frame,cache_enabled,builds,contact_set_size,active_contacts,inactive_contacts,actual_contacts,predictive_contacts,predictive_activated,fallbacks,activation_ratio,predictive_activation_ratio,substeps");
+                "elapsed_s,frame,cache_enabled,builds,contact_set_size,active_contacts,inactive_contacts,actual_contacts,predictive_contacts,predictive_activated,full_rebuilds,fallback_added_pairs,activation_ratio,predictive_activation_ratio,substeps");
             _settingsWriter = CreateWriter("04_settings.csv",
-                "elapsed_s,frame,configuration_id,hotspot_diagnostics_enabled,cross_frame_contact_cache_enabled,timestep_contact_set_enabled,predictive_skin,fat_margin,substeps,iterations,soft_avoidance_solver,soft_avoidance_rate,soft_avoidance_shell,rvo_horizon");
+                "elapsed_s,frame,configuration_id,hotspot_diagnostics_enabled,cross_frame_contact_cache_enabled,timestep_contact_set_enabled,predictive_skin,persistent_guard_margin,timestep_contact_margin,substeps,iterations,soft_avoidance_solver,soft_avoidance_rate,soft_avoidance_shell,rvo_horizon");
         }
         catch (Exception exception)
         {
@@ -195,14 +195,16 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
             contactSet.ContactGenerationCount, contactSet.ContactSetSize,
             contactSet.ActiveContactCount, contactSet.InactiveContactCount,
             contactSet.ActualContactCount, contactSet.PredictiveContactCount,
-            contactSet.PredictiveActivatedCount, contactSet.SupplementOrFallbackCount,
+            contactSet.PredictiveActivatedCount, contactSet.FullRebuildCount,
+            contactSet.FallbackAddedPairCount,
             Number(contactSet.ActivationRatio), Number(contactSet.PredictiveActivationRatio),
             contactSet.SubstepCount));
 
         string settingsKey = string.Join("|",
             snapshot.Experiment.ConfigurationId, settings.EnableAdaptiveFatAabb,
             settings.EnablePersistentContactCache, settings.EnableTimestepContactSetCache,
-            settings.PredictiveSkin, settings.PersistentGuardEnvelopeMargin, settings.SubstepCount,
+            settings.PredictiveSkin, settings.PersistentGuardEnvelopeMargin,
+            settings.TimestepContactMargin, settings.SubstepCount,
             settings.IterationCount, settings.SoftAvoidanceVelocitySolver,
             settings.SoftAvoidanceResponseRate, settings.SoftAvoidanceShell,
             settings.RvoTimeHorizon);
@@ -212,7 +214,9 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
                 Number(elapsed), snapshot.FrameId, snapshot.Experiment.ConfigurationId,
                 settings.EnableAdaptiveFatAabb, settings.EnablePersistentContactCache,
                 settings.EnableTimestepContactSetCache, Number(settings.PredictiveSkin),
-                Number(settings.PersistentGuardEnvelopeMargin), settings.SubstepCount, settings.IterationCount,
+                Number(settings.PersistentGuardEnvelopeMargin),
+                Number(settings.TimestepContactMargin),
+                settings.SubstepCount, settings.IterationCount,
                 settings.SoftAvoidanceVelocitySolver, Number(settings.SoftAvoidanceResponseRate),
                 Number(settings.SoftAvoidanceShell), Number(settings.RvoTimeHorizon)));
             _lastSettingsKey = settingsKey;
