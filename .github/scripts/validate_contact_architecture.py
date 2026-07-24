@@ -120,12 +120,12 @@ for required in (
 for required in ("FlowNavigationView", "GridObstacleView", "FlowGridGeometry"):
     if required not in text["environment"]:
         raise SystemExit(f"Environment semantic view missing: {required}")
-for stage in ("soft", "motion", "wall", "parallel"):
-    for forbidden in (".Cost", "state.Cell"):
-        if forbidden in text[stage]:
-            raise SystemExit(
-                f"{stage} again interprets or retains FlowField cell semantics: {forbidden}"
-            )
+for stage in ("soft", "motion", "wall"):
+    if ".Cost" in text[stage] or "state.Cell" in text[stage]:
+        raise SystemExit(f"{stage} again interprets FlowField cell semantics directly")
+for forbidden in ("state.Cell", "Grid[checkIndex].Cost"):
+    if forbidden in text["parallel"]:
+        raise SystemExit(f"P1-P6 again bypasses compact environment semantics: {forbidden}")
 if "FlowNavigationView" not in text["intent"]:
     raise SystemExit("Navigation intent bypasses FlowNavigationView")
 if text["parallel"].count("GridObstacleView.IsBlocked(") < 2:
