@@ -62,14 +62,13 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         bool hasActiveDestination = destination.IsActive != 0;
         if (hasActiveDestination && destination.OrderVersion != ActiveRequestVersion)
         {
-            // The order exists but its matching flow field has not been published.
-            // Stop instead of applying a stale direction field.
             arrivalState.IsSettled = true;
             state.CurrentVelocity = float3.zero;
             state.CellPosition = cellPos;
             state.Cell = cell;
             state.IsSettled = true;
             state.IsInsideGrid = true;
+            state.MotionIntent.PreferredVelocity = float3.zero;
             state.IndependentForce = float3.zero;
             States[entityIndex] = state;
             return;
@@ -116,8 +115,9 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         state.Cell = cell;
         state.IsSettled = isSettled;
         state.IsInsideGrid = true;
-        // Transitional compatibility field: mathematically this is a steering
-        // velocity error integrated under MaxForce/MaxAcceleration policy.
+        state.MotionIntent.PreferredVelocity = desiredVelocity;
+        // Compatibility field: mathematically this is a steering velocity error
+        // integrated under the MaxForce/MaxAcceleration policy.
         state.IndependentForce = desiredVelocity - velocity.Value;
         States[entityIndex] = state;
     }
