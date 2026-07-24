@@ -98,9 +98,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ref contactSolverSettings);
         IncrementalContactPipelineExperimentRuntime.Apply(ref contactSolverSettings);
         bool effectiveTimestepContactSetCache =
-            IncrementalContactPipelineExperimentRuntime.OverrideEnabled
-                ? IncrementalContactPipelineExperimentRuntime.TimestepCacheEnabled
-                : ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
+            contactSolverSettings.EnableTimestepContactSetCache;
         bool requestedPersistentContactCache =
             IncrementalContactPipelineExperimentRuntime.OverrideEnabled
                 ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabled

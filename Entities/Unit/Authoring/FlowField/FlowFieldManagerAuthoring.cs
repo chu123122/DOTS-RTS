@@ -62,6 +62,10 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("JSON 采样间隔（秒），不会逐帧写磁盘。")]
     [Min(0.05f)] public float diagnosticCaptureInterval = 0.1f;
 
+    [Header("Contact Cache")]
+    [Tooltip("在一个 timestep 的全部 substep 间复用接触视图。")]
+    public bool enableTimestepContactSetCache = true;
+
     [Header("Fat AABB Neighbor Cache")]
     [Tooltip("启用后 Fat AABB 缓存会替代重复的 Broad Phase 候选发现；每个子步仍重新执行 Narrow Phase。")]
     [FormerlySerializedAs("enableShadowNeighborCacheTest")]
@@ -110,6 +114,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 VisualizeSelectedContacts = authoring.visualizeSelectedContacts,
                 DiagnosticCaptureDuration = math.max(0.5f, authoring.diagnosticCaptureDuration),
                 DiagnosticCaptureInterval = math.max(0.05f, authoring.diagnosticCaptureInterval),
+                EnableTimestepContactSetCache =
+                    authoring.enableTimestepContactSetCache,
                 EnableFatAabbCache = authoring.enableFatAabbCache,
                 FatAabbCacheMargin = math.max(0f, authoring.fatAabbCacheMargin),
                 TimestepContactMargin = math.max(0f, authoring.timestepContactMargin),

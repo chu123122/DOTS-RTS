@@ -62,6 +62,7 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.PredictiveSkin = PredictiveSkin < 0f ? 0f : PredictiveSkin;
         settings.TimestepContactMargin = TimestepContactMargin < 0f ? 0f : TimestepContactMargin;
         settings.EnablePredictiveContacts = PredictiveContactsEnabled;
+        settings.EnableTimestepContactSetCache = TimestepCacheEnabled;
         settings.EnableFatAabbCache = CrossFrameContactCacheEnabled && TimestepCacheEnabled;
         settings.EnableDiagnostics = DiagnosticsEnabled;
 #endif

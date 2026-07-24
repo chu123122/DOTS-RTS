@@ -74,11 +74,8 @@ public static class SimulationDebuggerRuntime
     public static float HeatmapOpacity { get; set; } = 0.28f;
     public static float SlowTimeScale { get; set; } = 0.1f;
 
-    public static bool TimestepContactSetCacheEnabled
-    {
-        get => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
-        set => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = value;
-    }
+    [System.Obsolete("Use UnitContactSolverSettings.EnableTimestepContactSetCache")]
+    public static bool TimestepContactSetCacheEnabled { get; set; } = true;
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
         SimulationDebuggerEffectiveSettings settings)
@@ -288,7 +285,7 @@ public static class SimulationDebuggerRuntime
             _hasPendingSettings = false;
             _resetSettingsRequested = false;
             _resetContactCachesRequested = false;
-            RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = true;
+            TimestepContactSetCacheEnabled = true;
             _experimentConfigurationId = 0;
             _experimentFramesSinceChanged = 0;
             _experimentLastKey = int.MinValue;
@@ -352,11 +349,8 @@ public static class SimulationDebuggerRuntime
 
     // Timestep contact-set reuse is gameplay behavior today. Keep the existing
     // default enabled until its authority is moved out of the debugger facade.
-    public static bool TimestepContactSetCacheEnabled
-    {
-        get => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
-        set => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = value;
-    }
+    [System.Obsolete("Use UnitContactSolverSettings.EnableTimestepContactSetCache")]
+    public static bool TimestepContactSetCacheEnabled { get; set; } = true;
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
         SimulationDebuggerEffectiveSettings settings) => default;
