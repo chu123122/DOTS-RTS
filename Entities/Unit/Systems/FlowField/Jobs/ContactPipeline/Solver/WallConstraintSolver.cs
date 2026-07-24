@@ -4,7 +4,9 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Static wall projection, separate from pair topology and lifecycle.
+/// Static obstacle projection, separate from pair topology and lifecycle. The
+/// current backend is the grid obstacle view; navigation-cell costs are not part
+/// of this stage's public semantics.
 /// </summary>
 public partial struct SolveXpbdUnitContactsJob
 {
@@ -27,39 +29,33 @@ public partial struct SolveXpbdUnitContactsJob
             if (!state.IsInsideGrid || state.InverseMass <= 0f)
                 continue;
 
-            int2 currentCell = FlowFieldUtils.WorldToCell(
-                state.PredictedPosition,
-                GridOrigin,
-                CellRadius);
+            int2 currentCell = EnvironmentGeometry.WorldToCell(
+                state.PredictedPosition);
 
             for (int x = -1; x <= 1; x++)
             {
                 for (int y = -1; y <= 1; y++)
                 {
                     int2 checkCell = currentCell + new int2(x, y);
-                    if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                        checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                    if (!IsObstacleCell(checkCell))
                         continue;
 
-                    int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                    if (Grid[checkIndex].Cost != 0)
-                        continue;
-
-                    float3 wallPosition = GridOrigin + new float3(
-                        checkCell.x * CellRadius * 2f + CellRadius,
-                        state.PredictedPosition.y,
-                        checkCell.y * CellRadius * 2f + CellRadius);
+                    float3 wallPosition = ObstacleCellCenter(
+                        checkCell,
+                        state.PredictedPosition.y);
                     float3 delta = state.PredictedPosition - wallPosition;
                     delta.y = 0f;
                     float distance = math.length(delta);
-                    float hardDistance = CellRadius + math.max(0f, state.Radius);
+                    float hardDistance =
+                        CellRadius + math.max(0f, state.Radius);
                     if (distance >= hardDistance)
                         continue;
 
                     float3 normal = distance > 0.00001f
                         ? delta / distance
-                        : DeterministicFallbackNormal(bodyIndex, checkIndex);
-                    float3 correction = normal * ((hardDistance - distance) * 0.5f);
+                        : DeterministicFallbackNormal(bodyIndex, checkCell.GetHashCode());
+                    float3 correction =
+                        normal * ((hardDistance - distance) * 0.5f);
                     state.PredictedPosition += correction;
                     state.PredictedPosition.y = state.CurrentPosition.y;
                     state.WallPositionCorrection += correction;
@@ -67,7 +63,9 @@ public partial struct SolveXpbdUnitContactsJob
 
                     float correctionLength = math.length(correction);
                     totalPositionCorrection += correctionLength;
-                    maxPositionCorrection = math.max(maxPositionCorrection, correctionLength);
+                    maxPositionCorrection = math.max(
+                        maxPositionCorrection,
+                        correctionLength);
                     if (trackCorrectedBodies)
                         MarkCorrectedBody(bodyIndex);
                 }
