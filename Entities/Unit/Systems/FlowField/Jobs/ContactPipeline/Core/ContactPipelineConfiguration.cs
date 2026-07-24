@@ -7,12 +7,6 @@ namespace RTS.Unit.FlowField.Jobs
 /// </summary>
 public struct ContactPipelineConfiguration
 {
-#if RTS_CONTACT_DIAGNOSTICS
-    private const bool DiagnosticsCompiled = true;
-#else
-    private const bool DiagnosticsCompiled = false;
-#endif
-
     public float DeltaTime;
     public int SubstepCount;
     public int IterationCount;
@@ -26,7 +20,18 @@ public struct ContactPipelineConfiguration
     public float RvoTimeHorizon;
     public bool EnablePredictivePairGeneration;
     public bool EnablePredictiveContacts;
+#if RTS_CONTACT_DIAGNOSTICS
     public bool EnableDiagnostics;
+#else
+    // A property instead of a false field is deliberate: Burst compiles each Job
+    // independently and cannot assume every configuration came from Create().
+    // The constant getter makes every diagnostics guard a compile-time branch.
+    public bool EnableDiagnostics
+    {
+        get => false;
+        set { }
+    }
+#endif
     public bool EnablePersistentContactCache;
     public bool EnableTimestepContactSetCache;
     public float GuardEnvelopeMargin;
@@ -54,7 +59,7 @@ public struct ContactPipelineConfiguration
             RvoTimeHorizon = flowSettings.RvoTimeHorizon,
             EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
             EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
-            EnableDiagnostics = DiagnosticsCompiled && solverSettings.EnableDiagnostics,
+            EnableDiagnostics = solverSettings.EnableDiagnostics,
             EnablePersistentContactCache = enablePersistentContactCache,
             EnableTimestepContactSetCache = enableTimestepContactSetCache,
             // Compatibility translation: the serialized FatAabb margin now means
