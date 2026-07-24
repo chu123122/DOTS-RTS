@@ -17,6 +17,8 @@ internal struct ContactDiagnosticsFrameScratch
     public NativeList<Stage3ContactPairDiagnostic> Pairs;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBody;
     public NativeArray<Stage3ContactHeatSample> HeatSamples;
+    public NativeReference<PredictiveDiscContactStatistics> ContactStatistics;
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
 #else
     public NativeList<UnitCollisionPair> IncrementalOracleContactPairs { get => default; set { } }
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelPairCandidates { get => default; set { } }
@@ -25,6 +27,8 @@ internal struct ContactDiagnosticsFrameScratch
     public NativeList<Stage3ContactPairDiagnostic> Pairs { get => default; set { } }
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBody { get => default; set { } }
     public NativeArray<Stage3ContactHeatSample> HeatSamples { get => default; set { } }
+    public NativeReference<PredictiveDiscContactStatistics> ContactStatistics { get => default; set { } }
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
 #endif
 }
 
@@ -105,6 +109,8 @@ public abstract partial class BaseFlowMovementSystem
         scratch.Pairs = new NativeList<Stage3ContactPairDiagnostic>(math.max(unitCount * 2, 1), Allocator.TempJob);
         scratch.SelectedBody = new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
         scratch.HeatSamples = new NativeArray<Stage3ContactHeatSample>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        scratch.ContactStatistics = new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
+        scratch.IncrementalStatistics = new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
 #endif
         return scratch;
     }
@@ -130,7 +136,7 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
-    private static JobHandle DisposeContactDiagnosticsFrameScratch(ContactDiagnosticsFrameScratch scratch, JobHandle solveContactHandle, JobHandle publishStatisticsHandle)
+    private static JobHandle DisposeContactDiagnosticsFrameScratch(ContactDiagnosticsFrameScratch scratch, JobHandle solveContactHandle, JobHandle publishStatisticsHandle, JobHandle publishIncrementalStatisticsHandle)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         JobHandle a = scratch.IncrementalOracleContactPairs.IsCreated ? scratch.IncrementalOracleContactPairs.Dispose(solveContactHandle) : default;
@@ -140,7 +146,13 @@ public abstract partial class BaseFlowMovementSystem
         JobHandle e = scratch.Iterations.IsCreated ? scratch.Iterations.Dispose(publishStatisticsHandle) : default;
         JobHandle f = scratch.Pairs.IsCreated ? scratch.Pairs.Dispose(publishStatisticsHandle) : default;
         JobHandle g = scratch.HeatSamples.IsCreated ? scratch.HeatSamples.Dispose(publishStatisticsHandle) : default;
-        return JobHandle.CombineDependencies(JobHandle.CombineDependencies(a,b,c), JobHandle.CombineDependencies(d,e,f), g);
+        JobHandle published = JobHandle.CombineDependencies(publishStatisticsHandle, publishIncrementalStatisticsHandle);
+        JobHandle h = scratch.ContactStatistics.IsCreated ? scratch.ContactStatistics.Dispose(published) : default;
+        JobHandle i = scratch.IncrementalStatistics.IsCreated ? scratch.IncrementalStatistics.Dispose(publishIncrementalStatisticsHandle) : default;
+        return JobHandle.CombineDependencies(
+            JobHandle.CombineDependencies(a,b,c),
+            JobHandle.CombineDependencies(d,e,f),
+            JobHandle.CombineDependencies(g,h,i));
 #else
         return default;
 #endif

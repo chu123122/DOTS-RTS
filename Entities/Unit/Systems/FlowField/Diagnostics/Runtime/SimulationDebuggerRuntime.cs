@@ -18,7 +18,6 @@ public static class SimulationDebuggerRuntime
     private static bool _hasPendingSettings;
     private static bool _resetSettingsRequested;
     private static bool _resetContactCachesRequested;
-    private static byte _timestepContactSetCacheEnabled = 1;
     private static uint _experimentConfigurationId;
     private static int _experimentFramesSinceChanged;
     private static int _experimentLastKey = int.MinValue;
@@ -79,16 +78,8 @@ public static class SimulationDebuggerRuntime
 
     public static bool TimestepContactSetCacheEnabled
     {
-        get
-        {
-            lock (Gate)
-                return _timestepContactSetCacheEnabled != 0;
-        }
-        set
-        {
-            lock (Gate)
-                _timestepContactSetCacheEnabled = (byte)(value ? 1 : 0);
-        }
+        get => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
+        set => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = value;
     }
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
@@ -307,7 +298,7 @@ public static class SimulationDebuggerRuntime
             _hasPendingSettings = false;
             _resetSettingsRequested = false;
             _resetContactCachesRequested = false;
-            _timestepContactSetCacheEnabled = 1;
+            RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = true;
             _experimentConfigurationId = 0;
             _experimentFramesSinceChanged = 0;
             _experimentLastKey = int.MinValue;
@@ -371,7 +362,11 @@ public static class SimulationDebuggerRuntime
 
     // Timestep contact-set reuse is gameplay behavior today. Keep the existing
     // default enabled until its authority is moved out of the debugger facade.
-    public static bool TimestepContactSetCacheEnabled { get => true; set { } }
+    public static bool TimestepContactSetCacheEnabled
+    {
+        get => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
+        set => RTS.Unit.FlowField.Jobs.ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled = value;
+    }
 
     public static SimulationExperimentMetrics UpdateExperimentIdentity(
         SimulationDebuggerEffectiveSettings settings) => default;
