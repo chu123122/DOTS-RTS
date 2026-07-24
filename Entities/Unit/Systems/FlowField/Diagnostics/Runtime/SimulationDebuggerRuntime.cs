@@ -10,8 +10,6 @@ namespace RTS.Unit.FlowField.Diagnostics
 public static class SimulationDebuggerRuntime
 {
     private static readonly object Gate = new object();
-    private static SimulationDebuggerFrameSnapshot _latest;
-    private static ulong _publishedVersion;
     private static SimulationDebuggerEffectiveSettings _baselineSettings;
     private static bool _hasBaselineSettings;
     private static SimulationDebuggerEffectiveSettings _pendingSettings;
@@ -115,14 +113,7 @@ public static class SimulationDebuggerRuntime
         }
     }
 
-    public static ulong PublishedVersion
-    {
-        get
-        {
-            lock (Gate)
-                return _publishedVersion;
-        }
-    }
+    public static ulong PublishedVersion => SimulationDiagnosticsSnapshotRuntime.Generation;
 
     public static void CaptureBaselineSettings(SimulationDebuggerEffectiveSettings settings)
     {
@@ -221,11 +212,7 @@ public static class SimulationDebuggerRuntime
         if (snapshot == null || FreezeSnapshot)
             return;
 
-        lock (Gate)
-        {
-            _latest = snapshot;
-            _publishedVersion++;
-        }
+        SimulationDiagnosticsSnapshotRuntime.PublishFrame(snapshot);
         _solverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
         _correctionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
         _cacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
@@ -262,21 +249,23 @@ public static class SimulationDebuggerRuntime
 
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
     {
-        lock (Gate)
+        if (SimulationDiagnosticsSnapshotRuntime.TryGetLatest(out SimulationDiagnosticsSnapshot unified) &&
+            unified.HasFrame != 0)
         {
-            snapshot = _latest;
+            snapshot = unified.Frame;
             return snapshot != null;
         }
+        snapshot = null;
+        return false;
     }
 
     public static void Reset()
     {
         lock (Gate)
         {
-            _latest = null;
-            _publishedVersion = 0;
             _localRecordingCaptureMask = SimulationDebuggerCaptureMask.None;
         }
+        SimulationDiagnosticsSnapshotRuntime.Reset();
         CaptureMask = SimulationDebuggerCaptureMask.Summary;
         ActiveView = SimulationDebuggerView.Overview;
         ActiveHeatmap = SimulationDebuggerHeatmap.None;

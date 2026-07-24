@@ -173,7 +173,18 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
 public static class IncrementalContactPipelineDiagnosticsRuntime
 {
 #if RTS_CONTACT_DIAGNOSTICS
-    public static IncrementalContactPipelineSnapshot Latest { get; internal set; }
+    public static IncrementalContactPipelineSnapshot Latest
+    {
+        get
+        {
+            return SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
+                       out SimulationDiagnosticsSnapshot unified) &&
+                   unified.HasPipeline != 0
+                ? unified.Pipeline
+                : default;
+        }
+        internal set => SimulationDiagnosticsSnapshotRuntime.PublishPipeline(value);
+    }
 #else
     public static IncrementalContactPipelineSnapshot Latest
     {

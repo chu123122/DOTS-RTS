@@ -18,12 +18,12 @@ This directory owns observation, validation, recording, and presentation code fo
 runtime jobs
   -> block-local telemetry
   -> frame capture buffers
-  -> one published diagnostics snapshot
-  -> managed double buffer
-  -> panel / overlay / CSV / benchmark / ring-buffer rollups
+  -> one unified current-frame diagnostics snapshot
+  -> managed double-slot handoff
+  -> panel / overlay / CSV / benchmark
 ```
 
-Detailed pair and heat-map samples are bounded captures. Long-running monitoring stores frame summaries and down-sampled aggregates rather than retaining every body or pair sample.
+Detailed pair and heat-map samples are bounded current-frame captures. Long-term history and RingBuffer storage are intentionally outside this refactor.
 
 ## Compile boundary
 
