@@ -3,6 +3,7 @@ import re
 
 flow = Path('Entities/Unit/Systems/FlowField')
 base = (flow / 'BaseFlowMovementSystem.cs').read_text(encoding='utf-8')
+settings = Path('Entities/Unit/Components/FlowField/GridComponent.cs').read_text(encoding='utf-8')
 helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsScheduling.cs').read_text(encoding='utf-8')
 solver = (flow / 'Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
@@ -17,8 +18,12 @@ if leaked:
     raise SystemExit('Gameplay scheduler still owns diagnostics allocation: ' + repr(leaked))
 if 'SimulationDebuggerRuntime.TimestepContactSetCacheEnabled' in base:
     raise SystemExit('Gameplay option authority leaked into debugger runtime')
-if 'ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled' not in base:
-    raise SystemExit('Authoritative contact option is not used')
+if 'contactSolverSettings.EnableTimestepContactSetCache' not in base:
+    raise SystemExit('Per-world timestep-cache setting is not used')
+if 'EnableTimestepContactSetCache' not in settings:
+    raise SystemExit('Per-world timestep-cache setting is missing from ECS settings')
+if 'ContactPipelineRuntimeOptions' in base or (flow / 'Jobs/ContactPipeline/Core/ContactPipelineRuntimeOptions.cs').exists():
+    raise SystemExit('Static contact-pipeline option authority returned')
 if '#if RTS_CONTACT_DIAGNOSTICS' not in helper:
     raise SystemExit('Diagnostics scheduling context lost compile boundary')
 if '_contactTelemetry.Value' not in solver or '_incrementalTelemetry.Value' not in solver:
