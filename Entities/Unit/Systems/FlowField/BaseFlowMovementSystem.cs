@@ -58,7 +58,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
         CreatePersistentIncidentLookup();
         CreatePersistentDiagnostics();
-        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
+        ulong diagnosticsWorldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         SimulationDebuggerRuntime.RegisterWorld(diagnosticsWorldId);
         IncrementalContactPipelineExperimentRuntime.RegisterWorld(diagnosticsWorldId);
     }
@@ -84,14 +84,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _incrementalContactCacheState.Dispose();
         DisposePersistentIncidentLookup();
         DisposePersistentDiagnostics();
-        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
+        ulong diagnosticsWorldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         IncrementalContactPipelineExperimentRuntime.UnregisterWorld(diagnosticsWorldId);
         SimulationDebuggerRuntime.UnregisterWorld(diagnosticsWorldId);
     }
 
     protected override void OnUpdate()
     {
-        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
+        ulong diagnosticsWorldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
@@ -562,8 +562,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             persistentClassificationState.IsCreated
                 ? persistentClassificationState.Dispose(applyMovementHandle)
                 : default;
-        JobHandle parallelSimulationDebuggerPairCandidateDisposeHandle = default;
-        JobHandle parallelSimulationDebuggerPairScratchDisposeHandle = default;
         JobHandle persistentSpatialVisitStampArrayDisposeHandle =
             persistentSpatialVisitStampByProxy.Dispose(applyMovementHandle);
         JobHandle persistentSpatialVisitStampDisposeHandle =
@@ -582,15 +580,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 ? parallelJacobiBlockTelemetry.Dispose(applyMovementHandle)
                 : default;
 #endif
-        JobHandle statisticsDisposeHandle = default;
-        JobHandle incrementalStatisticsDisposeHandle = default;
         JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameResources(
             diagnosticsScratch, solveContactHandle, publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
-        JobHandle selectedDiagnosticDisposeHandle = default;
-        JobHandle iterationDiagnosticDisposeHandle = default;
-        JobHandle pairDiagnosticDisposeHandle = default;
-        JobHandle heatSampleDisposeHandle = default;
 
         JobHandle solverScratchDisposeHandle = JobHandle.CombineDependencies(
   stateDisposeHandle,
@@ -637,9 +629,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
   activeIncidentWriteCursorDisposeHandle,
   activeIncidentPairIndexDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
-  solverScratchDisposeHandle,
-  jacobiPairCorrectionDisposeHandle,
-  incrementalStatisticsDisposeHandle);
+            solverScratchDisposeHandle,
+            jacobiPairCorrectionDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
             solverScratchDisposeHandle,
             envelopeEscapeFlagDisposeHandle,
@@ -661,10 +652,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             persistentClassificationStateDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
             solverScratchDisposeHandle,
-            parallelSimulationDebuggerPairCandidateDisposeHandle,
-            parallelSimulationDebuggerPairScratchDisposeHandle);
-        solverScratchDisposeHandle = JobHandle.CombineDependencies(
-            solverScratchDisposeHandle,
             persistentSpatialVisitStampArrayDisposeHandle,
             persistentSpatialVisitStampDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
@@ -677,22 +664,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             parallelJacobiBlockTelemetryDisposeHandle);
 #endif
 
-        JobHandle diagnosticDisposeHandle = JobHandle.CombineDependencies(
-            statisticsDisposeHandle,
-            selectedDiagnosticDisposeHandle);
-        diagnosticDisposeHandle = JobHandle.CombineDependencies(
-  diagnosticDisposeHandle,
-  iterationDiagnosticDisposeHandle,
-  pairDiagnosticDisposeHandle);
-        diagnosticDisposeHandle = JobHandle.CombineDependencies(
-  diagnosticDisposeHandle,
-  heatSampleDisposeHandle);
-        diagnosticDisposeHandle = JobHandle.CombineDependencies(
-            diagnosticDisposeHandle, diagnosticsScratchDisposeHandle);
-
         Dependency = JobHandle.CombineDependencies(
-  solverScratchDisposeHandle,
-  diagnosticDisposeHandle);
+            solverScratchDisposeHandle,
+            diagnosticsScratchDisposeHandle);
     }
 
     private void ResetPersistentContactCaches()

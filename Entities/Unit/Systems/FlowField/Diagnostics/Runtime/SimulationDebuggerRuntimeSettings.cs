@@ -10,7 +10,7 @@ public abstract partial class BaseFlowMovementSystem
         ref FlowFieldSettings flowSettings,
         ref UnitContactSolverSettings solverSettings)
     {
-        ulong worldId = World.Unmanaged.SequenceNumber;
+        ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         SimulationDebuggerEffectiveSettings current = BuildEffectiveSettings(
             flowSettings,
             solverSettings,
