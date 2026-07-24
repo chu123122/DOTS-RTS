@@ -15,19 +15,20 @@ public struct PersistentPairClassificationResult
     public byte WasReclassified;
 }
 
-public struct ParallelPersistentClassificationState
+public struct PersistentClassificationPhaseState
 {
-#if RTS_CONTACT_DIAGNOSTICS
-    public long BuildStartTimestamp;
-    public long ClassificationStartTimestamp;
-#else
-    public long BuildStartTimestamp { get => default; set { } }
-    public long ClassificationStartTimestamp { get => default; set { } }
-#endif
     public uint Timestep;
     public uint ClassificationEpoch;
     public byte NeedsCommit;
 }
+
+#if RTS_CONTACT_DIAGNOSTICS
+public struct PersistentClassificationTelemetryState
+{
+    public long BuildStartTimestamp;
+    public long ClassificationStartTimestamp;
+}
+#endif
 
 /// <summary>
 /// P5B/P5C support for the staged Jacobi pipeline.
@@ -45,7 +46,10 @@ public partial struct SolveXpbdUnitContactsJob
     private const int PersistentClassificationBatchSize = 64;
 
     public NativeList<PersistentPairClassificationResult> PersistentClassificationResults;
-    public NativeReference<ParallelPersistentClassificationState> PersistentClassificationState;
+    public NativeReference<PersistentClassificationPhaseState> PersistentClassificationState;
+#if RTS_CONTACT_DIAGNOSTICS
+    public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
+#endif
 
     public NativeParallelMultiHashMap<int, int> PersistentSpatialMembership;
     public NativeReference<uint> PersistentSpatialMembershipEpoch;
@@ -116,7 +120,7 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<PersistentPredictiveContact> PreviousContacts;
         [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
-        [ReadOnly] public NativeReference<ParallelPersistentClassificationState> PhaseState;
+        [ReadOnly] public NativeReference<PersistentClassificationPhaseState> PhaseState;
         public NativeArray<PersistentPairClassificationResult> Results;
 
         public float PredictiveSkin;
@@ -132,7 +136,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         public void Execute(int pairIndex)
         {
-            ParallelPersistentClassificationState phase = PhaseState.Value;
+            PersistentClassificationPhaseState phase = PhaseState.Value;
             UnitCollisionPair rawPair = RawPairs[pairIndex];
             FlowMovementFrameState bodyA = States[rawPair.BodyA];
             FlowMovementFrameState bodyB = States[rawPair.BodyB];
@@ -214,13 +218,17 @@ public partial struct SolveXpbdUnitContactsJob
     private void PreparePersistentClassificationP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelPersistentClassificationState phase = new ParallelPersistentClassificationState
+        PersistentClassificationPhaseState phase = new PersistentClassificationPhaseState
         {
-#if RTS_CONTACT_DIAGNOSTICS
-            BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp,
-#endif
             NeedsCommit = 0
         };
+#if RTS_CONTACT_DIAGNOSTICS
+        PersistentClassificationTelemetryState telemetry = new PersistentClassificationTelemetryState
+        {
+            BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp
+        };
+        PersistentClassificationTelemetry.Value = telemetry;
+#endif
         PersistentClassificationResults.Clear();
         if (runtimeState.Value.IsValid == 0 ||
             !EnableTimestepContactSetCache ||
@@ -234,13 +242,14 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         PreviousTimestepContactPairs.Clear();
 
-        bool needsClassification = PreparePersistentPairSourceP1P6(
+        bool needsClassification = RefreshPersistentPairSourceForClassification(
             ref statistics,
             ref incremental);
         if (needsClassification)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            phase.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+            telemetry.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+            PersistentClassificationTelemetry.Value = telemetry;
 #endif
             phase.Timestep = IncrementalCacheState.Value.Timestep;
             phase.ClassificationEpoch = CalculateClassificationEpoch();
@@ -250,9 +259,11 @@ public partial struct SolveXpbdUnitContactsJob
         }
         else
         {
+#if RTS_CONTACT_DIAGNOSTICS
             FinalizePersistentBuildTimingP1P6(
-                phase.BuildStartTimestamp,
+                telemetry.BuildStartTimestamp,
                 ref statistics);
+#endif
         }
 
         StoreContactStatistics(statistics);
@@ -260,7 +271,7 @@ public partial struct SolveXpbdUnitContactsJob
         PersistentClassificationState.Value = phase;
     }
 
-    private bool PreparePersistentPairSourceP1P6(
+    private bool RefreshPersistentPairSourceForClassification(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
@@ -337,6 +348,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incrementalStatistics,
                 false);
+            ValidateIncrementalContactSetAgainstQuadraticOracle(
+                ref incrementalStatistics);
             return false;
         }
 
@@ -359,17 +372,22 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.CurrentInteractionPairCount =
             TimestepInteractionPairs.Length;
         BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
-        FinalizeTimestepContactView(
+        ClassifyTimestepContacts(
             ref statistics,
             ref incrementalStatistics,
-            false,
             0);
+        CommitTimestepContactViews(
+            ref statistics,
+            ref incrementalStatistics,
+            false);
+        ValidateIncrementalContactSetAgainstQuadraticOracle(
+            ref incrementalStatistics);
         return false;
     }
     private void CommitPersistentClassificationP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelPersistentClassificationState phase =
+        PersistentClassificationPhaseState phase =
             PersistentClassificationState.Value;
         if (runtimeState.Value.IsValid == 0 || phase.NeedsCommit == 0)
             return;
@@ -459,11 +477,16 @@ public partial struct SolveXpbdUnitContactsJob
 
         ValidateSoftAvoidancePairViewAgainstQuadraticOracle(ref incremental);
         CommitTimestepContactViews(ref statistics, ref incremental, false);
+        ValidateIncrementalContactSetAgainstQuadraticOracle(ref incremental);
+#if RTS_CONTACT_DIAGNOSTICS
+        PersistentClassificationTelemetryState telemetry =
+            PersistentClassificationTelemetry.Value;
         incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - phase.ClassificationStartTimestamp);
+            ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
         FinalizePersistentBuildTimingP1P6(
-            phase.BuildStartTimestamp,
+            telemetry.BuildStartTimestamp,
             ref statistics);
+#endif
 
         phase.NeedsCommit = 0;
         PersistentClassificationState.Value = phase;
@@ -471,6 +494,7 @@ public partial struct SolveXpbdUnitContactsJob
         StoreIncrementalStatistics(incremental);
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void FinalizePersistentBuildTimingP1P6(
         long startTimestamp,
         ref PredictiveDiscContactStatistics statistics)
@@ -480,6 +504,7 @@ public partial struct SolveXpbdUnitContactsJob
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
         statistics.PairGenerationNanoseconds += elapsed;
     }
+#endif
 
     private bool RebuildPersistentSpatialMembershipP1P6(uint targetEpoch)
     {

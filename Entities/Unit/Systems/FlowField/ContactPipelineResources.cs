@@ -139,11 +139,12 @@ internal struct ContactFrameResources
     public NativeList<SoftAvoidancePairContribution> SoftPairContributions;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
     public NativeList<PersistentPairClassificationResult> PersistentClassificationResults;
-    public NativeReference<ParallelPersistentClassificationState> PersistentClassificationState;
+    public NativeReference<PersistentClassificationPhaseState> PersistentClassificationState;
     public NativeArray<uint> PersistentSpatialVisitStampByProxy;
     public NativeReference<uint> PersistentSpatialVisitStamp;
     public NativeReference<ParallelJacobiExecutionState> ParallelJacobiRuntimeState;
 #if RTS_CONTACT_DIAGNOSTICS
+    public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
     public NativeReference<ParallelJacobiIterationTelemetry> ParallelJacobiIterationState;
     public NativeList<JacobiBlockTelemetry> ParallelJacobiBlockTelemetry;
 #endif
@@ -188,11 +189,14 @@ internal struct ContactFrameResources
             SoftPairContributions = useParallelJacobi ? new NativeList<SoftAvoidancePairContribution>(math.max(unitCount * 4, 1), Allocator.TempJob) : default,
             ActiveIncidentIndexState = usesJacobiScratch ? new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob) : default,
             PersistentClassificationResults = useParallelJacobi ? new NativeList<PersistentPairClassificationResult>(math.max(unitCount * 8, 1), Allocator.TempJob) : default,
-            PersistentClassificationState = useParallelJacobi ? new NativeReference<ParallelPersistentClassificationState>(Allocator.TempJob) : default,
+            PersistentClassificationState = useParallelJacobi ? new NativeReference<PersistentClassificationPhaseState>(Allocator.TempJob) : default,
             PersistentSpatialVisitStampByProxy = new NativeArray<uint>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             PersistentSpatialVisitStamp = new NativeReference<uint>(Allocator.TempJob),
             ParallelJacobiRuntimeState = useParallelJacobi ? new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob) : default,
 #if RTS_CONTACT_DIAGNOSTICS
+            PersistentClassificationTelemetry = useParallelJacobi
+                ? new NativeReference<PersistentClassificationTelemetryState>(Allocator.TempJob)
+                : default,
             ParallelJacobiIterationState = useParallelJacobi ? new NativeReference<ParallelJacobiIterationTelemetry>(Allocator.TempJob) : default,
             ParallelJacobiBlockTelemetry = useParallelJacobi ? new NativeList<JacobiBlockTelemetry>(math.max((unitCount * 4 + 63) / 64, 1), Allocator.TempJob) : default,
 #endif
@@ -239,6 +243,7 @@ internal struct ContactFrameResources
         combined = Combine(combined, PersistentSpatialVisitStamp.Dispose(finalReader));
         if (ParallelJacobiRuntimeState.IsCreated) combined = Combine(combined, ParallelJacobiRuntimeState.Dispose(finalReader));
 #if RTS_CONTACT_DIAGNOSTICS
+        if (PersistentClassificationTelemetry.IsCreated) combined = Combine(combined, PersistentClassificationTelemetry.Dispose(finalReader));
         if (ParallelJacobiIterationState.IsCreated) combined = Combine(combined, ParallelJacobiIterationState.Dispose(finalReader));
         if (ParallelJacobiBlockTelemetry.IsCreated) combined = Combine(combined, ParallelJacobiBlockTelemetry.Dispose(finalReader));
 #endif

@@ -1842,7 +1842,7 @@ public partial struct SolveXpbdUnitContactsJob
         int substepIndex,
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelPersistentClassificationState phase = default;
+        PersistentClassificationPhaseState phase = default;
         PersistentClassificationResults.Clear();
         PersistentClassificationState.Value = phase;
 
@@ -1949,8 +1949,15 @@ public partial struct SolveXpbdUnitContactsJob
             PredictiveContactScratch.Add(contact);
         }
 
-        phase.BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-        phase.ClassificationStartTimestamp = phase.BuildStartTimestamp;
+#if RTS_CONTACT_DIAGNOSTICS
+        PersistentClassificationTelemetryState telemetry =
+            new PersistentClassificationTelemetryState
+            {
+                BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp
+            };
+        telemetry.ClassificationStartTimestamp = telemetry.BuildStartTimestamp;
+        PersistentClassificationTelemetry.Value = telemetry;
+#endif
         phase.Timestep = IncrementalCacheState.Value.Timestep;
         phase.ClassificationEpoch = CalculateClassificationEpoch();
         phase.NeedsCommit = 2;
@@ -1964,7 +1971,7 @@ public partial struct SolveXpbdUnitContactsJob
         int substepIndex,
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelPersistentClassificationState phase =
+        PersistentClassificationPhaseState phase =
             PersistentClassificationState.Value;
         if (runtimeState.Value.IsValid == 0 || phase.NeedsCommit != 2)
             return;
@@ -2052,10 +2059,14 @@ public partial struct SolveXpbdUnitContactsJob
         incremental.IncrementalRepairCount++;
         incremental.UsedIncrementalTopology = 1;
         incremental.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
+#if RTS_CONTACT_DIAGNOSTICS
+        PersistentClassificationTelemetryState telemetry =
+            PersistentClassificationTelemetry.Value;
         incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - phase.ClassificationStartTimestamp);
+            ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
         statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - phase.BuildStartTimestamp);
+            ProfilerUnsafeUtility.Timestamp - telemetry.BuildStartTimestamp);
+#endif
 
         InvalidateSoftIncidentIndexP1P6();
         RebuildPersistentIncidentPairLookupIfNeededP1P6();

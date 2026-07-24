@@ -196,13 +196,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         NativeList<SoftAvoidancePairContribution> softPairContributions = frameResources.SoftPairContributions;
         NativeReference<ActiveIncidentIndexState> activeIncidentIndexState = frameResources.ActiveIncidentIndexState;
         NativeList<PersistentPairClassificationResult> persistentClassificationResults = frameResources.PersistentClassificationResults;
-        NativeReference<ParallelPersistentClassificationState> persistentClassificationState = frameResources.PersistentClassificationState;
+        NativeReference<PersistentClassificationPhaseState> persistentClassificationState = frameResources.PersistentClassificationState;
         NativeList<ParallelSimulationDebuggerPairCapture> parallelSimulationDebuggerPairCandidates = diagnosticsScratch.ParallelPairCandidates;
         NativeList<SimulationDebuggerPairSample> parallelSimulationDebuggerPairScratch = diagnosticsScratch.ParallelPairScratch;
         NativeArray<uint> persistentSpatialVisitStampByProxy = frameResources.PersistentSpatialVisitStampByProxy;
         NativeReference<uint> persistentSpatialVisitStamp = frameResources.PersistentSpatialVisitStamp;
         NativeReference<ParallelJacobiExecutionState> parallelJacobiRuntimeState = frameResources.ParallelJacobiRuntimeState;
 #if RTS_CONTACT_DIAGNOSTICS
+        NativeReference<PersistentClassificationTelemetryState> persistentClassificationTelemetry = frameResources.PersistentClassificationTelemetry;
         NativeReference<ParallelJacobiIterationTelemetry> parallelJacobiIterationState = frameResources.ParallelJacobiIterationState;
         NativeList<JacobiBlockTelemetry> parallelJacobiBlockTelemetry = frameResources.ParallelJacobiBlockTelemetry;
 #endif
@@ -274,6 +275,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PersistentSpatialVisitStamp = persistentSpatialVisitStamp,
             PersistentClassificationResults = persistentClassificationResults,
             PersistentClassificationState = persistentClassificationState,
+#if RTS_CONTACT_DIAGNOSTICS
+            PersistentClassificationTelemetry = persistentClassificationTelemetry,
+#endif
             SimulationDebuggerCaptureMask = diagnosticsCaptureMask,
             SimulationDebuggerMaximumPairs = diagnosticsMaximumPairs,
             SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
