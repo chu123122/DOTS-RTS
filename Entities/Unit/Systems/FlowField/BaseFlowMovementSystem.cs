@@ -20,6 +20,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     private EntityQuery _movementQuery;
     private NativeList<PersistentSweptProxy> _persistentSweptProxies;
+    private NativeList<int> _persistentProxyIndexByBody;
     private NativeList<PersistentNeighborPair> _persistentNeighborPairs;
     private NativeList<PersistentPredictiveContact> _persistentPredictiveContacts;
     private NativeList<StableEntityPairKey> _persistentActiveContactKeys;
@@ -47,6 +48,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadOnly<UnitContactBody>(),
             ComponentType.ReadOnly<UnitMoveDestination>());
         _persistentSweptProxies = new NativeList<PersistentSweptProxy>(Allocator.Persistent);
+        _persistentProxyIndexByBody = new NativeList<int>(Allocator.Persistent);
         _persistentNeighborPairs = new NativeList<PersistentNeighborPair>(Allocator.Persistent);
         _persistentPredictiveContacts =
             new NativeList<PersistentPredictiveContact>(Allocator.Persistent);
@@ -76,6 +78,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             EntityManager.DestroyEntity(_incrementalDiagnosticsEntity);
         if (_persistentSweptProxies.IsCreated)
             _persistentSweptProxies.Dispose();
+        if (_persistentProxyIndexByBody.IsCreated)
+            _persistentProxyIndexByBody.Dispose();
         if (_persistentNeighborPairs.IsCreated)
             _persistentNeighborPairs.Dispose();
         if (_persistentPredictiveContacts.IsCreated)
@@ -137,6 +141,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
         EnsurePersistentIncidentLookupCapacity(unitCount);
+        if (_persistentProxyIndexByBody.Capacity < unitCount)
+            _persistentProxyIndexByBody.Capacity = unitCount;
         bool usesJacobiScratch =
             contactSolverSettings.ContactPositionSolver ==
             ContactPositionSolverMode.Jacobi;
@@ -394,6 +400,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ActiveIncidentIndexState = activeIncidentIndexState,
             CurrentIncrementalProxies = currentIncrementalProxies,
             PersistentSweptProxies = _persistentSweptProxies,
+            PersistentProxyIndexByBody = _persistentProxyIndexByBody,
             PersistentNeighborPairs = _persistentNeighborPairs,
             PersistentPredictiveContacts = _persistentPredictiveContacts,
             PersistentActiveContactKeys = _persistentActiveContactKeys,
@@ -710,6 +717,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         // 复位只发生在 benchmark 采样前。先完成上一帧依赖，避免清空仍被 Job 访问的容器。
         Dependency.Complete();
         _persistentSweptProxies.Clear();
+        _persistentProxyIndexByBody.Clear();
         _persistentNeighborPairs.Clear();
         _persistentPredictiveContacts.Clear();
         _persistentActiveContactKeys.Clear();

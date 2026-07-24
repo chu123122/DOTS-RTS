@@ -97,17 +97,46 @@ public partial struct SolveXpbdUnitContactsJob
             handle = new PrepareTimestepPredictionBodiesJob
             {
                 States = States,
+                PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
+                PersistentProxyIndexByBody = PersistentProxyIndexByBody.AsDeferredJobArray(),
+                PersistentCacheState = IncrementalCacheState,
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 Duration = Configuration.DeltaTime,
                 Skin = Configuration.PredictiveSkin,
                 Margin = Configuration.TimestepContactMargin,
+                GuardMargin = Configuration.GuardEnvelopeMargin,
                 GridOrigin = GridOrigin,
                 CellRadius = CellRadius,
                 FromSolvedPosition = 0,
+                DetectPersistentDirty = (byte)(Configuration.EnablePersistentContactCache ? 1 : 0),
                 SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
+
+            if (Configuration.EnablePersistentContactCache)
+            {
+                handle = new CountInitialP1P6DirtyBodyBlocksJob
+                {
+                    DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BodyCount = States.Length
+                }.Schedule(escapeBlockCount, 1, handle);
+                handle = new PrefixInitialP1P6DirtyBodiesJob
+                {
+                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    DirtyBodies = IncrementalDirtyBodies,
+                    BlockCount = escapeBlockCount
+                }.Schedule(handle);
+                handle = new ScatterInitialP1P6DirtyBodiesJob
+                {
+                    DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                    BlockOffsets = SoftIncidentWriteCursors,
+                    DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
+                    BodyCount = States.Length
+                }.Schedule(escapeBlockCount, 1, handle);
+            }
         }
 
         if (Configuration.EnableTimestepContactSetCache &&
@@ -150,7 +179,8 @@ public partial struct SolveXpbdUnitContactsJob
                     SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
                     SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                     SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
-                    RvoTimeHorizon = Configuration.RvoTimeHorizon
+                    RvoTimeHorizon = Configuration.RvoTimeHorizon,
+                    DetectPersistentDirty = 0
                 }.Schedule(States.Length, ParallelBodyBatchSize, handle);
             }
 
@@ -581,12 +611,18 @@ public partial struct SolveXpbdUnitContactsJob
     private struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     {
         public NativeArray<FlowMovementFrameState> States;
+        [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
+        [ReadOnly] public NativeArray<int> PersistentProxyIndexByBody;
+        [ReadOnly] public NativeReference<IncrementalContactCacheState> PersistentCacheState;
+        public NativeArray<byte> DirtyFlagsByBody;
         public float Duration;
         public float Skin;
         public float Margin;
+        public float GuardMargin;
         public float3 GridOrigin;
         public float CellRadius;
         public byte FromSolvedPosition;
+        public byte DetectPersistentDirty;
         public float SoftAvoidanceShell;
         public float SoftAvoidanceResponseRate;
         public SoftAvoidanceVelocitySolverMode SoftSolverMode;
@@ -596,7 +632,14 @@ public partial struct SolveXpbdUnitContactsJob
         {
             FlowMovementFrameState state = States[bodyIndex];
             if (!state.IsInsideGrid)
+            {
+                if (DetectPersistentDirty != 0)
+                    DirtyFlagsByBody[bodyIndex] = (byte)ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                        bodyIndex, state, PersistentProxies, PersistentProxyIndexByBody,
+                        PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
+                        SoftAvoidanceResponseRate, SoftSolverMode, RvoTimeHorizon);
                 return;
+            }
 
             float3 start = FromSolvedPosition != 0
                 ? state.PredictedPosition
@@ -630,6 +673,69 @@ public partial struct SolveXpbdUnitContactsJob
             if (FromSolvedPosition == 0)
                 state.TimestepEscaped = 0;
             States[bodyIndex] = state;
+            if (DetectPersistentDirty != 0)
+                DirtyFlagsByBody[bodyIndex] = (byte)ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                    bodyIndex, state, PersistentProxies, PersistentProxyIndexByBody,
+                    PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
+                    SoftAvoidanceResponseRate, SoftSolverMode, RvoTimeHorizon);
+        }
+    }
+
+    [BurstCompile]
+    private struct CountInitialP1P6DirtyBodyBlocksJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public int BodyCount;
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int count = 0;
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+                count += DirtyFlagsByBody[bodyIndex] != 0 ? 1 : 0;
+            BlockOffsetsAndCounts[blockIndex] = count;
+        }
+    }
+
+    [BurstCompile]
+    private struct PrefixInitialP1P6DirtyBodiesJob : IJob
+    {
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public NativeList<IncrementalDirtyBody> DirtyBodies;
+        public int BlockCount;
+        public void Execute()
+        {
+            int offset = 0;
+            for (int blockIndex = 0; blockIndex < BlockCount; blockIndex++)
+            {
+                int count = BlockOffsetsAndCounts[blockIndex];
+                BlockOffsetsAndCounts[blockIndex] = offset;
+                offset += count;
+            }
+            DirtyBodies.ResizeUninitialized(offset);
+        }
+    }
+
+    [BurstCompile]
+    private struct ScatterInitialP1P6DirtyBodiesJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
+        [ReadOnly] public NativeArray<int> BlockOffsets;
+        [NativeDisableParallelForRestriction] public NativeArray<IncrementalDirtyBody> DirtyBodies;
+        public int BodyCount;
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int writeIndex = BlockOffsets[blockIndex];
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                IncrementalBodyDirtyFlags flags = (IncrementalBodyDirtyFlags)DirtyFlagsByBody[bodyIndex];
+                if (flags == IncrementalBodyDirtyFlags.None)
+                    continue;
+                DirtyBodies[writeIndex++] = new IncrementalDirtyBody { BodyIndex = bodyIndex, Flags = flags };
+            }
         }
     }
 
@@ -1671,42 +1777,23 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
-        BuildCurrentIncrementalSweptProxies();
-
-        int topologyDirtyCount = 0;
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        if (!RefreshPreparedIncrementalDirtyBodiesP1P6(
+                ref incremental,
+                out int topologyDirtyCount))
         {
-            IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
-            int bodyIndex = dirty.BodyIndex;
-            Entity entity = States[bodyIndex].Entity;
-            IncrementalBodyDirtyFlags flags =
-                IncrementalBodyDirtyFlags.Motion |
-                IncrementalBodyDirtyFlags.CorrectedEscape;
-
-            if (!TryFindCurrentIncrementalProxyP1P6(
-                    entity,
-                    out PersistentSweptProxy current,
-                    out int currentProxyIndex) ||
-                !TryFindPersistentProxy(entity, out PersistentSweptProxy previous) ||
-                previous.IsValid != current.IsValid ||
-                (current.IsValid != 0 && !AabbContains(
-                    previous.GuardMin,
-                    previous.GuardMax,
-                    current.TightMin,
-                    current.TightMax)))
-            {
-                flags |= IncrementalBodyDirtyFlags.Topology;
-                topologyDirtyCount++;
-            }
-            else
-            {
-                AssignMotionVersion(ref current, previous);
-                CurrentIncrementalProxies[currentProxyIndex] = current;
-            }
-
-            dirty.Flags = flags;
-            IncrementalDirtyBodies[dirtyIndex] = dirty;
-            IncrementalDirtyFlagsByBody[bodyIndex] = (byte)flags;
+            incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - validationStart);
+            BuildTimestepContactSet(
+                ref statistics,
+                ref incremental,
+                true,
+                true,
+                substepIndex);
+            InvalidateSoftIncidentIndexP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            Statistics.Value = statistics;
+            IncrementalStatistics.Value = incremental;
+            return;
         }
         incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - validationStart);
@@ -1732,7 +1819,6 @@ public partial struct SolveXpbdUnitContactsJob
 
         long pairDiffStart = ProfilerUnsafeUtility.Timestamp;
         long localBroadPhaseBefore = incremental.LocalBroadPhaseNanoseconds;
-        UpdatePersistentProxyMetadata();
         if (topologyDirtyCount > 0)
             IncrementallyRepairPersistentNeighborTopology(ref incremental, false);
         long pairDiffElapsed = TimestampToNanoseconds(

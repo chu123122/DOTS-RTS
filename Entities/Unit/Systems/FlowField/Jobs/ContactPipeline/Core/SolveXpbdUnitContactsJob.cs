@@ -71,6 +71,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<JacobiPairCorrection> JacobiPairCorrections;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
+    public NativeList<int> PersistentProxyIndexByBody;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
     public NativeList<StableEntityPairKey> PersistentActiveContactKeys;
@@ -118,6 +119,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         if (!EnablePersistentContactCache)
         {
             PersistentSweptProxies.Clear();
+            PersistentProxyIndexByBody.Clear();
             PersistentNeighborPairs.Clear();
             PersistentPredictiveContacts.Clear();
             IncrementalCacheState.Value = default;
@@ -126,6 +128,8 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         if (EnableTimestepContactSetCache)
         {
             PrepareTimestepContactPrediction(DeltaTime, false);
+            if (EnablePersistentContactCache)
+                PrepareInitialPersistentDirtyBodySet();
             long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
             BuildTimestepContactSet(
                 ref statistics,
