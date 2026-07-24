@@ -109,7 +109,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
             _overviewWriter = CreateWriter("01_overview.csv",
                 "elapsed_s,frame,units,solver_us,soft_avoidance_us,pair_generation_us,iteration_us,other_us,candidate_pairs,contact_pairs,max_contact_correction,max_wall_correction,max_velocity_change,substeps,iterations");
             _topologyWriter = CreateWriter("02_incremental_topology.csv",
-                "elapsed_s,frame,timestep,mode,proxy_count,topology_dirty_bodies,motion_dirty_bodies,escaped_bodies,local_proxy_queries,persistent_neighbor_pairs,pairs_added,pairs_removed,pairs_retained,full_rebuilds,incremental_repairs,clean_proxy_ratio,retained_pair_ratio,proxy_validation_us,local_broadphase_us,pair_diff_us,oracle_missing_pairs,oracle_extra_pairs");
+                "elapsed_s,frame,simulation_step,cache_generation,mode,proxy_count,topology_dirty_bodies,motion_dirty_bodies,escaped_bodies,local_proxy_queries,persistent_neighbor_pairs,pairs_added,pairs_removed,pairs_retained,full_rebuilds,incremental_repairs,clean_proxy_ratio,retained_pair_ratio,proxy_validation_us,local_broadphase_us,pair_diff_us,oracle_missing_pairs,oracle_extra_pairs");
             _contactWriter = CreateWriter("03_timestep_contact_set.csv",
                 "elapsed_s,frame,cache_enabled,builds,contact_set_size,active_contacts,inactive_contacts,actual_contacts,predictive_contacts,predictive_activated,full_rebuilds,fallback_added_pairs,activation_ratio,predictive_activation_ratio,substeps");
             _settingsWriter = CreateWriter("04_settings.csv",
@@ -178,7 +178,8 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
 
         IncrementalContactPipelineStatistics topology = incremental.Statistics;
         _topologyWriter.WriteLine(string.Join(",",
-            Number(elapsed), snapshot.FrameId, topology.Timestep, incremental.Mode,
+            Number(elapsed), snapshot.FrameId, topology.Timestep,
+            topology.CacheGeneration, incremental.Mode,
             topology.ProxyCount, topology.TopologyDirtyBodyCount, topology.MotionDirtyBodyCount,
             topology.CorrectedEscapeBodyCount, topology.LocalProxyQueryCount,
             topology.PersistentNeighborPairCount, topology.NeighborPairAddedCount,
