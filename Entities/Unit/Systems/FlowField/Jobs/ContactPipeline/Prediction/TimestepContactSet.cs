@@ -5,6 +5,23 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+internal enum ContactInteractionSourceMode : byte
+{
+    FullSweep,
+    PersistentReuse,
+    PersistentRepair,
+    PersistentFullRebuild
+}
+
+internal struct ContactViewBuildResult
+{
+    public ContactInteractionSourceMode SourceMode;
+    public byte PersistentViewReady;
+    public byte UsedFullRebuild;
+    public int RepairedBodyCount;
+    public int InteractionPairCount;
+}
+
 public partial struct SolveXpbdUnitContactsJob
 {
     private void PrepareTimestepContactPrediction(float duration, bool fromSolvedPosition)
@@ -104,11 +121,13 @@ public partial struct SolveXpbdUnitContactsJob
             ref statistics,
             ref incrementalStatistics,
             false);
+        ValidateIncrementalContactSetAgainstQuadraticOracle(
+            ref incrementalStatistics);
         statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
     }
 
-    private bool BuildOrRefreshTimestepContactViews(
+    private ContactViewBuildResult BuildOrRefreshTimestepContactViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         bool forceFullBroadPhase,
@@ -120,8 +139,55 @@ public partial struct SolveXpbdUnitContactsJob
         if (fallback)
             PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
 
+        ContactViewBuildResult result = ResolveInteractionSource(
+            ref statistics,
+            ref incrementalStatistics,
+            forceFullBroadPhase,
+            scheduleStartSubstep);
+
+        if (result.PersistentViewReady != 0)
+        {
+            ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
+                ref incrementalStatistics);
+        }
+        else
+        {
+            BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
+            ClassifyTimestepContacts(
+                ref statistics,
+                ref incrementalStatistics,
+                scheduleStartSubstep);
+        }
+
+        CommitTimestepContactViews(
+            ref statistics,
+            ref incrementalStatistics,
+            fallback);
+        ValidateIncrementalContactSetAgainstQuadraticOracle(
+            ref incrementalStatistics);
+
+        long elapsed = TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - startTimestamp);
+        statistics.TimestepContactSetBuildNanoseconds += elapsed;
+        if (fallback)
+        {
+            statistics.TimestepContactSetFullRebuildCount++;
+            statistics.TimestepContactSetFallbackNanoseconds += elapsed;
+        }
+        return result;
+    }
+
+    private ContactViewBuildResult ResolveInteractionSource(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        bool forceFullBroadPhase,
+        int scheduleStartSubstep)
+    {
+        int repairCountBefore = incrementalStatistics.IncrementalRepairCount;
+        int fullRebuildCountBefore = incrementalStatistics.FullRebuildCount;
         bool sourcedFromIncrementalCache = false;
         bool persistentViewReady = false;
+
         if (EnablePersistentContactCache)
         {
             sourcedFromIncrementalCache = BuildContactPairsFromPersistentNeighborSet(
@@ -139,41 +205,36 @@ public partial struct SolveXpbdUnitContactsJob
                 ProfilerUnsafeUtility.Timestamp - fullSweepStart);
         }
 
+        int interactionPairCount = persistentViewReady
+            ? PersistentNeighborPairs.Length
+            : TimestepInteractionPairs.Length;
+        incrementalStatistics.CurrentInteractionPairCount = interactionPairCount;
+
+        ContactInteractionSourceMode sourceMode = ContactInteractionSourceMode.FullSweep;
         if (persistentViewReady)
         {
-            incrementalStatistics.CurrentInteractionPairCount =
-                PersistentNeighborPairs.Length;
-            ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
-                ref incrementalStatistics);
-            CommitTimestepContactViews(
-                ref statistics,
-                ref incrementalStatistics,
-                fallback);
-        }
-        else
-        {
-            incrementalStatistics.CurrentInteractionPairCount =
-                TimestepInteractionPairs.Length;
-            BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
-            ClassifyTimestepContacts(
-                ref statistics,
-                ref incrementalStatistics,
-                scheduleStartSubstep);
-            CommitTimestepContactViews(
-                ref statistics,
-                ref incrementalStatistics,
-                fallback);
+            if (incrementalStatistics.FullRebuildCount > fullRebuildCountBefore)
+                sourceMode = ContactInteractionSourceMode.PersistentFullRebuild;
+            else if (incrementalStatistics.IncrementalRepairCount > repairCountBefore)
+                sourceMode = ContactInteractionSourceMode.PersistentRepair;
+            else
+                sourceMode = ContactInteractionSourceMode.PersistentReuse;
         }
 
-        long elapsed = TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - startTimestamp);
-        statistics.TimestepContactSetBuildNanoseconds += elapsed;
-        if (fallback)
+        return new ContactViewBuildResult
         {
-            statistics.TimestepContactSetFullRebuildCount++;
-            statistics.TimestepContactSetFallbackNanoseconds += elapsed;
-        }
-        return sourcedFromIncrementalCache;
+            SourceMode = sourceMode,
+            PersistentViewReady = (byte)(persistentViewReady ? 1 : 0),
+            UsedFullRebuild = (byte)(
+                sourceMode == ContactInteractionSourceMode.PersistentFullRebuild ||
+                (!sourcedFromIncrementalCache && forceFullBroadPhase)
+                    ? 1
+                    : 0),
+            RepairedBodyCount = math.max(
+                0,
+                incrementalStatistics.IncrementalRepairCount - repairCountBefore),
+            InteractionPairCount = interactionPairCount
+        };
     }
 
     private void ClassifyTimestepContacts(
@@ -238,9 +299,6 @@ public partial struct SolveXpbdUnitContactsJob
             }
             TimestepContactPairs[pairIndex] = pair;
         }
-
-        ValidateIncrementalContactSetAgainstQuadraticOracle(
-            ref incrementalStatistics);
     }
 
     private void ResetTimestepContactSetForSubstep()
