@@ -14,10 +14,13 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public struct IncrementalContactPipelineStatistics
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
 #if RTS_CONTACT_DIAGNOSTICS
+    // Timestep is the scheduled simulation-step identity. CacheGeneration is the
+    // independently maintained age/version of persistent candidate state.
     public uint Timestep;
+    public uint CacheGeneration;
     public int ProxyCount;
     public int TopologyDirtyBodyCount;
     public int MotionDirtyBodyCount;
@@ -78,6 +81,7 @@ public struct IncrementalContactPipelineStatistics
     // the parallel pipeline ABI is split in the following migration step.
     private byte _disabledStorage;
     public uint Timestep { get => default; set { } }
+    public uint CacheGeneration { get => default; set { } }
     public int ProxyCount { get => default; set { } }
     public int TopologyDirtyBodyCount { get => default; set { } }
     public int MotionDirtyBodyCount { get => default; set { } }
