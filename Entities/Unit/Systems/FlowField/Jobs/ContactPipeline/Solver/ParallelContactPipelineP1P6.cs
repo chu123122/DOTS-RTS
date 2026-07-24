@@ -611,7 +611,8 @@ public partial struct SolveXpbdUnitContactsJob
     private struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     {
         public NativeArray<FlowMovementFrameState> States;
-        [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
+        [NativeDisableParallelForRestriction]
+        public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<int> PersistentProxyIndexByBody;
         [ReadOnly] public NativeReference<IncrementalContactCacheState> PersistentCacheState;
         public NativeArray<byte> DirtyFlagsByBody;
@@ -1692,6 +1693,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (!EnablePersistentContactCache)
         {
             PersistentSweptProxies.Clear();
+            PersistentProxyIndexByBody.Clear();
             PersistentNeighborPairs.Clear();
             PersistentPredictiveContacts.Clear();
             if (PersistentSpatialMembership.IsCreated)
