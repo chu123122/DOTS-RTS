@@ -35,6 +35,7 @@ public abstract partial class BaseFlowMovementSystem
         solverSettings.EnableTimestepContactSetCache =
             requested.EnableTimestepContactSetCache != 0;
         solverSettings.PersistentGuardEnvelopeMargin = math.max(0f, requested.PersistentGuardEnvelopeMargin);
+        solverSettings.TimestepContactMargin = math.max(0f, requested.TimestepContactMargin);
         solverSettings.EnableDiagnostics = requested.EnableDiagnostics != 0;
 
         flowSettings.SoftAvoidanceResponseRate = math.max(0f, requested.SoftAvoidanceResponseRate);
@@ -72,6 +73,7 @@ public abstract partial class BaseFlowMovementSystem
             EnableTimestepContactSetCache =
                 (byte)(timestepCacheEnabled ? 1 : 0),
             PersistentGuardEnvelopeMargin = solverSettings.PersistentGuardEnvelopeMargin,
+            TimestepContactMargin = solverSettings.TimestepContactMargin,
             EnableDiagnostics =
                 (byte)(solverSettings.EnableDiagnostics ? 1 : 0),
             SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,

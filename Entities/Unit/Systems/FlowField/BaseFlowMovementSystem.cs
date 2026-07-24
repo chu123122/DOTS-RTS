@@ -63,7 +63,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         // 先发布上一时间步已经完成的统计，再应用下一时间步的实验配置。
         // 这样面板中的 ExperimentId、有效配置和求解结果始终属于同一帧。
-        PublishSimulationDebuggerSnapshot(diagnosticsWorldId);
+        PublishSimulationDebuggerSnapshot(diagnosticsWorldId, gridComponent);
         ApplySimulationDebuggerRuntimeOverrides(
             ref flowFieldSettings,
             ref contactSolverSettings);

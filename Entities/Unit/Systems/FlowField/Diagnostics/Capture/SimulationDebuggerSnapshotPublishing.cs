@@ -1,5 +1,6 @@
 using Unity.Entities;
 using Unity.Mathematics;
+using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Jobs;
 using RTS.Unit.FlowField.Diagnostics;
 
@@ -13,7 +14,9 @@ public abstract partial class BaseFlowMovementSystem
     private ulong _simulationDebuggerFrameId;
     private ulong _simulationDebuggerUpdateCounter;
 
-    private void PublishSimulationDebuggerSnapshot(ulong worldId)
+    private void PublishSimulationDebuggerSnapshot(
+        ulong worldId,
+        FlowFieldGrid gridComponent)
     {
         if (!Dependency.IsCompleted)
             return;
@@ -69,9 +72,9 @@ public abstract partial class BaseFlowMovementSystem
             true,
             contactStatistics,
             snapshot.SubstepCount,
-            0,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
+        CaptureSpatialDiagnostics(snapshot, gridComponent, captureMask);
         CaptureSelectedEntityDetails(
             snapshot,
             completed.SelectedEntity,
@@ -139,7 +142,6 @@ public abstract partial class BaseFlowMovementSystem
         bool hasStatistics,
         PredictiveDiscContactStatistics statistics,
         int substepCount,
-        int fallbackCount,
         bool cacheEnabled)
     {
         var result = new TimestepContactSetMetrics
@@ -147,9 +149,14 @@ public abstract partial class BaseFlowMovementSystem
             CacheEnabled = (byte)(cacheEnabled ? 1 : 0),
             ContactGenerationCount = hasStatistics
                 ? statistics.TimestepContactSetBuildCount
-                : (cacheEnabled ? 1 : substepCount) + math.max(0, fallbackCount),
+                : (cacheEnabled ? 1 : substepCount),
+            FullRebuildCount = hasStatistics
+                ? statistics.TimestepContactSetFullRebuildCount
+                : 0,
+            FallbackAddedPairCount = hasStatistics
+                ? statistics.TimestepContactSetFallbackAddedPairCount
+                : 0,
             SubstepCount = substepCount,
-            SupplementOrFallbackCount = fallbackCount,
             Health = hasStatistics
                 ? SimulationDebuggerHealth.Healthy
                 : SimulationDebuggerHealth.Disabled
@@ -183,9 +190,10 @@ public abstract partial class BaseFlowMovementSystem
             ? math.max(0, substepCount - 1)
             : 0;
 
-        if (fallbackCount > 0)
+        if (result.FallbackAddedPairCount > 0)
             result.Health = SimulationDebuggerHealth.Critical;
-        else if (result.ContactSetSize > 0 && result.ActivationRatio < 0.25f)
+        else if (result.FullRebuildCount > 0 ||
+                 (result.ContactSetSize > 0 && result.ActivationRatio < 0.25f))
             result.Health = SimulationDebuggerHealth.Warning;
         return result;
     }

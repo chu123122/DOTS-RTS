@@ -83,6 +83,7 @@ public struct SimulationDebuggerEffectiveSettings
     public byte EnablePersistentContactCache;
     public byte EnableTimestepContactSetCache;
     public float PersistentGuardEnvelopeMargin;
+    public float TimestepContactMargin;
     public byte EnableDiagnostics;
 
     public float SoftAvoidanceResponseRate;
@@ -166,7 +167,8 @@ public struct TimestepContactSetMetrics
     public int ActualContactCount;
     public int PredictiveContactCount;
     public int PredictiveActivatedCount;
-    public int SupplementOrFallbackCount;
+    public int FullRebuildCount;
+    public int FallbackAddedPairCount;
     public int SubstepCount;
     public int AvoidedContactGenerationCount;
     public float ActivationRatio;
