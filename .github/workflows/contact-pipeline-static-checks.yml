@@ -109,18 +109,35 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
+          flow = Path('Entities/Unit/Systems/FlowField')
+          pipeline = flow / 'Jobs/ContactPipeline'
           ownership = {
-              'public struct UnitCollisionPair': pipeline / 'Core/ContactPairTypes.cs',
-              'public struct SweptDiscCellEntry': pipeline / 'BroadPhase/SweptDiscTypes.cs'
+              'public struct UnitCollisionPair':
+                  pipeline / 'Core/ContactPairTypes.cs',
+              'public struct SweptDiscCellEntry':
+                  pipeline / 'BroadPhase/SweptDiscTypes.cs',
+              'public struct IncrementalContactCacheState':
+                  pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs',
+              'public struct IncrementalContactPipelineStatistics':
+                  flow / 'Diagnostics/ContactPipelineTelemetry.cs'
           }
           for symbol, expected_path in ownership.items():
               paths = [
-                  path for path in pipeline.rglob('*.cs')
+                  path for path in flow.rglob('*.cs')
                   if symbol in path.read_text(encoding='utf-8')
               ]
               if paths != [expected_path]:
                   raise SystemExit(f'{symbol} ownership mismatch: {paths}')
+          runtime_types = (
+              pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs'
+          ).read_text(encoding='utf-8')
+          telemetry = (
+              flow / 'Diagnostics/ContactPipelineTelemetry.cs'
+          ).read_text(encoding='utf-8')
+          if 'Nanoseconds' in runtime_types or 'OraclePairCount' in runtime_types:
+              raise SystemExit('Telemetry leaked into authoritative runtime state')
+          if 'IncrementalContactCacheState' in telemetry:
+              raise SystemExit('Runtime cache state leaked into telemetry schema')
           temp = list(Path('.github/workflows').glob(
               'refactor-contact-pipeline-phase*.yml'))
           temp += list(Path('.github/workflows').glob('audit-*.yml'))

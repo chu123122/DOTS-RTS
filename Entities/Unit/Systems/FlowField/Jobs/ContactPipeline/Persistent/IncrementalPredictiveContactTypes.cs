@@ -185,6 +185,14 @@ public struct IncrementalDirtyBody
     public IncrementalBodyDirtyFlags Flags;
 }
 
+/// <summary>
+/// Authoritative cross-timestep runtime state used by correctness decisions.
+///
+/// This type contains only cache validity, versioning, lifecycle gauges needed to
+/// rebuild derived views, and the configuration certificate that proves reuse is
+/// safe. Presentation code, CSV recorders, timers, oracle counters and heatmap
+/// samples must never be stored here or consulted through this type.
+/// </summary>
 public struct IncrementalContactCacheState
 {
     public byte IsValid;
@@ -212,87 +220,5 @@ public struct IncrementalContactCacheState
     public byte PredictiveContactsEnabled;
     public byte SoftAvoidanceVelocitySolver;
     public byte ConfigurationReserved;
-}
-
-/// <summary>
-/// Independent statistics stream for the new pipeline. Existing Stage3/Fat AABB
-/// counters remain available during migration.
-/// </summary>
-public struct IncrementalContactPipelineStatistics
-{
-    public const int CurrentSchemaVersion = 4;
-
-    public uint Timestep;
-
-    // Proxy/topology gauges and per-timestep events.
-    public int ProxyCount;
-    public int TopologyDirtyBodyCount;
-    public int MotionDirtyBodyCount;
-    public int CorrectedEscapeBodyCount;
-    public int LocalProxyQueryCount;
-
-    public int PersistentNeighborPairCount;
-    public int NeighborPairAddedCount;
-    public int NeighborPairRemovedCount;
-    public int NeighborPairRetainedCount;
-    public int FullRebuildCount;
-    public int IncrementalRepairCount;
-
-    // Work counters: these count evaluations, not final-state pairs.
-    public int ReclassifiedPairEvaluationCount;
-    public int ClassificationReuseCount;
-    public int ClassificationSkippedCount;
-    public int SweptClassificationEvaluationCount;
-    public int SoftAvoidancePairEvaluationCount;
-    public int ActiveConstraintEvaluationCount;
-
-    // Current-state gauges. They are recomputed from the persistent contact
-    // cache / active set and therefore remain bounded by their parent stage.
-    public int CurrentInteractionPairCount;
-    public int CurrentSoftAvoidancePairCount;
-    public int CurrentSweptContactCount;
-    public int CurrentDormantPairCount;
-    public int CurrentApproachingPairCount;
-    public int CurrentPredictivePairCount;
-    public int CurrentActualPairCount;
-    public int CurrentActiveConstraintCount;
-    public int PeakActiveConstraintCount;
-
-    // Unique timestep events.
-    public int ScheduledWakeupCount;
-    public int UniqueActivatedPairCount;
-    public int UniqueCorrectedPairCount;
-    public int ExpiredPairCount;
-
-    public int OraclePairCount;
-    public int OracleMissingPairCount;
-    public int OracleExtraPairCount;
-
-    // Ratios intentionally combine like-for-like gauges or unique event sets.
-    public float CleanProxyRatio;
-    public float RetainedNeighborPairRatio;
-    public float NeighborToSweptRatio;
-    public float SweptToCurrentActiveRatio;
-    public float ActivatedToCorrectedRatio;
-
-    public long ProxyValidationNanoseconds;
-    public long FullSweepSourceNanoseconds;
-    public long PersistentPairMappingNanoseconds;
-    public long LocalBroadPhaseNanoseconds;
-    public long PairDiffNanoseconds;
-    public long SweptClassificationNanoseconds;
-    public long ContactActivationNanoseconds;
-    public long FallbackNanoseconds;
-
-    public int PersistentViewReuseCount;
-    public int PersistentViewRebuildCount;
-    public int InteractionEnvelopeEscapeCount;
-    public int SoftAvoidanceOraclePairCount;
-    public int SoftAvoidanceOracleMissingPairCount;
-
-    public byte UsedIncrementalTopology;
-    public byte UsedFullRebuild;
-    public byte OracleMismatch;
-    public byte Reserved;
 }
 }
