@@ -178,45 +178,32 @@ public static class IncrementalContactPipelineDiagnosticsRuntime
         get
         {
             return SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
-                       out SimulationDiagnosticsSnapshot unified) &&
-                   unified.HasPipeline != 0
+                       out SimulationDiagnosticsSnapshot unified)
                 ? unified.Pipeline
                 : default;
         }
-        internal set => SimulationDiagnosticsSnapshotRuntime.PublishPipeline(value);
     }
 #else
-    public static IncrementalContactPipelineSnapshot Latest
-    {
-        get => default;
-        internal set { }
-    }
+    public static IncrementalContactPipelineSnapshot Latest => default;
 #endif
 }
 
 #if RTS_CONTACT_DIAGNOSTICS
-// Read the previous completed snapshot before the current frame schedules a new
-// writer. This keeps the existing view one frame behind without forcing the
-// Presentation group to wait on the current solver chain.
 [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
 [UpdateBefore(typeof(RTS.Unit.FlowField.Systems.LocalUnitFlowMovementSystem))]
 public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
 {
+    private ulong _lastRecordedGeneration;
+
     protected override void OnUpdate()
     {
-        IncrementalContactPipelineSnapshot latest = default;
-        uint latestTimestep = 0;
-        foreach (RefRO<IncrementalContactPipelineSnapshot> snapshot
-                 in SystemAPI.Query<RefRO<IncrementalContactPipelineSnapshot>>())
-        {
-            IncrementalContactPipelineSnapshot value = snapshot.ValueRO;
-            if (value.Statistics.Timestep < latestTimestep)
-                continue;
-            latest = value;
-            latestTimestep = value.Statistics.Timestep;
-        }
-        IncrementalContactPipelineDiagnosticsRuntime.Latest = latest;
-        IncrementalContactPipelineCsvRecorderRuntime.TryRecord(latest);
+        if (!SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
+                out SimulationDiagnosticsSnapshot published) ||
+            published.Generation == _lastRecordedGeneration)
+            return;
+
+        _lastRecordedGeneration = published.Generation;
+        IncrementalContactPipelineCsvRecorderRuntime.TryRecord(published.Pipeline);
     }
 }
 #endif

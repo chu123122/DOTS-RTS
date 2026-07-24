@@ -42,7 +42,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
     private int _sampleCount;
     private float _startedAtUnscaledTime;
     private float _nextSampleAtUnscaledTime;
-    private ulong _lastRecordedFrameId;
+    private ulong _lastRecordedGeneration;
     private string _outputDirectory;
     private string _lastSettingsKey;
 
@@ -82,12 +82,13 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         }
 
         if (Time.unscaledTime < _nextSampleAtUnscaledTime ||
-            !SimulationDebuggerRuntime.TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot) ||
-            snapshot.FrameId == _lastRecordedFrameId)
+            !SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
+                out SimulationDiagnosticsSnapshot published) ||
+            published.Generation == _lastRecordedGeneration)
             return;
 
-        WriteSample(snapshot);
-        _lastRecordedFrameId = snapshot.FrameId;
+        WriteSample(published);
+        _lastRecordedGeneration = published.Generation;
         _nextSampleAtUnscaledTime = Time.unscaledTime + Mathf.Max(0.1f, SampleIntervalSeconds);
 
         if (!_automaticRun && _sampleCount >= Mathf.Max(1, MaxSamplesPerManualRun))
@@ -124,7 +125,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         _isRecording = true;
         _automaticRun = automatic;
         _sampleCount = 0;
-        _lastRecordedFrameId = 0;
+        _lastRecordedGeneration = 0;
         _lastSettingsKey = null;
         _startedAtUnscaledTime = Time.unscaledTime;
         _nextSampleAtUnscaledTime = _startedAtUnscaledTime;
@@ -153,12 +154,12 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         return writer;
     }
 
-    private void WriteSample(SimulationDebuggerFrameSnapshot snapshot)
+    private void WriteSample(SimulationDiagnosticsSnapshot published)
     {
+        SimulationDebuggerFrameSnapshot snapshot = published.Frame;
+        IncrementalContactPipelineSnapshot incremental = published.Pipeline;
         float elapsed = ElapsedSeconds;
         SimulationOverviewMetrics overview = snapshot.Overview;
-        IncrementalContactPipelineSnapshot incremental =
-            IncrementalContactPipelineDiagnosticsRuntime.Latest;
         TimestepContactSetMetrics contactSet = snapshot.ContactSet;
         SimulationDebuggerEffectiveSettings settings = snapshot.EffectiveSettings;
 

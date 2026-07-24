@@ -207,12 +207,14 @@ public static class SimulationDebuggerRuntime
     private static readonly SimulationDebuggerHistory _contactPairHistory = new(HistorySize);
     private static readonly SimulationDebuggerHistory _activeContactHistory = new(HistorySize);
 
-    public static void Publish(SimulationDebuggerFrameSnapshot snapshot)
+    public static void Publish(
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline)
     {
         if (snapshot == null || FreezeSnapshot)
             return;
 
-        SimulationDiagnosticsSnapshotRuntime.PublishFrame(snapshot);
+        SimulationDiagnosticsSnapshotRuntime.PublishComplete(snapshot, pipeline);
         _solverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
         _correctionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
         _cacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
@@ -249,8 +251,7 @@ public static class SimulationDebuggerRuntime
 
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
     {
-        if (SimulationDiagnosticsSnapshotRuntime.TryGetLatest(out SimulationDiagnosticsSnapshot unified) &&
-            unified.HasFrame != 0)
+        if (SimulationDiagnosticsSnapshotRuntime.TryGetLatest(out SimulationDiagnosticsSnapshot unified))
         {
             snapshot = unified.Frame;
             return snapshot != null;
@@ -383,7 +384,9 @@ public static class SimulationDebuggerRuntime
 
     public static void RequestContactCacheReset() { }
     public static bool TryConsumeContactCacheReset() => false;
-    public static void Publish(SimulationDebuggerFrameSnapshot snapshot) { }
+    public static void Publish(
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline) { }
     public static SimulationDebuggerTrend GetSolverTrend(int windowFrames = 60) => default;
     public static SimulationDebuggerTrend GetCorrectionTrend(int windowFrames = 60) => default;
     public static SimulationDebuggerTrend GetCacheHitTrend(int windowFrames = 60) => default;

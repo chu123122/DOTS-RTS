@@ -271,6 +271,7 @@ public struct SimulationDebuggerPairSample
 public sealed class SimulationDebuggerFrameSnapshot
 {
     public ulong FrameId;
+    public uint SimulationStepId;
     public double ElapsedTime;
     public float DeltaTime;
     public int SubstepCount;
@@ -288,6 +289,37 @@ public sealed class SimulationDebuggerFrameSnapshot
     public readonly List<SimulationDebuggerRegionSample> Regions = new List<SimulationDebuggerRegionSample>();
     public readonly List<SimulationDebuggerProxySample> Proxies = new List<SimulationDebuggerProxySample>();
     public readonly List<SimulationDebuggerPairSample> SelectedPairs = new List<SimulationDebuggerPairSample>();
+
+
+    /// <summary>
+    /// Creates a detached published value. Lists are copied so later write-slot
+    /// reuse cannot mutate a snapshot already held by a consumer.
+    /// </summary>
+    public SimulationDebuggerFrameSnapshot DeepCopy()
+    {
+        var copy = new SimulationDebuggerFrameSnapshot
+        {
+            FrameId = FrameId,
+            SimulationStepId = SimulationStepId,
+            ElapsedTime = ElapsedTime,
+            DeltaTime = DeltaTime,
+            SubstepCount = SubstepCount,
+            IterationCount = IterationCount,
+            CapturedMask = CapturedMask,
+            Overview = Overview,
+            BroadPhase = BroadPhase,
+            ContactSet = ContactSet,
+            EffectiveSettings = EffectiveSettings,
+            Experiment = Experiment,
+            SelectedUnit = SelectedUnit,
+            HasSelectedUnit = HasSelectedUnit
+        };
+        copy.Cells.AddRange(Cells);
+        copy.Regions.AddRange(Regions);
+        copy.Proxies.AddRange(Proxies);
+        copy.SelectedPairs.AddRange(SelectedPairs);
+        return copy;
+    }
 
     public void ClearCollections()
     {
