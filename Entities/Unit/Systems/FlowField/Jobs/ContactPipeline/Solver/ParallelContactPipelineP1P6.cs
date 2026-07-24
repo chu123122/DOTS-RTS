@@ -76,7 +76,7 @@ public partial struct SolveXpbdUnitContactsJob
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
         bool captureSelectedPairs =
-            DiagnosticSelectedEntity != Entity.Null &&
+            Configuration.EnableDiagnostics && DiagnosticSelectedEntity != Entity.Null &&
             (SimulationDebuggerCaptureMask &
              SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
             (SimulationDebuggerCaptureMask &

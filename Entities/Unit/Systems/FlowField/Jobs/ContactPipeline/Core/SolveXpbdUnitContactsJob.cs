@@ -43,7 +43,11 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     private bool EnableTimestepContactSetCache => Configuration.EnableTimestepContactSetCache;
     private float GuardEnvelopeMargin => Configuration.GuardEnvelopeMargin;
     private float TimestepContactMargin => Configuration.TimestepContactMargin;
+#if RTS_CONTACT_DIAGNOSTICS
     public Entity DiagnosticSelectedEntity;
+#else
+    public Entity DiagnosticSelectedEntity { get => Entity.Null; set { } }
+#endif
 
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -82,7 +86,11 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeArray<byte> IncrementalDirtyFlagsByBody;
     public NativeList<PersistentNeighborPair> IncrementalNeighborPairScratch;
     // 仅在诊断校验中使用：保存当前帧的增量管线接触对，避免与求解 scratch 混用。
+#if RTS_CONTACT_DIAGNOSTICS
     public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
+#else
+    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs { get => default; set { } }
+#endif
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactScheduleScratch;
     public NativeReference<int> PredictiveContactScheduleCursor;
@@ -90,10 +98,17 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeArray<FlowMovementFrameState> States;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
+#if RTS_CONTACT_DIAGNOSTICS
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
     public NativeArray<Stage3ContactHeatSample> HeatSamples;
+#else
+    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics { get => default; set { } }
+    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics { get => default; set { } }
+    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic { get => default; set { } }
+    public NativeArray<Stage3ContactHeatSample> HeatSamples { get => default; set { } }
+#endif
 
     public void Execute()
     {
@@ -105,10 +120,12 @@ public partial struct SolveXpbdUnitContactsJob : IJob
         statistics.TimestepContactSetFirstEscapeSubstep = -1;
         var incrementalStatistics = new IncrementalContactPipelineStatistics();
         float penetrationSum = 0f;
+#if RTS_CONTACT_DIAGNOSTICS
         IterationDiagnostics.Clear();
         PairDiagnostics.Clear();
         SelectedBodyDiagnostic.Value = default;
         ResetSimulationDebuggerCapture();
+#endif
 
         if (substepDeltaTime <= 0f)
         {
@@ -324,9 +341,11 @@ public partial struct SolveXpbdUnitContactsJob : IJob
 
         }
 
+#if RTS_CONTACT_DIAGNOSTICS
         if (EnableDiagnostics)
             CaptureSelectedBodyAndPairs(substepCount - 1);
         BuildContactHeatSamples();
+#endif
 
 
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
@@ -394,8 +413,10 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                     (float)incrementalStatistics.UniqueCorrectedPairCount /
                     incrementalStatistics.UniqueActivatedPairCount)
                 : 0f;
+#if RTS_CONTACT_DIAGNOSTICS
         // 记录本时间步的接触/修正结果，供下一帧热力图快照读取。
         CaptureSimulationDebuggerSelectedUnit();
+#endif
         Statistics.Value = statistics;
         IncrementalStatistics.Value = incrementalStatistics;
     }
