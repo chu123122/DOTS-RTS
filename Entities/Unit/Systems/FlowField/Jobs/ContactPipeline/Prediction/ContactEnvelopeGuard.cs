@@ -203,7 +203,7 @@ public partial struct SolveXpbdUnitContactsJob
     {
         SetIncrementalDirtyFlags(
             bodyIndex,
-            IncrementalBodyDirtyFlags.Topology | source);
+            IncrementalBodyDirtyFlags.Motion | source);
         FlowMovementFrameState state = States[bodyIndex];
         if (state.TimestepEscaped != 0)
             return;

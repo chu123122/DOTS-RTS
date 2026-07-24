@@ -257,21 +257,23 @@ public partial struct SolveXpbdUnitContactsJob
     {
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
-        BuildCurrentIncrementalSweptProxies();
-        bool cacheCanBePatched = ValidateAndClassifyIncrementalDirtyBodies(
-            ref incrementalStatistics);
+        bool cacheCanBePatched = IsPersistentCacheStructurallyReusableP1P6();
+        SummarizePreparedIncrementalDirtyBodiesP1P6(
+            ref incrementalStatistics,
+            out int topologyDirtyCount,
+            out bool entitySetDirty);
         incrementalStatistics.ProxyValidationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - validationStart);
 
-        int topologyDirtyCount = incrementalStatistics.TopologyDirtyBodyCount;
         float dirtyRatio = States.Length > 0
             ? (float)topologyDirtyCount / States.Length
             : 1f;
-        bool useFullRebuild = !cacheCanBePatched ||
+        bool useFullRebuild = !cacheCanBePatched || entitySetDirty ||
                               dirtyRatio > IncrementalDirtyBodyRatioThreshold;
         if (useFullRebuild)
         {
             ClearPersistentClassificationCache();
+            BuildCurrentIncrementalSweptProxies();
             long buildStart = ProfilerUnsafeUtility.Timestamp;
             long localBefore = incrementalStatistics.LocalBroadPhaseNanoseconds;
             FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
@@ -290,7 +292,6 @@ public partial struct SolveXpbdUnitContactsJob
         {
             long repairStart = ProfilerUnsafeUtility.Timestamp;
             long localBefore = incrementalStatistics.LocalBroadPhaseNanoseconds;
-            UpdatePersistentProxyMetadata();
             if (topologyDirtyCount > 0)
             {
                 IncrementallyRepairPersistentNeighborTopology(
@@ -299,15 +300,7 @@ public partial struct SolveXpbdUnitContactsJob
             }
             else
             {
-                IncrementalContactCacheState state = IncrementalCacheState.Value;
-                state.Timestep++;
-                state.LastUpdateWasFullRebuild = 0;
-                state.BodyCount = States.Length;
-                state.NeighborPairCount = PersistentNeighborPairs.Length;
-                IncrementalCacheState.Value = state;
-                incrementalStatistics.Timestep = state.Timestep;
-                incrementalStatistics.NeighborPairRetainedCount =
-                    PersistentNeighborPairs.Length;
+                AdvancePersistentCacheTimestepP1P6(ref incrementalStatistics);
             }
             long elapsed = TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - repairStart);
@@ -323,9 +316,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incrementalStatistics))
         {
-            incrementalStatistics.SweptClassificationNanoseconds +=
-                TimestampToNanoseconds(
-                    ProfilerUnsafeUtility.Timestamp - classificationStart);
+            incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - classificationStart);
             incrementalStatistics.PersistentNeighborPairCount =
                 PersistentNeighborPairs.Length;
             incrementalStatistics.CurrentInteractionPairCount =
@@ -365,7 +357,6 @@ public partial struct SolveXpbdUnitContactsJob
             0);
         return false;
     }
-
     private void CommitPersistentClassificationP1P6(
         NativeReference<ParallelJacobiRuntimeState> runtimeState)
     {
