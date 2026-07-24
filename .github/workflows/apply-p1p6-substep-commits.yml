@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - codex/p1p6-substep-apply-runner
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: write
