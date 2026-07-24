@@ -5,9 +5,9 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Safety boundary for every stage that can invalidate the current
-/// InteractionSet/contact view. Each check has a distinct mutation source;
-/// failures converge on one incremental-repair/full-rebuild path.
+/// Produces authoritative violation evidence for every mutation source that can
+/// leave the current certificate scope. This layer never decides cache validity;
+/// all failures converge on the interaction certifier's repair/rebuild path.
 /// </summary>
 public partial struct SolveXpbdUnitContactsJob
 {
@@ -36,8 +36,8 @@ public partial struct SolveXpbdUnitContactsJob
                     float3.zero,
                     substepDeltaTime))
             {
-                // Preserve as much of the avoidance response as the
-                // already-proven InteractionSet envelope can contain.
+                // Preserve as much avoidance response as the already-certified
+                // InteractionSet envelope can contain.
                 for (int iteration = 0; iteration < 8; iteration++)
                 {
                     float middleScale = (lowerScale + upperScale) * 0.5f;
@@ -114,6 +114,12 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             allInside = false;
+            RevokeInteractionCertificate(
+                bodyIndex,
+                substepIndex,
+                InteractionCertificateViolationReason.SolverCorrectionEnvelopeEscape,
+                currentMin,
+                currentMax);
             SetIncrementalDirtyFlags(
                 bodyIndex,
                 IncrementalBodyDirtyFlags.Motion |
@@ -156,6 +162,9 @@ public partial struct SolveXpbdUnitContactsJob
                 bodyIndex,
                 substepIndex,
                 IncrementalBodyDirtyFlags.Motion,
+                InteractionCertificateViolationReason.PredictedContactEnvelopeEscape,
+                currentMin,
+                currentMax,
                 ref statistics);
         }
         incrementalStatistics.CorrectedEscapeBodyCount +=
@@ -188,6 +197,9 @@ public partial struct SolveXpbdUnitContactsJob
                 bodyIndex,
                 substepIndex,
                 IncrementalBodyDirtyFlags.Motion,
+                InteractionCertificateViolationReason.BaseMotionEnvelopeEscape,
+                currentMin,
+                currentMax,
                 ref statistics);
         }
         incrementalStatistics.InteractionEnvelopeEscapeCount +=
@@ -199,8 +211,17 @@ public partial struct SolveXpbdUnitContactsJob
         int bodyIndex,
         int substepIndex,
         IncrementalBodyDirtyFlags source,
+        InteractionCertificateViolationReason reason,
+        float2 observedMin,
+        float2 observedMax,
         ref PredictiveDiscContactStatistics statistics)
     {
+        RevokeInteractionCertificate(
+            bodyIndex,
+            substepIndex,
+            reason,
+            observedMin,
+            observedMax);
         SetIncrementalDirtyFlags(
             bodyIndex,
             IncrementalBodyDirtyFlags.Motion | source);
@@ -238,6 +259,16 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incrementalStatistics))
         {
+            IssueInteractionCertificate(
+                new ContactViewBuildResult
+                {
+                    SourceMode = ContactInteractionSourceMode.PersistentRepair,
+                    PersistentViewReady = 1,
+                    UsedFullRebuild = 0,
+                    RepairedBodyCount = IncrementalDirtyBodies.Length,
+                    InteractionPairCount = PersistentNeighborPairs.Length
+                },
+                scheduleStartSubstep);
             return;
         }
 
