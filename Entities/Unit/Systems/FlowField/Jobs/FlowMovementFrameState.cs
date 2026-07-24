@@ -1,24 +1,18 @@
 using Unity.Entities;
 using Unity.Mathematics;
-using RTS.Unit.FlowField;
 
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
 /// Transitional host for one crowd step. Stable input/navigation/intent semantics
-/// are now physically composed from explicit contracts; timestep/substep solver
-/// fields remain flat temporarily because several Burst jobs pass vector fields by
-/// ref/out and will be migrated in a later narrow-ABI batch.
+/// are physically composed from explicit contracts; timestep/substep solver fields
+/// remain flat temporarily because several Burst jobs pass vector fields by ref/out.
 /// </summary>
 public struct FlowMovementFrameState
 {
     public CrowdBodySnapshot Body;
     public CrowdNavigationState Navigation;
     public CrowdMotionIntent MotionIntent;
-
-    // Compatibility-only copy while the remaining parallel path is migrated away
-    // from direct FlowFieldCell access.
-    public FlowFieldCell NavigationCell;
 
     public Entity Entity
     {
@@ -50,8 +44,8 @@ public struct FlowMovementFrameState
         set => Body.MoveSpeed = value;
     }
 
-    // Serialized/authoring compatibility name. The current controller integrates
-    // this as a velocity-change rate rather than a Newtonian force.
+    // Serialized/authoring compatibility name. The controller integrates this as
+    // a velocity-change rate rather than a Newtonian force.
     public float MaxForce
     {
         get => Body.MaxAcceleration;
@@ -74,21 +68,6 @@ public struct FlowMovementFrameState
     {
         get => Navigation.Cell;
         set => Navigation.Cell = value;
-    }
-
-    public FlowFieldCell Cell
-    {
-        get => NavigationCell;
-        set
-        {
-            NavigationCell = value;
-            Navigation.BestDirectionIndex = value.BestDirectionIndex;
-            Navigation.IntegrationValue = value.IntegrationValue;
-            Navigation.IsReachable = (byte)(
-                value.Cost != 0 && value.IntegrationValue != ushort.MaxValue
-                    ? 1
-                    : 0);
-        }
     }
 
     public bool IsSettled
