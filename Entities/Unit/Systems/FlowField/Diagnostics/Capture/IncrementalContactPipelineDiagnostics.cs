@@ -238,7 +238,7 @@ public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
 
     protected override void OnUpdate()
     {
-        ulong worldId = World.Unmanaged.SequenceNumber;
+        ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         if (!PublishedSimulationDiagnosticsRuntime.TryGetLatest(
                 worldId,
                 out PublishedSimulationDiagnosticsSnapshot published) ||

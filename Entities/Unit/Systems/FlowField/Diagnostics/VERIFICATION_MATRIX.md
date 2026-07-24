@@ -1,8 +1,10 @@
 # Contact Pipeline Verification Matrix
 
 This matrix is the runtime acceptance contract for the diagnostics refactor.
-The repository CI currently executes source-level contracts; rows marked
-**Unity required** must be run in Editor or a licensed batchmode runner.
+The repository CI executes source-level contracts for completed-step identity,
+per-World routing and gameplay-only telemetry elimination. Rows marked
+**Unity required** have not been executed and must be run in Editor or a
+licensed batchmode runner before PR #16 is mergeable.
 
 ## Build matrix
 
@@ -30,3 +32,17 @@ Run each configuration with 0, 1, 2, 100 and the project stress-scale unit count
 5. World A and World B may use different timestep-cache settings.
 6. All TempJob containers are disposed after their final reader and within the
    Unity lifetime limit.
+
+## Static contract status
+
+The following are enforced by repository CI:
+
+- frame and pipeline publication use one captured completed-step identity;
+- duplicate or backwards timestep publication is rejected per World;
+- debugger, experiment overrides and latest snapshots are keyed by World id;
+- gameplay preprocessing contains no Jacobi iteration/block telemetry types,
+  allocations or pure telemetry reduction/finalize jobs;
+- persistent classification timestamps do not occupy gameplay struct storage;
+- this document has a committed Unity `.meta` file.
+
+These checks are not substitutes for the Unity-required matrix above.

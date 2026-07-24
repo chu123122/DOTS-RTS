@@ -8,12 +8,37 @@ helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs').
 solver = (flow / 'Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
 snapshot = (flow / 'Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
+
+
+def preprocess_diagnostics(source: str, enabled: bool) -> str:
+    output = []
+    stack = []
+    active = True
+    for line in source.splitlines():
+        directive = line.strip()
+        if directive.startswith('#if '):
+            symbol = directive[4:].strip()
+            condition = enabled if symbol == 'RTS_CONTACT_DIAGNOSTICS' else True
+            stack.append((active, condition))
+            active = active and condition
+        elif directive == '#else':
+            parent, condition = stack[-1]
+            stack[-1] = (parent, not condition)
+            active = parent and not condition
+        elif directive == '#endif':
+            active = stack.pop()[0]
+        elif active:
+            output.append(line)
+    return '\n'.join(output)
+
+base_gameplay = preprocess_diagnostics(base, False)
+
 forbidden_allocations = (
     'new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob)',
     'new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob)',
     'new NativeList<Stage3ContactIterationDiagnostic>',
     'new NativeArray<Stage3ContactHeatSample>')
-leaked = [token for token in forbidden_allocations if token in base]
+leaked = [token for token in forbidden_allocations if token in base_gameplay]
 if leaked:
     raise SystemExit('Gameplay scheduler still owns diagnostics allocation: ' + repr(leaked))
 if 'SimulationDebuggerRuntime.TimestepContactSetCacheEnabled' in base:
@@ -48,3 +73,11 @@ required_consumers = [
 missing = [str(path) for path in required_consumers if not path.exists()]
 if missing:
     raise SystemExit('Final diagnostics consumer ownership missing: ' + repr(missing))
+
+release_parallel = preprocess_diagnostics('\n'.join(
+    path.read_text(encoding='utf-8')
+    for path in (flow / 'Jobs/ContactPipeline/Solver').rglob('*.cs')), False)
+for token in ('ParallelJacobiIterationTelemetry', 'JacobiBlockTelemetry',
+              'ReduceParallelJacobiBlocksJob', 'ReduceP1P6VelocityBodyBlocksJob'):
+    if token in release_parallel:
+        raise SystemExit('Gameplay telemetry scheduling returned: ' + token)
