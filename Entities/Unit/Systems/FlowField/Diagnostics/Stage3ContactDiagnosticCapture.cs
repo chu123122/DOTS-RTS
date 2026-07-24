@@ -129,7 +129,7 @@ public sealed class Stage3ContactDiagnosticCaptureSession
             PairGenerationMicroseconds = statistics.PairGenerationNanoseconds / 1000f,
             AverageIterationMicroseconds = statistics.AverageIterationNanoseconds / 1000f,
             SolverMicroseconds = statistics.SolverNanoseconds / 1000f,
-            FatAabbCacheEnabled = settings.EnableFatAabbCache,
+            FatAabbCacheEnabled = settings.EnablePersistentContactCache,
             FatAabbCacheValidAtFrameStart = shadow.CacheValidAtFrameStart != 0,
             FatAabbCacheValidAtFrameEnd = shadow.CacheValidAtFrameEnd != 0,
             FatAabbCacheAgeFrames = shadow.CacheAgeFrames,

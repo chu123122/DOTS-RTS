@@ -52,9 +52,25 @@ public struct ActiveIncidentIndexState
 }
 
 /// <summary>
-/// P1-P6 staged parallel path. Expensive independent body loops and the
-/// soft-avoidance pair scatter are moved out of the serial coordinator jobs.
-/// Topology mutation, repair and deterministic compaction remain serialized.
+/// Named responsibilities behind the historical P1-P6 implementation labels.
+/// The enum is documentation for scheduling boundaries, not mutable runtime state.
+/// </summary>
+internal enum StagedContactPipelinePhase : byte
+{
+    Initialize,
+    ResolveInteractionSource,
+    RepairPersistentTopology,
+    BuildSoftAvoidanceView,
+    SolveContactConstraints,
+    ReconstructVelocity,
+    FinalizeTimestep
+}
+
+/// <summary>
+/// Staged parallel contact pipeline. The historical P1-P6 labels map to the
+/// named <see cref="StagedContactPipelinePhase"/> responsibilities above.
+/// Independent body/pair work runs in parallel; topology mutation, repair and
+/// deterministic compaction remain serialized at explicit phase boundaries.
 /// </summary>
 public partial struct SolveXpbdUnitContactsJob
 {

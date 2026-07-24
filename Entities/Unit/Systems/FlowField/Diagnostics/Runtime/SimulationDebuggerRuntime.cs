@@ -278,7 +278,7 @@ public static class SimulationDebuggerRuntime
         lock (Gate)
         {
             WorldState state = GetStateLocked(worldId);
-            int key = (settings.EnableFatAabbCache != 0 ? 1 : 0) |
+            int key = (settings.EnablePersistentContactCache != 0 ? 1 : 0) |
                       (settings.EnableTimestepContactSetCache != 0 ? 2 : 0) |
                       ((settings.SoftAvoidanceVelocitySolver & 1) << 2) |
                       ((settings.ContactPositionSolver & 1) << 3);
@@ -294,7 +294,7 @@ public static class SimulationDebuggerRuntime
             }
             return new SimulationExperimentMetrics
             {
-                PersistentBroadPhaseCache = settings.EnableFatAabbCache,
+                PersistentBroadPhaseCache = settings.EnablePersistentContactCache,
                 TimestepContactSetCache = settings.EnableTimestepContactSetCache,
                 SoftAvoidanceSolver = settings.SoftAvoidanceVelocitySolver,
                 ContactPositionSolver = settings.ContactPositionSolver,

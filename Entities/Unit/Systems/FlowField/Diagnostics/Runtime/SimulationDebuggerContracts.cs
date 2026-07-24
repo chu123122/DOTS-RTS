@@ -80,9 +80,9 @@ public struct SimulationDebuggerEffectiveSettings
     public float PredictiveSkin;
     public byte EnablePredictivePairGeneration;
     public byte EnablePredictiveContacts;
-    public byte EnableFatAabbCache;
+    public byte EnablePersistentContactCache;
     public byte EnableTimestepContactSetCache;
-    public float FatAabbCacheMargin;
+    public float PersistentGuardEnvelopeMargin;
     public byte EnableDiagnostics;
 
     public float SoftAvoidanceResponseRate;

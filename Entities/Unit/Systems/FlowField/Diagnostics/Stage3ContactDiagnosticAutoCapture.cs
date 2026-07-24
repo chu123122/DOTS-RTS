@@ -148,8 +148,8 @@ public sealed class Stage3ContactDiagnosticAutoCapture
         settings.EnableDiagnostics = true;
         settings.DiagnosticCaptureDuration = ExperimentCaptureDuration;
         settings.DiagnosticCaptureInterval = ExperimentCaptureInterval;
-        settings.EnableFatAabbCache = IsCacheEnabledForRun(runIndex);
-        settings.FatAabbCacheMargin = ExperimentFatAabbMargin;
+        settings.EnablePersistentContactCache = IsCacheEnabledForRun(runIndex);
+        settings.PersistentGuardEnvelopeMargin = ExperimentFatAabbMargin;
     }
 
     private void RestoreOriginalSettings(ref UnitContactSolverSettings settings)

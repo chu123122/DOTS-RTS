@@ -201,8 +201,8 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
 
         string settingsKey = string.Join("|",
             snapshot.Experiment.ConfigurationId, settings.EnableAdaptiveFatAabb,
-            settings.EnableFatAabbCache, settings.EnableTimestepContactSetCache,
-            settings.PredictiveSkin, settings.FatAabbCacheMargin, settings.SubstepCount,
+            settings.EnablePersistentContactCache, settings.EnableTimestepContactSetCache,
+            settings.PredictiveSkin, settings.PersistentGuardEnvelopeMargin, settings.SubstepCount,
             settings.IterationCount, settings.SoftAvoidanceVelocitySolver,
             settings.SoftAvoidanceResponseRate, settings.SoftAvoidanceShell,
             settings.RvoTimeHorizon);
@@ -210,9 +210,9 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         {
             _settingsWriter.WriteLine(string.Join(",",
                 Number(elapsed), snapshot.FrameId, snapshot.Experiment.ConfigurationId,
-                settings.EnableAdaptiveFatAabb, settings.EnableFatAabbCache,
+                settings.EnableAdaptiveFatAabb, settings.EnablePersistentContactCache,
                 settings.EnableTimestepContactSetCache, Number(settings.PredictiveSkin),
-                Number(settings.FatAabbCacheMargin), settings.SubstepCount, settings.IterationCount,
+                Number(settings.PersistentGuardEnvelopeMargin), settings.SubstepCount, settings.IterationCount,
                 settings.SoftAvoidanceVelocitySolver, Number(settings.SoftAvoidanceResponseRate),
                 Number(settings.SoftAvoidanceShell), Number(settings.RvoTimeHorizon)));
             _lastSettingsKey = settingsKey;

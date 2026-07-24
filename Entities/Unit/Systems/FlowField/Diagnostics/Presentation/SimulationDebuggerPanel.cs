@@ -516,7 +516,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         IncrementalContactPipelineSnapshot pipeline =
             IncrementalContactPipelineDiagnosticsRuntime.Latest;
         var statistics = pipeline.Statistics;
-        bool cacheEnabled = snapshot.EffectiveSettings.EnableFatAabbCache != 0;
+        bool cacheEnabled = snapshot.EffectiveSettings.EnablePersistentContactCache != 0;
         bool hasPipelineSnapshot = statistics.Timestep != 0;
         SimulationDebuggerHealth health;
         string status;
@@ -656,21 +656,21 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label(
             "A 为跨帧持久邻居拓扑，B 为跨子步接触集；A 依赖 B，关闭 B 会自动关闭 A。",
             _mutedStyle);
-        draft.EnableFatAabbCache = DrawToggle(
+        draft.EnablePersistentContactCache = DrawToggle(
             "A：跨帧接触缓存",
-            draft.EnableFatAabbCache,
-            snapshot.EffectiveSettings.EnableFatAabbCache);
+            draft.EnablePersistentContactCache,
+            snapshot.EffectiveSettings.EnablePersistentContactCache);
         draft.EnableTimestepContactSetCache = DrawToggle(
             "B：跨子步接触缓存",
             draft.EnableTimestepContactSetCache,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache);
-        if (draft.EnableFatAabbCache != 0 && draft.EnableTimestepContactSetCache == 0)
+        if (draft.EnablePersistentContactCache != 0 && draft.EnableTimestepContactSetCache == 0)
         {
             bool userTurnedOffSubstepCache =
                 snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
             if (userTurnedOffSubstepCache)
             {
-                draft.EnableFatAabbCache = 0;
+                draft.EnablePersistentContactCache = 0;
                 GUILayout.Label("已关闭 A：跨帧接触缓存依赖跨子步接触集。", _mutedStyle);
             }
             else
@@ -790,12 +790,12 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Space(6f);
         GUILayout.Label("跨帧接触缓存参数", _sectionStyle);
-        bool persistentCacheEnabled = draft.EnableFatAabbCache != 0;
+        bool persistentCacheEnabled = draft.EnablePersistentContactCache != 0;
         GUI.enabled = persistentCacheEnabled;
-        draft.FatAabbCacheMargin = DrawFloatSlider(
+        draft.PersistentGuardEnvelopeMargin = DrawFloatSlider(
             "跨帧预测包络余量",
-            draft.FatAabbCacheMargin,
-            snapshot.EffectiveSettings.FatAabbCacheMargin,
+            draft.PersistentGuardEnvelopeMargin,
+            snapshot.EffectiveSettings.PersistentGuardEnvelopeMargin,
             0f,
             5f,
             "0.00");

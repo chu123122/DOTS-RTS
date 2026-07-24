@@ -47,7 +47,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("关闭时仍生成 swept candidate，但不会启用防换侧 Predictive 约束。")]
     public bool enablePredictiveContacts = true;
 
-    [Header("Stage 3 Contact Diagnostic")]
+    [Header("Contact Diagnostics")]
     [Tooltip("开启逐 iteration 残差、位置修正、速度变化和选中单位 Pair 采集。")]
     public bool enableContactDiagnostics;
     [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
@@ -66,13 +66,15 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("在一个 timestep 的全部 substep 间复用接触视图。")]
     public bool enableTimestepContactSetCache = true;
 
-    [Header("Fat AABB Neighbor Cache")]
-    [Tooltip("启用后 Fat AABB 缓存会替代重复的 Broad Phase 候选发现；每个子步仍重新执行 Narrow Phase。")]
+    [Header("Persistent Contact Cache")]
+    [Tooltip("启用后跨 timestep 持久邻居拓扑会复用 guarded proxy 证书，避免重复的全量候选发现；每个子步仍执行接触激活。")]
     [FormerlySerializedAs("enableShadowNeighborCacheTest")]
-    public bool enableFatAabbCache;
-    [Tooltip("Fat AABB 在圆盘半径和 Predictive Skin 之外保留的复用余量。")]
+    [FormerlySerializedAs("enableFatAabbCache")]
+    public bool enablePersistentContactCache;
+    [Tooltip("持久 Guard Envelope 在圆盘半径和 Predictive Skin 之外保留的复用余量。")]
     [FormerlySerializedAs("shadowCacheMargin")]
-    [Min(0f)] public float fatAabbCacheMargin = 0.25f;
+    [FormerlySerializedAs("fatAabbCacheMargin")]
+    [Min(0f)] public float persistentGuardEnvelopeMargin = 0.25f;
     [Tooltip("整个 timestep ContactSet 预测轨迹之外的安全边界；逃出后执行完整回退。")]
     [Min(0f)] public float timestepContactMargin = 0.25f;
 
@@ -116,8 +118,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 DiagnosticCaptureInterval = math.max(0.05f, authoring.diagnosticCaptureInterval),
                 EnableTimestepContactSetCache =
                     authoring.enableTimestepContactSetCache,
-                EnableFatAabbCache = authoring.enableFatAabbCache,
-                FatAabbCacheMargin = math.max(0f, authoring.fatAabbCacheMargin),
+                EnablePersistentContactCache = authoring.enablePersistentContactCache,
+                PersistentGuardEnvelopeMargin = math.max(0f, authoring.persistentGuardEnvelopeMargin),
                 TimestepContactMargin = math.max(0f, authoring.timestepContactMargin),
                 VisualizeContactHeatmap = authoring.visualizeContactHeatmap,
                 ContactHeatmapMode = authoring.contactHeatmapMode,

@@ -52,22 +52,22 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
         new()
         {
             Label = "baseline_timestep_swept_A0_B1",
-            EnableFatAabbCache = 0,
+            EnablePersistentContactCache = 0,
             EnableTimestepContactSetCache = 1,
             EnableAdaptiveFatAabb = 0,
             EnableDiagnostics = 0,
-            FatAabbCacheMargin = 0.5f,
+            PersistentGuardEnvelopeMargin = 0.5f,
             SubstepCount = 4,
             IterationCount = 4
         },
         new()
         {
             Label = "incremental_persistent_A1_B1",
-            EnableFatAabbCache = 1,
+            EnablePersistentContactCache = 1,
             EnableTimestepContactSetCache = 1,
             EnableAdaptiveFatAabb = 0,
             EnableDiagnostics = 0,
-            FatAabbCacheMargin = 0.5f,
+            PersistentGuardEnvelopeMargin = 0.5f,
             SubstepCount = 4,
             IterationCount = 4
         }
@@ -404,8 +404,8 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
                 $"{r.AverageProxyValidationNs:F0},{r.AverageLocalBroadPhaseNs:F0},{r.AveragePairDiffNs:F0},{r.AverageClassificationNs:F0}," +
                 $"{r.AverageTopologyDirtyBodies:F2},{r.AveragePersistentNeighborPairs:F2},{r.AverageFullRebuilds:F3},{r.AverageIncrementalRepairs:F3}," +
                 $"{r.AverageContactPairs:F0},{r.AverageActivePairs:F0},{r.AveragePredictivePairs:F0}," +
-                $"{r.EnableFatAabbCache},{r.EnableAdaptiveFatAabb},{r.EnableTimestepContactSetCache},{r.EnableDiagnostics}," +
-                $"{r.PredictiveSkin:F3},{r.FatAabbCacheMargin:F3},{r.SubstepCount},{r.IterationCount},{r.AdaptiveDetectionCellSpan},{r.AdaptiveMinimumUnitsPerCell},{r.AdaptiveEnableScore:F2}");
+                $"{r.EnablePersistentContactCache},{r.EnableAdaptiveFatAabb},{r.EnableTimestepContactSetCache},{r.EnableDiagnostics}," +
+                $"{r.PredictiveSkin:F3},{r.PersistentGuardEnvelopeMargin:F3},{r.SubstepCount},{r.IterationCount},{r.AdaptiveDetectionCellSpan},{r.AdaptiveMinimumUnitsPerCell},{r.AdaptiveEnableScore:F2}");
         }
 
         Debug.Log($"[Tuner] CSV 已输出: {path}");
@@ -499,12 +499,12 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
                 AverageContactPairs = _contactPairTotal * inv,
                 AverageActivePairs = _activePairTotal * inv,
                 AveragePredictivePairs = _predictivePairTotal * inv,
-                EnableFatAabbCache = settings.EnableFatAabbCache,
+                EnablePersistentContactCache = settings.EnablePersistentContactCache,
                 EnableAdaptiveFatAabb = settings.EnableAdaptiveFatAabb,
                 EnableTimestepContactSetCache = settings.EnableTimestepContactSetCache,
                 EnableDiagnostics = settings.EnableDiagnostics,
                 PredictiveSkin = settings.PredictiveSkin,
-                FatAabbCacheMargin = settings.FatAabbCacheMargin,
+                PersistentGuardEnvelopeMargin = settings.PersistentGuardEnvelopeMargin,
                 SubstepCount = settings.SubstepCount,
                 IterationCount = settings.IterationCount,
                 AdaptiveDetectionCellSpan = settings.AdaptiveDetectionCellSpan,
@@ -519,12 +519,12 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
     {
         public string Label;
         public byte EnablePredictivePairGeneration = 1;
-        public byte EnableFatAabbCache = 1;
+        public byte EnablePersistentContactCache = 1;
         public byte EnableAdaptiveFatAabb = 1;
         public byte EnableTimestepContactSetCache = 1;
         public byte EnableDiagnostics = 1;
         public float PredictiveSkin;
-        public float FatAabbCacheMargin;
+        public float PersistentGuardEnvelopeMargin;
         public int SubstepCount;
         public int IterationCount;
         public int AdaptiveDetectionCellSpan;
@@ -535,13 +535,13 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
         public void ApplyTo(ref SimulationDebuggerEffectiveSettings s)
         {
             s.EnablePredictivePairGeneration = EnablePredictivePairGeneration;
-            s.EnableFatAabbCache = EnableFatAabbCache;
+            s.EnablePersistentContactCache = EnablePersistentContactCache;
             s.EnableAdaptiveFatAabb = EnableAdaptiveFatAabb;
             s.EnableTimestepContactSetCache = EnableTimestepContactSetCache;
             s.EnableDiagnostics = EnableDiagnostics;
             s.PredictiveSkin = PredictiveSkin;
-            if (FatAabbCacheMargin > 0f)
-                s.FatAabbCacheMargin = FatAabbCacheMargin;
+            if (PersistentGuardEnvelopeMargin > 0f)
+                s.PersistentGuardEnvelopeMargin = PersistentGuardEnvelopeMargin;
             if (SubstepCount > 0)
                 s.SubstepCount = SubstepCount;
             if (IterationCount > 0)
@@ -577,12 +577,12 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
         public float AverageContactPairs;
         public float AverageActivePairs;
         public float AveragePredictivePairs;
-        public byte EnableFatAabbCache;
+        public byte EnablePersistentContactCache;
         public byte EnableAdaptiveFatAabb;
         public byte EnableTimestepContactSetCache;
         public byte EnableDiagnostics;
         public float PredictiveSkin;
-        public float FatAabbCacheMargin;
+        public float PersistentGuardEnvelopeMargin;
         public int SubstepCount;
         public int IterationCount;
         public int AdaptiveDetectionCellSpan;

@@ -63,12 +63,12 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.SubstepCount=state.SubstepCount<1?1:state.SubstepCount;
         settings.IterationCount=state.IterationCount<1?1:state.IterationCount;
         settings.ContactPositionSolver=state.ContactPositionSolver;
-        settings.FatAabbCacheMargin=state.GuardEnvelopeMargin<0f?0f:state.GuardEnvelopeMargin;
+        settings.PersistentGuardEnvelopeMargin=state.GuardEnvelopeMargin<0f?0f:state.GuardEnvelopeMargin;
         settings.PredictiveSkin=state.PredictiveSkin<0f?0f:state.PredictiveSkin;
         settings.TimestepContactMargin=state.TimestepContactMargin<0f?0f:state.TimestepContactMargin;
         settings.EnablePredictiveContacts=state.PredictiveContactsEnabled;
         settings.EnableTimestepContactSetCache=state.TimestepCacheEnabled;
-        settings.EnableFatAabbCache=state.CrossFrameContactCacheEnabled&&state.TimestepCacheEnabled;
+        settings.EnablePersistentContactCache=state.CrossFrameContactCacheEnabled&&state.TimestepCacheEnabled;
         settings.EnableDiagnostics=state.DiagnosticsEnabled;
     }
     public static void Apply(ref UnitContactSolverSettings settings)=>Apply(Target,ref settings);
@@ -88,7 +88,7 @@ public static class IncrementalContactPipelineExperimentRuntime
             UnitCount=unitCount,SubstepCount=settings.SubstepCount,
             IterationCount=settings.IterationCount,
             ContactPositionSolver=(byte)settings.ContactPositionSolver,
-            DeltaTime=deltaTime,GuardEnvelopeMargin=settings.FatAabbCacheMargin,
+            DeltaTime=deltaTime,GuardEnvelopeMargin=settings.PersistentGuardEnvelopeMargin,
             PredictiveSkin=settings.PredictiveSkin,
             TimestepContactMargin=settings.TimestepContactMargin,
             SoftAvoidanceShell=softAvoidanceShell,

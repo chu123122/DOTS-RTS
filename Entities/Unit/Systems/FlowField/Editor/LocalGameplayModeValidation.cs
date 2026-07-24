@@ -373,7 +373,7 @@ public static class LocalGameplayModeValidation
                 Compliance = 0f,
                 PredictiveSkin = 0f,
                 EnableDiagnostics = false,
-                EnableFatAabbCache = false
+                EnablePersistentContactCache = false
             });
 
             Entity unit = entityManager.CreateEntity(
