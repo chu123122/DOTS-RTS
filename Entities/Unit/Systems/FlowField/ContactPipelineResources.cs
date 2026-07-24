@@ -8,9 +8,10 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Systems
 {
 /// <summary>
-/// Cross-timestep contact state owned by one movement-system World.
-/// It is never passed as a nested NativeContainer to a job; the scheduler exposes
-/// its individual containers when constructing the solver ABI.
+/// Cross-timestep candidate contact state owned by one movement-system World.
+/// Only the interaction certifier may interpret or mutate these containers.
+/// They are never authoritative lower-stage inputs until certified frame views
+/// have been committed.
 /// </summary>
 internal struct ContactPersistentState
 {
@@ -124,6 +125,12 @@ internal struct ContactFrameResources
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactScheduleScratch;
     public NativeReference<int> PredictiveContactScheduleCursor;
+
+    // The compact consumer views above are authoritative only while this
+    // certificate remains issued for their exact step/substep scope.
+    public NativeReference<InteractionCertificate> InteractionCertificate;
+    public NativeList<InteractionCertificateViolation> InteractionViolations;
+
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
     public NativeArray<int> ActiveIncidentOffsets;
@@ -174,6 +181,8 @@ internal struct ContactFrameResources
             PredictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(math.max(unitCount * 2, 1), Allocator.TempJob),
             PredictiveContactScheduleScratch = new NativeList<PredictiveContactScheduleEntry>(one, Allocator.TempJob),
             PredictiveContactScheduleCursor = new NativeReference<int>(Allocator.TempJob),
+            InteractionCertificate = new NativeReference<InteractionCertificate>(Allocator.TempJob),
+            InteractionViolations = new NativeList<InteractionCertificateViolation>(one, Allocator.TempJob),
             CorrectedBodyFlags = new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             CorrectedBodyIndices = new NativeList<int>(one, Allocator.TempJob),
             ActiveIncidentOffsets = usesJacobiScratch ? new NativeArray<int>(unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory) : default,
@@ -223,6 +232,8 @@ internal struct ContactFrameResources
         combined = Combine(combined, PredictiveContactSchedule.Dispose(finalReader));
         combined = Combine(combined, PredictiveContactScheduleScratch.Dispose(finalReader));
         combined = Combine(combined, PredictiveContactScheduleCursor.Dispose(finalReader));
+        combined = Combine(combined, InteractionCertificate.Dispose(finalReader));
+        combined = Combine(combined, InteractionViolations.Dispose(finalReader));
         combined = Combine(combined, CorrectedBodyFlags.Dispose(finalReader));
         combined = Combine(combined, CorrectedBodyIndices.Dispose(finalReader));
         if (ActiveIncidentOffsets.IsCreated) combined = Combine(combined, ActiveIncidentOffsets.Dispose(finalReader));
