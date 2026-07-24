@@ -2,6 +2,7 @@ using Unity.Entities;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
+#if RTS_CONTACT_DIAGNOSTICS
 /// <summary>
 /// Managed presentation bridge. Only main-thread systems and MonoBehaviours may access it.
 /// Solver jobs never write managed state directly.
@@ -76,7 +77,6 @@ public static class SimulationDebuggerRuntime
     public static float HeatmapOpacity { get; set; } = 0.28f;
     public static float SlowTimeScale { get; set; } = 0.1f;
 
-
     public static bool TimestepContactSetCacheEnabled
     {
         get
@@ -132,7 +132,6 @@ public static class SimulationDebuggerRuntime
                 return _publishedVersion;
         }
     }
-
 
     public static void CaptureBaselineSettings(SimulationDebuggerEffectiveSettings settings)
     {
@@ -315,4 +314,111 @@ public static class SimulationDebuggerRuntime
         }
     }
 }
+#else
+/// <summary>
+/// Gameplay-only facade. The API remains source-compatible so runtime systems do
+/// not need a second call graph, but no managed snapshot, history, selection, or
+/// experiment state is retained when diagnostics are not compiled.
+/// </summary>
+public static class SimulationDebuggerRuntime
+{
+    public static SimulationDebuggerCaptureMask CaptureMask
+    {
+        get => SimulationDebuggerCaptureMask.None;
+        set { }
+    }
+
+    public static void SetLocalRecordingCapture(bool enabled) { }
+
+    public static SimulationDebuggerView ActiveView
+    {
+        get => SimulationDebuggerView.Overview;
+        set { }
+    }
+
+    public static SimulationDebuggerHeatmap ActiveHeatmap
+    {
+        get => SimulationDebuggerHeatmap.None;
+        set { }
+    }
+
+    public static SimulationDebuggerHeatmap WorldHeatmap
+    {
+        get => SimulationDebuggerHeatmap.None;
+        set { }
+    }
+
+    public static SimulationDebuggerView WorldOverlayView
+    {
+        get => SimulationDebuggerView.Overview;
+        set { }
+    }
+
+    public static Entity SelectedEntity
+    {
+        get => Entity.Null;
+        set { }
+    }
+
+    public static bool OverlayEnabled { get => false; set { } }
+    public static bool FreezeSnapshot { get => false; set { } }
+    public static int MaximumVisualizedPairs { get => 0; set { } }
+    public static int SummarySampleIntervalFrames { get => int.MaxValue; set { } }
+    public static int SpatialSampleIntervalFrames { get => int.MaxValue; set { } }
+    public static int ExperimentWarmupFrames { get => 0; set { } }
+    public static float HeatmapOpacity { get => 0f; set { } }
+    public static float SlowTimeScale { get => 1f; set { } }
+
+    // Timestep contact-set reuse is gameplay behavior today. Keep the existing
+    // default enabled until its authority is moved out of the debugger facade.
+    public static bool TimestepContactSetCacheEnabled { get => true; set { } }
+
+    public static SimulationExperimentMetrics UpdateExperimentIdentity(
+        SimulationDebuggerEffectiveSettings settings) => default;
+
+    public static ulong PublishedVersion => 0;
+    public static void CaptureBaselineSettings(SimulationDebuggerEffectiveSettings settings) { }
+
+    public static bool TryGetBaselineSettings(out SimulationDebuggerEffectiveSettings settings)
+    {
+        settings = default;
+        return false;
+    }
+
+    public static void SubmitSettings(SimulationDebuggerEffectiveSettings settings) { }
+    public static void RequestSettingsReset() { }
+
+    public static bool TryConsumeSettingsRequest(
+        out SimulationDebuggerEffectiveSettings settings,
+        out bool reset)
+    {
+        settings = default;
+        reset = false;
+        return false;
+    }
+
+    public static void RequestContactCacheReset() { }
+    public static bool TryConsumeContactCacheReset() => false;
+    public static void Publish(SimulationDebuggerFrameSnapshot snapshot) { }
+    public static SimulationDebuggerTrend GetSolverTrend(int windowFrames = 60) => default;
+    public static SimulationDebuggerTrend GetCorrectionTrend(int windowFrames = 60) => default;
+    public static SimulationDebuggerTrend GetCacheHitTrend(int windowFrames = 60) => default;
+    public static SimulationDebuggerTrend GetContactPairTrend(int windowFrames = 60) => default;
+    public static SimulationDebuggerTrend GetActiveContactTrend(int windowFrames = 60) => default;
+    public static void CopyHistoryTo(SimulationDebuggerHistory target, float[] buffer) { }
+    public static SimulationDebuggerHistory GetSolverHistory() => null;
+    public static SimulationDebuggerHistory GetCorrectionHistory() => null;
+    public static SimulationDebuggerHistory GetCacheHitHistory() => null;
+    public static SimulationDebuggerHistory GetContactPairHistory() => null;
+    public static SimulationDebuggerHistory GetActiveContactHistoryObj() => null;
+
+    public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot)
+    {
+        snapshot = null;
+        return false;
+    }
+
+    public static void Reset() { }
+}
+#endif
 }
