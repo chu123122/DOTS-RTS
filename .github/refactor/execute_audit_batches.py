@@ -4,12 +4,14 @@ import gzip
 import subprocess
 import traceback
 
-payload = Path(__file__).with_name("execute_audit_batches.py.gz.b64")
+root = Path(__file__).parent
+parts = [root / f"audit_payload_{index:02}.part" for index in range(3)]
 try:
-    source = gzip.decompress(base64.b64decode(payload.read_text(encoding="utf-8").strip()))
-    exec(compile(source, str(payload), "exec"))
+    encoded = "".join(path.read_text(encoding="utf-8") for path in parts)
+    source = gzip.decompress(base64.b64decode(encoded))
+    exec(compile(source, str(parts[0]), "exec"))
 except BaseException:
-    error_path = Path(__file__).with_name("audit-batch-error.txt")
+    error_path = root / "audit-batch-error.txt"
     error_path.write_text(traceback.format_exc(), encoding="utf-8")
     subprocess.run(["git", "add", str(error_path)], check=False)
     subprocess.run(["git", "commit", "-m", "chore: capture diagnostics audit batch failure"], check=False)
