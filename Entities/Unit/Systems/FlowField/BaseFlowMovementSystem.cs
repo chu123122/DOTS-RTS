@@ -27,10 +27,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private NativeList<StableEntityPairKey> _persistentSoftAvoidancePairKeys;
     private NativeList<PredictiveContactScheduleEntry> _persistentDormantContactSchedule;
     private NativeReference<IncrementalContactCacheState> _incrementalContactCacheState;
-    private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs;
-    private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
-    private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
-    private Entity _incrementalDiagnosticsEntity;
 
     protected override void OnCreate()
     {
@@ -61,21 +57,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         _incrementalContactCacheState =
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
         CreatePersistentIncidentLookup();
-        _simulationDebuggerSelectedPairs =
-            new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
-        _simulationDebuggerSelectedUnit =
-            new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
-        _simulationDebuggerSelectedUnitValid =
-            new NativeReference<byte>(Allocator.Persistent);
-        _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
-            typeof(IncrementalContactPipelineSnapshot));
+        CreatePersistentDiagnostics();
     }
 
     protected override void OnDestroy()
     {
         Dependency.Complete();
-        if (EntityManager.Exists(_incrementalDiagnosticsEntity))
-            EntityManager.DestroyEntity(_incrementalDiagnosticsEntity);
         if (_persistentSweptProxies.IsCreated)
             _persistentSweptProxies.Dispose();
         if (_persistentProxyIndexByBody.IsCreated)
@@ -93,12 +80,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         if (_incrementalContactCacheState.IsCreated)
             _incrementalContactCacheState.Dispose();
         DisposePersistentIncidentLookup();
-        if (_simulationDebuggerSelectedPairs.IsCreated)
-            _simulationDebuggerSelectedPairs.Dispose();
-        if (_simulationDebuggerSelectedUnit.IsCreated)
-            _simulationDebuggerSelectedUnit.Dispose();
-        if (_simulationDebuggerSelectedUnitValid.IsCreated)
-            _simulationDebuggerSelectedUnitValid.Dispose();
+        DisposePersistentDiagnostics();
     }
 
     protected override void OnUpdate()
