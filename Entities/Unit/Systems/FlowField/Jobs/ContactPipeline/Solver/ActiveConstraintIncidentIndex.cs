@@ -9,6 +9,8 @@ public partial struct SolveXpbdUnitContactsJob
 {
     private void RebuildActiveConstraintIncidentIndexIfNeeded()
     {
+        if (ContactPositionSolver != ContactPositionSolverMode.Jacobi)
+            return;
         EnsureActiveConstraintIncidentIndexP1P6();
     }
 }

@@ -137,6 +137,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
         EnsurePersistentIncidentLookupCapacity(unitCount);
+        bool usesJacobiScratch =
+            contactSolverSettings.ContactPositionSolver ==
+            ContactPositionSolverMode.Jacobi;
+        bool useParallelJacobi = usesJacobiScratch;
+        bool captureParallelSelectedPairs =
+            useParallelJacobi &&
+            diagnosticSelectedEntity != Entity.Null &&
+            (SimulationDebuggerRuntime.CaptureMask &
+             SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
+            (SimulationDebuggerRuntime.CaptureMask &
+             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
 
         // 同一 EntityQuery 的各阶段通过 EntityIndexInQuery 访问相同槽位，
         // 避免把仅在本帧有效的中间状态写回 ECS 组件。
@@ -243,50 +254,95 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var correctedBodyIndices = new NativeList<int>(
             math.max(unitCount, 1),
             Allocator.TempJob);
-        var activeIncidentOffsets = new NativeArray<int>(
-            unitCount + 1,
-            Allocator.TempJob,
-            NativeArrayOptions.ClearMemory);
-        var activeIncidentWriteCursors = new NativeArray<int>(
-            unitCount,
-            Allocator.TempJob,
-            NativeArrayOptions.ClearMemory);
-        var activeIncidentPairIndices = new NativeList<int>(
-            math.max(unitCount * 8, 1),
-            Allocator.TempJob);
-        var jacobiPairCorrections = new NativeList<JacobiPairCorrection>(
-            math.max(unitCount * 4, 1),
-            Allocator.TempJob);
-        var envelopeEscapeFlags = new NativeArray<byte>(
-            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
-        var parallelBodyStatistics = new NativeArray<ParallelBodyStageStatistics>(
-            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
-        var softIncidentOffsets = new NativeArray<int>(
-            unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory);
-        var softIncidentWriteCursors = new NativeArray<int>(
-            unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
-        var softIncidentPairIndices = new NativeList<int>(
-            math.max(unitCount * 8, 1), Allocator.TempJob);
-        var softPairContributions = new NativeList<SoftAvoidancePairContribution>(
-            math.max(unitCount * 4, 1), Allocator.TempJob);
-        var activeIncidentIndexState =
-            new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob);
-        var persistentClassificationResults =
-            new NativeList<PersistentPairClassificationResult>(
-                math.max(unitCount * 8, 1), Allocator.TempJob);
-        var persistentClassificationState =
-            new NativeReference<ParallelPersistentClassificationState>(Allocator.TempJob);
+        var activeIncidentOffsets = usesJacobiScratch
+            ? new NativeArray<int>(
+                unitCount + 1,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var activeIncidentWriteCursors = usesJacobiScratch
+            ? new NativeArray<int>(
+                unitCount,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var activeIncidentPairIndices = usesJacobiScratch
+            ? new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob)
+            : default;
+        var jacobiPairCorrections = usesJacobiScratch
+            ? new NativeList<JacobiPairCorrection>(
+                math.max(unitCount * 4, 1),
+                Allocator.TempJob)
+            : default;
+        var envelopeEscapeFlags = useParallelJacobi
+            ? new NativeArray<byte>(
+                unitCount,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var parallelBodyStatistics = useParallelJacobi
+            ? new NativeArray<ParallelBodyStageStatistics>(
+                unitCount,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var softIncidentOffsets = useParallelJacobi
+            ? new NativeArray<int>(
+                unitCount + 1,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var softIncidentWriteCursors = useParallelJacobi
+            ? new NativeArray<int>(
+                unitCount,
+                Allocator.TempJob,
+                NativeArrayOptions.ClearMemory)
+            : default;
+        var softIncidentPairIndices = useParallelJacobi
+            ? new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob)
+            : default;
+        var softPairContributions = useParallelJacobi
+            ? new NativeList<SoftAvoidancePairContribution>(
+                math.max(unitCount * 4, 1),
+                Allocator.TempJob)
+            : default;
+        var activeIncidentIndexState = usesJacobiScratch
+            ? new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob)
+            : default;
+        var persistentClassificationResults = useParallelJacobi
+            ? new NativeList<PersistentPairClassificationResult>(
+                math.max(unitCount * 8, 1),
+                Allocator.TempJob)
+            : default;
+        var persistentClassificationState = useParallelJacobi
+            ? new NativeReference<ParallelPersistentClassificationState>(
+                Allocator.TempJob)
+            : default;
+        var parallelSimulationDebuggerPairCandidates = captureParallelSelectedPairs
+            ? new NativeList<ParallelSimulationDebuggerPairCapture>(
+                math.max(unitCount * 4, 1),
+                Allocator.TempJob)
+            : default;
+        var parallelSimulationDebuggerPairScratch = captureParallelSelectedPairs
+            ? new NativeList<SimulationDebuggerPairSample>(
+                math.max(unitCount, 1),
+                Allocator.TempJob)
+            : default;
         var persistentSpatialVisitStampByProxy = new NativeArray<uint>(
             unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
         var persistentSpatialVisitStamp =
             new NativeReference<uint>(Allocator.TempJob);
-        var parallelJacobiRuntimeState =
-            new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob);
-        var parallelJacobiIterationState =
-            new NativeReference<ParallelJacobiIterationState>(Allocator.TempJob);
-        var parallelJacobiBlockStatistics = new NativeList<JacobiBlockStatistics>(
-            math.max((unitCount * 4 + 63) / 64, 1),
-            Allocator.TempJob);
+        var parallelJacobiRuntimeState = useParallelJacobi
+            ? new NativeReference<ParallelJacobiRuntimeState>(Allocator.TempJob)
+            : default;
+        var parallelJacobiIterationState = useParallelJacobi
+            ? new NativeReference<ParallelJacobiIterationState>(Allocator.TempJob)
+            : default;
+        var parallelJacobiBlockStatistics = useParallelJacobi
+            ? new NativeList<JacobiBlockStatistics>(
+                math.max((unitCount * 4 + 63) / 64, 1),
+                Allocator.TempJob)
+            : default;
         var contactStatistics =
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
@@ -364,6 +420,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SimulationDebuggerCaptureMask = SimulationDebuggerRuntime.CaptureMask,
             SimulationDebuggerMaximumPairs = SimulationDebuggerRuntime.MaximumVisualizedPairs,
             SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
+            ParallelSimulationDebuggerPairCandidates =
+                parallelSimulationDebuggerPairCandidates,
+            ParallelSimulationDebuggerPairScratch =
+                parallelSimulationDebuggerPairScratch,
             SimulationDebuggerSelectedUnit = _simulationDebuggerSelectedUnit,
             SimulationDebuggerSelectedUnitValid = _simulationDebuggerSelectedUnitValid,
             States = states,
@@ -373,12 +433,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SelectedBodyDiagnostic = selectedBodyDiagnostic,
             HeatSamples = heatSamples
         };
-        bool requiresSerialJacobiCapture =
-            (SimulationDebuggerRuntime.CaptureMask &
-             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
-        bool useParallelJacobi =
-            contactSolverSettings.ContactPositionSolver == ContactPositionSolverMode.Jacobi &&
-            !requiresSerialJacobiCapture;
         JobHandle solveContactHandle = useParallelJacobi
             ? solveContactJob.ScheduleParallelJacobiP1P6(
                 parallelJacobiRuntimeState,
@@ -467,42 +521,77 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             correctedBodyFlags.Dispose(applyMovementHandle);
         JobHandle correctedBodyIndexDisposeHandle =
             correctedBodyIndices.Dispose(applyMovementHandle);
-        JobHandle activeIncidentOffsetDisposeHandle =
-            activeIncidentOffsets.Dispose(applyMovementHandle);
+        JobHandle activeIncidentOffsetDisposeHandle = activeIncidentOffsets.IsCreated
+            ? activeIncidentOffsets.Dispose(applyMovementHandle)
+            : default;
         JobHandle activeIncidentWriteCursorDisposeHandle =
-            activeIncidentWriteCursors.Dispose(applyMovementHandle);
+            activeIncidentWriteCursors.IsCreated
+                ? activeIncidentWriteCursors.Dispose(applyMovementHandle)
+                : default;
         JobHandle activeIncidentPairIndexDisposeHandle =
-            activeIncidentPairIndices.Dispose(applyMovementHandle);
-        JobHandle jacobiPairCorrectionDisposeHandle =
-            jacobiPairCorrections.Dispose(applyMovementHandle);
-        JobHandle envelopeEscapeFlagDisposeHandle =
-            envelopeEscapeFlags.Dispose(applyMovementHandle);
+            activeIncidentPairIndices.IsCreated
+                ? activeIncidentPairIndices.Dispose(applyMovementHandle)
+                : default;
+        JobHandle jacobiPairCorrectionDisposeHandle = jacobiPairCorrections.IsCreated
+            ? jacobiPairCorrections.Dispose(applyMovementHandle)
+            : default;
+        JobHandle envelopeEscapeFlagDisposeHandle = envelopeEscapeFlags.IsCreated
+            ? envelopeEscapeFlags.Dispose(applyMovementHandle)
+            : default;
         JobHandle parallelBodyStatisticsDisposeHandle =
-            parallelBodyStatistics.Dispose(applyMovementHandle);
-        JobHandle softIncidentOffsetDisposeHandle =
-            softIncidentOffsets.Dispose(applyMovementHandle);
+            parallelBodyStatistics.IsCreated
+                ? parallelBodyStatistics.Dispose(applyMovementHandle)
+                : default;
+        JobHandle softIncidentOffsetDisposeHandle = softIncidentOffsets.IsCreated
+            ? softIncidentOffsets.Dispose(applyMovementHandle)
+            : default;
         JobHandle softIncidentWriteCursorDisposeHandle =
-            softIncidentWriteCursors.Dispose(applyMovementHandle);
+            softIncidentWriteCursors.IsCreated
+                ? softIncidentWriteCursors.Dispose(applyMovementHandle)
+                : default;
         JobHandle softIncidentPairIndexDisposeHandle =
-            softIncidentPairIndices.Dispose(applyMovementHandle);
-        JobHandle softPairContributionDisposeHandle =
-            softPairContributions.Dispose(applyMovementHandle);
+            softIncidentPairIndices.IsCreated
+                ? softIncidentPairIndices.Dispose(applyMovementHandle)
+                : default;
+        JobHandle softPairContributionDisposeHandle = softPairContributions.IsCreated
+            ? softPairContributions.Dispose(applyMovementHandle)
+            : default;
         JobHandle activeIncidentIndexStateDisposeHandle =
-            activeIncidentIndexState.Dispose(applyMovementHandle);
+            activeIncidentIndexState.IsCreated
+                ? activeIncidentIndexState.Dispose(applyMovementHandle)
+                : default;
         JobHandle persistentClassificationResultDisposeHandle =
-            persistentClassificationResults.Dispose(applyMovementHandle);
+            persistentClassificationResults.IsCreated
+                ? persistentClassificationResults.Dispose(applyMovementHandle)
+                : default;
         JobHandle persistentClassificationStateDisposeHandle =
-            persistentClassificationState.Dispose(applyMovementHandle);
+            persistentClassificationState.IsCreated
+                ? persistentClassificationState.Dispose(applyMovementHandle)
+                : default;
+        JobHandle parallelSimulationDebuggerPairCandidateDisposeHandle =
+            parallelSimulationDebuggerPairCandidates.IsCreated
+                ? parallelSimulationDebuggerPairCandidates.Dispose(applyMovementHandle)
+                : default;
+        JobHandle parallelSimulationDebuggerPairScratchDisposeHandle =
+            parallelSimulationDebuggerPairScratch.IsCreated
+                ? parallelSimulationDebuggerPairScratch.Dispose(applyMovementHandle)
+                : default;
         JobHandle persistentSpatialVisitStampArrayDisposeHandle =
             persistentSpatialVisitStampByProxy.Dispose(applyMovementHandle);
         JobHandle persistentSpatialVisitStampDisposeHandle =
             persistentSpatialVisitStamp.Dispose(applyMovementHandle);
         JobHandle parallelJacobiRuntimeStateDisposeHandle =
-            parallelJacobiRuntimeState.Dispose(applyMovementHandle);
+            parallelJacobiRuntimeState.IsCreated
+                ? parallelJacobiRuntimeState.Dispose(applyMovementHandle)
+                : default;
         JobHandle parallelJacobiIterationStateDisposeHandle =
-            parallelJacobiIterationState.Dispose(applyMovementHandle);
+            parallelJacobiIterationState.IsCreated
+                ? parallelJacobiIterationState.Dispose(applyMovementHandle)
+                : default;
         JobHandle parallelJacobiBlockStatisticsDisposeHandle =
-            parallelJacobiBlockStatistics.Dispose(applyMovementHandle);
+            parallelJacobiBlockStatistics.IsCreated
+                ? parallelJacobiBlockStatistics.Dispose(applyMovementHandle)
+                : default;
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
@@ -584,6 +673,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             solverScratchDisposeHandle,
             persistentClassificationResultDisposeHandle,
             persistentClassificationStateDisposeHandle);
+        solverScratchDisposeHandle = JobHandle.CombineDependencies(
+            solverScratchDisposeHandle,
+            parallelSimulationDebuggerPairCandidateDisposeHandle,
+            parallelSimulationDebuggerPairScratchDisposeHandle);
         solverScratchDisposeHandle = JobHandle.CombineDependencies(
             solverScratchDisposeHandle,
             persistentSpatialVisitStampArrayDisposeHandle,

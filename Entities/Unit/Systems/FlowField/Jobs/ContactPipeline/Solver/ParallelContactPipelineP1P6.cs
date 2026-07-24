@@ -75,6 +75,12 @@ public partial struct SolveXpbdUnitContactsJob
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
+        bool captureSelectedPairs =
+            DiagnosticSelectedEntity != Entity.Null &&
+            (SimulationDebuggerCaptureMask &
+             SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
+            (SimulationDebuggerCaptureMask &
+             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
         int escapeBlockCount =
             (States.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
         if (substepDeltaTime <= 0f)
@@ -337,6 +343,33 @@ public partial struct SolveXpbdUnitContactsJob
                 PredictiveSkin = Configuration.PredictiveSkin
             }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+            handle = new CountP1P6EnvelopeEscapeBlocksJob
+            {
+                EscapeFlags = EnvelopeEscapeFlags,
+                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                BodyCount = States.Length,
+                Enabled = 1
+            }.Schedule(escapeBlockCount, 1, handle);
+
+            handle = new PrefixP1P6EnvelopeEscapesJob
+            {
+                BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                DirtyBodies = IncrementalDirtyBodies,
+                BlockCount = escapeBlockCount
+            }.Schedule(handle);
+
+            handle = new ScatterP1P6EnvelopeEscapesJob
+            {
+                EscapeFlags = EnvelopeEscapeFlags,
+                BlockOffsets = SoftIncidentWriteCursors,
+                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                States = States,
+                BodyStatistics = ParallelBodyStatistics,
+                BodyCount = States.Length
+            }.Schedule(escapeBlockCount, 1, handle);
+
             handle = new FinalizeP1P6PreparedSubstepJob
             {
                 Solver = this,
@@ -370,30 +403,108 @@ public partial struct SolveXpbdUnitContactsJob
                     BodyStatistics = ParallelBodyStatistics
                 }.Schedule(States.Length, ParallelBodyBatchSize, handle);
 
+                handle = new CountAndReduceP1P6WallBlocksJob
+                {
+                    CorrectedBodyFlags = CorrectedBodyFlags,
+                    BodyStatistics = ParallelBodyStatistics,
+                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    BodyCount = States.Length
+                }.Schedule(escapeBlockCount, 1, handle);
+
+                handle = new PrefixP1P6CorrectedBodiesJob
+                {
+                    BlockOffsetsAndCounts = SoftIncidentWriteCursors,
+                    CorrectedBodyIndices = CorrectedBodyIndices,
+                    BlockCount = escapeBlockCount
+                }.Schedule(handle);
+
+                handle = new ScatterP1P6CorrectedBodiesJob
+                {
+                    CorrectedBodyFlags = CorrectedBodyFlags,
+                    BlockOffsets = SoftIncidentWriteCursors,
+                    CorrectedBodyIndices = CorrectedBodyIndices.AsDeferredJobArray(),
+                    BodyCount = States.Length
+                }.Schedule(escapeBlockCount, 1, handle);
+
                 handle = new FinalizeP1P6WallIterationJob
                 {
                     Solver = this,
                     RuntimeState = runtimeState,
                     IterationState = iterationState,
                     BlockStatistics = blockStatistics,
-                    SubstepIndex = substepIndex
+                    SubstepIndex = substepIndex,
+                    BodyBlockCount = escapeBlockCount
                 }.Schedule(handle);
 
-                handle = new EvaluateParallelJacobiPairsJob
+                if (captureSelectedPairs)
                 {
-                    Alpha = Configuration.Compliance /
-                            math.max(0.0000001f, substepDeltaTime * substepDeltaTime),
-                    SubstepIndex = substepIndex,
-                    States = States,
-                    Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                    Corrections = JacobiPairCorrections.AsDeferredJobArray()
-                }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                    handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
+                    {
+                        Alpha = Configuration.Compliance /
+                                math.max(
+                                    0.0000001f,
+                                    substepDeltaTime * substepDeltaTime),
+                        SubstepIndex = substepIndex,
+                        States = States,
+                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                        DiagnosticPairCandidates =
+                            ParallelSimulationDebuggerPairCandidates
+                                .AsDeferredJobArray(),
+                        DiagnosticSelectedEntity = DiagnosticSelectedEntity
+                    }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                }
+                else
+                {
+                    handle = new EvaluateParallelJacobiPairsJob
+                    {
+                        Alpha = Configuration.Compliance /
+                                math.max(
+                                    0.0000001f,
+                                    substepDeltaTime * substepDeltaTime),
+                        SubstepIndex = substepIndex,
+                        States = States,
+                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Corrections = JacobiPairCorrections.AsDeferredJobArray()
+                    }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                }
 
                 handle = new ReduceParallelJacobiBlocksJob
                 {
                     Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                     Blocks = blockStatistics.AsDeferredJobArray()
                 }.Schedule(blockStatistics, 1, handle);
+
+                if (captureSelectedPairs)
+                {
+                    handle = new CountParallelSimulationDebuggerPairBlocksJob
+                    {
+                        Candidates =
+                            ParallelSimulationDebuggerPairCandidates
+                                .AsDeferredJobArray(),
+                        Blocks = blockStatistics.AsDeferredJobArray()
+                    }.Schedule(blockStatistics, 1, handle);
+
+                    handle = new PrefixParallelSimulationDebuggerPairsJob
+                    {
+                        Blocks = blockStatistics.AsDeferredJobArray(),
+                        Scratch = ParallelSimulationDebuggerPairScratch
+                    }.Schedule(handle);
+
+                    handle = new ScatterParallelSimulationDebuggerPairsJob
+                    {
+                        Candidates =
+                            ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
+                        Blocks = blockStatistics.AsDeferredJobArray(),
+                        Scratch =
+                            ParallelSimulationDebuggerPairScratch.AsDeferredJobArray()
+                    }.Schedule(blockStatistics, 1, handle);
+
+                    handle = new MergeParallelSimulationDebuggerPairsJob
+                    {
+                        Solver = this
+                    }.Schedule(handle);
+                }
 
                 handle = new GatherAndApplyParallelJacobiBodiesJob
                 {
@@ -1123,6 +1234,82 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
+    private struct CountParallelSimulationDebuggerPairBlocksJob :
+        IJobParallelForDefer
+    {
+        [ReadOnly] public NativeArray<ParallelSimulationDebuggerPairCapture>
+            Candidates;
+        public NativeArray<JacobiBlockStatistics> Blocks;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * JacobiPairBatchSize;
+            int end = math.min(begin + JacobiPairBatchSize, Candidates.Length);
+            int selectedPairCount = 0;
+            for (int pairIndex = begin; pairIndex < end; pairIndex++)
+            {
+                selectedPairCount += Candidates[pairIndex].IsValid != 0 ? 1 : 0;
+            }
+
+            JacobiBlockStatistics block = Blocks[blockIndex];
+            block.SelectedPairCount = selectedPairCount;
+            Blocks[blockIndex] = block;
+        }
+    }
+
+    [BurstCompile]
+    private struct PrefixParallelSimulationDebuggerPairsJob : IJob
+    {
+        public NativeArray<JacobiBlockStatistics> Blocks;
+        public NativeList<SimulationDebuggerPairSample> Scratch;
+
+        public void Execute()
+        {
+            int offset = 0;
+            for (int blockIndex = 0; blockIndex < Blocks.Length; blockIndex++)
+            {
+                JacobiBlockStatistics block = Blocks[blockIndex];
+                block.SelectedPairOffset = offset;
+                offset += block.SelectedPairCount;
+                Blocks[blockIndex] = block;
+            }
+            Scratch.ResizeUninitialized(offset);
+        }
+    }
+
+    [BurstCompile]
+    private struct ScatterParallelSimulationDebuggerPairsJob : IJobParallelForDefer
+    {
+        [ReadOnly] public NativeArray<ParallelSimulationDebuggerPairCapture>
+            Candidates;
+        [ReadOnly] public NativeArray<JacobiBlockStatistics> Blocks;
+        [NativeDisableParallelForRestriction]
+        public NativeArray<SimulationDebuggerPairSample> Scratch;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * JacobiPairBatchSize;
+            int end = math.min(begin + JacobiPairBatchSize, Candidates.Length);
+            int writeIndex = Blocks[blockIndex].SelectedPairOffset;
+            for (int pairIndex = begin; pairIndex < end; pairIndex++)
+            {
+                ParallelSimulationDebuggerPairCapture candidate =
+                    Candidates[pairIndex];
+                if (candidate.IsValid == 0)
+                    continue;
+                Scratch[writeIndex++] = candidate.Sample;
+            }
+        }
+    }
+
+    [BurstCompile]
+    private struct MergeParallelSimulationDebuggerPairsJob : IJob
+    {
+        public SolveXpbdUnitContactsJob Solver;
+        public void Execute() => Solver.MergeParallelSimulationDebuggerPairScratch();
+    }
+
+    [BurstCompile]
     private struct BeginP1P6IterationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
@@ -1203,6 +1390,77 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     [BurstCompile]
+    private struct CountAndReduceP1P6WallBlocksJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> CorrectedBodyFlags;
+        [NativeDisableParallelForRestriction]
+        public NativeArray<ParallelBodyStageStatistics> BodyStatistics;
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public int BodyCount;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int correctedCount = 0;
+            ParallelBodyStageStatistics aggregate = default;
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                ParallelBodyStageStatistics body = BodyStatistics[bodyIndex];
+                aggregate.Total += body.Total;
+                aggregate.Maximum = math.max(aggregate.Maximum, body.Maximum);
+                correctedCount += CorrectedBodyFlags[bodyIndex] != 0 ? 1 : 0;
+            }
+
+            BlockOffsetsAndCounts[blockIndex] = correctedCount;
+            if (begin < BodyCount)
+                BodyStatistics[begin] = aggregate;
+        }
+    }
+
+    [BurstCompile]
+    private struct PrefixP1P6CorrectedBodiesJob : IJob
+    {
+        public NativeArray<int> BlockOffsetsAndCounts;
+        public NativeList<int> CorrectedBodyIndices;
+        public int BlockCount;
+
+        public void Execute()
+        {
+            int offset = 0;
+            for (int blockIndex = 0; blockIndex < BlockCount; blockIndex++)
+            {
+                int count = BlockOffsetsAndCounts[blockIndex];
+                BlockOffsetsAndCounts[blockIndex] = offset;
+                offset += count;
+            }
+            CorrectedBodyIndices.ResizeUninitialized(offset);
+        }
+    }
+
+    [BurstCompile]
+    private struct ScatterP1P6CorrectedBodiesJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<byte> CorrectedBodyFlags;
+        [ReadOnly] public NativeArray<int> BlockOffsets;
+        [NativeDisableParallelForRestriction]
+        public NativeArray<int> CorrectedBodyIndices;
+        public int BodyCount;
+
+        public void Execute(int blockIndex)
+        {
+            int begin = blockIndex * ParallelBodyBatchSize;
+            int end = math.min(begin + ParallelBodyBatchSize, BodyCount);
+            int writeIndex = BlockOffsets[blockIndex];
+            for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
+            {
+                if (CorrectedBodyFlags[bodyIndex] != 0)
+                    CorrectedBodyIndices[writeIndex++] = bodyIndex;
+            }
+        }
+    }
+
+    [BurstCompile]
     private struct FinalizeP1P6WallIterationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
@@ -1210,11 +1468,13 @@ public partial struct SolveXpbdUnitContactsJob
         public NativeReference<ParallelJacobiIterationState> IterationState;
         public NativeList<JacobiBlockStatistics> BlockStatistics;
         public int SubstepIndex;
+        public int BodyBlockCount;
         public void Execute() => Solver.FinalizeP1P6WallIteration(
             SubstepIndex,
             RuntimeState,
             IterationState,
-            BlockStatistics);
+            BlockStatistics,
+            BodyBlockCount);
     }
 
     [BurstCompile]
@@ -1358,12 +1618,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         PredictiveDiscContactStatistics statistics = Statistics.Value;
         IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
-        int newlyEscaped = 0;
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
-        {
-            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            newlyEscaped += ParallelBodyStatistics[bodyIndex].EscapeCount;
-        }
+        int newlyEscaped = CountNewlyEscapedP1P6();
         if (newlyEscaped > 0)
         {
             statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
@@ -1373,6 +1628,17 @@ public partial struct SolveXpbdUnitContactsJob
         incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
         Statistics.Value = statistics;
         IncrementalStatistics.Value = incremental;
+    }
+
+    private int CountNewlyEscapedP1P6()
+    {
+        int newlyEscaped = 0;
+        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
+        {
+            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
+            newlyEscaped += ParallelBodyStatistics[bodyIndex].EscapeCount;
+        }
+        return newlyEscaped;
     }
 
     private void PrepareP1P6SubstepRepairClassification(
@@ -1765,16 +2031,12 @@ public partial struct SolveXpbdUnitContactsJob
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
 
-        ClearIncrementalDirtyBodySet();
-        for (int bodyIndex = 0; bodyIndex < EnvelopeEscapeFlags.Length; bodyIndex++)
+        int newlyEscaped = CountNewlyEscapedP1P6();
+        if (newlyEscaped > 0)
         {
-            if (EnvelopeEscapeFlags[bodyIndex] == 0)
-                continue;
-            MarkContactEnvelopeEscape(
-                bodyIndex,
-                substepIndex,
-                IncrementalBodyDirtyFlags.Motion,
-                ref statistics);
+            statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
+            if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
+                statistics.TimestepContactSetFirstEscapeSubstep = substepIndex;
         }
         incremental.CorrectedEscapeBodyCount += IncrementalDirtyBodies.Length;
         bool rebuilt = false;
@@ -1840,23 +2102,22 @@ public partial struct SolveXpbdUnitContactsJob
         int substepIndex,
         NativeReference<ParallelJacobiRuntimeState> runtimeState,
         NativeReference<ParallelJacobiIterationState> iterationState,
-        NativeList<JacobiBlockStatistics> blockStatistics)
+        NativeList<JacobiBlockStatistics> blockStatistics,
+        int bodyBlockCount)
     {
         if (runtimeState.Value.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = Statistics.Value;
         IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
         ParallelJacobiIterationState iteration = iterationState.Value;
-        CorrectedBodyIndices.Clear();
-        for (int bodyIndex = 0; bodyIndex < CorrectedBodyFlags.Length; bodyIndex++)
+        for (int blockIndex = 0; blockIndex < bodyBlockCount; blockIndex++)
         {
+            int bodyIndex = blockIndex * ParallelBodyBatchSize;
             ParallelBodyStageStatistics body = ParallelBodyStatistics[bodyIndex];
             iteration.TotalWallPositionCorrection += body.Total;
             iteration.MaxWallPositionCorrection = math.max(
                 iteration.MaxWallPositionCorrection,
                 body.Maximum);
-            if (CorrectedBodyFlags[bodyIndex] != 0)
-                CorrectedBodyIndices.Add(bodyIndex);
         }
 
         if (!ValidateSolverCorrectionContactEnvelope(
@@ -1882,6 +2143,11 @@ public partial struct SolveXpbdUnitContactsJob
 
         ResetCorrectedBodyTracking();
         JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
+        if (ParallelSimulationDebuggerPairCandidates.IsCreated)
+        {
+            ParallelSimulationDebuggerPairCandidates.ResizeUninitialized(
+                TimestepContactPairs.Length);
+        }
         blockStatistics.ResizeUninitialized(
             (TimestepContactPairs.Length + JacobiPairBatchSize - 1) / JacobiPairBatchSize);
         Statistics.Value = statistics;
