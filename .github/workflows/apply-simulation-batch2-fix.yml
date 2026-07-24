@@ -1,0 +1,64 @@
+name: Apply simulation integration batch 2 follow-up
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: codex/simulation-integration
+      P1P6_FILE: Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs
+      GUARD_FILE: Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Prediction/ContactEnvelopeGuard.cs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve patch script
+        run: cp .codex/apply_simulation_batch2_fix.py /tmp/apply_simulation_batch2_fix.py
+
+      - name: Apply follow-up
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B integration "origin/$TARGET_BRANCH"
+          python /tmp/apply_simulation_batch2_fix.py
+
+      - name: Validate follow-up
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only | wc -l)" -eq 2
+          grep -F '[NativeDisableParallelForRestriction]' "$P1P6_FILE"
+          grep -F 'PersistentProxyIndexByBody.Clear();' "$P1P6_FILE"
+          ! grep -F '[ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;' "$P1P6_FILE"
+          ! grep -F 'IncrementalBodyDirtyFlags.Topology |' "$GUARD_FILE"
+          grep -F 'IncrementalBodyDirtyFlags.Motion |' "$GUARD_FILE"
+          python - <<'PY'
+          from pathlib import Path
+          for path in (
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs'),
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Prediction/ContactEnvelopeGuard.cs'),
+          ):
+              text = path.read_text(encoding='utf-8')
+              assert text.count('{') == text.count('}'), path
+          PY
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Codex"
+          git config user.email "codex@openai.com"
+          git add "$P1P6_FILE" "$GUARD_FILE"
+          git commit -m "fix: finalize persistent dirty certificate writes"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
