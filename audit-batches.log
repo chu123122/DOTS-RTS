@@ -18,3 +18,10 @@
  2 files changed, 7 insertions(+), 3 deletions(-)
 + git diff --check
 + git add -A
++ git commit -m refactor: resolve timestep cache configuration per world
+[codex/diagnostics-audit-runner 6dbec4a] refactor: resolve timestep cache configuration per world
+ 9 files changed, 21 insertions(+), 35 deletions(-)
+ delete mode 100644 Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/ContactPipelineRuntimeOptions.cs
+ delete mode 100644 Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/ContactPipelineRuntimeOptions.cs.meta
++ git diff --check
++ git add -A
