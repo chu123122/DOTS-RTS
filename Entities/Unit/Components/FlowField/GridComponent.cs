@@ -91,8 +91,8 @@ public struct UnitContactSolverSettings : IComponentData
     public float DiagnosticCaptureDuration;
     public float DiagnosticCaptureInterval;
     public bool EnableTimestepContactSetCache;
-    public bool EnableFatAabbCache;
-    public float FatAabbCacheMargin;
+    public bool EnablePersistentContactCache;
+    public float PersistentGuardEnvelopeMargin;
     public float TimestepContactMargin;
     public bool VisualizeContactHeatmap;
     public ContactHeatmapMode ContactHeatmapMode;

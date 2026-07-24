@@ -64,7 +64,7 @@ public struct ContactPipelineConfiguration
             EnableTimestepContactSetCache = enableTimestepContactSetCache,
             // Compatibility translation: the serialized FatAabb margin now means
             // the persistent guarded-proxy envelope margin.
-            GuardEnvelopeMargin = solverSettings.FatAabbCacheMargin,
+            GuardEnvelopeMargin = solverSettings.PersistentGuardEnvelopeMargin,
             TimestepContactMargin = solverSettings.TimestepContactMargin
         };
     }

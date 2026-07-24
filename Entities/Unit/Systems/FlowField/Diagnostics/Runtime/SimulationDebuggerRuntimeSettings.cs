@@ -31,10 +31,10 @@ public abstract partial class BaseFlowMovementSystem
         solverSettings.PredictiveSkin = math.max(0f, requested.PredictiveSkin);
         solverSettings.EnablePredictivePairGeneration = requested.EnablePredictivePairGeneration != 0;
         solverSettings.EnablePredictiveContacts = requested.EnablePredictiveContacts != 0;
-        solverSettings.EnableFatAabbCache = requested.EnableFatAabbCache != 0;
+        solverSettings.EnablePersistentContactCache = requested.EnablePersistentContactCache != 0;
         solverSettings.EnableTimestepContactSetCache =
             requested.EnableTimestepContactSetCache != 0;
-        solverSettings.FatAabbCacheMargin = math.max(0f, requested.FatAabbCacheMargin);
+        solverSettings.PersistentGuardEnvelopeMargin = math.max(0f, requested.PersistentGuardEnvelopeMargin);
         solverSettings.EnableDiagnostics = requested.EnableDiagnostics != 0;
 
         flowSettings.SoftAvoidanceResponseRate = math.max(0f, requested.SoftAvoidanceResponseRate);
@@ -67,11 +67,11 @@ public abstract partial class BaseFlowMovementSystem
                 (byte)(solverSettings.EnablePredictivePairGeneration ? 1 : 0),
             EnablePredictiveContacts =
                 (byte)(solverSettings.EnablePredictiveContacts ? 1 : 0),
-            EnableFatAabbCache =
-                (byte)(solverSettings.EnableFatAabbCache && timestepCacheEnabled ? 1 : 0),
+            EnablePersistentContactCache =
+                (byte)(solverSettings.EnablePersistentContactCache && timestepCacheEnabled ? 1 : 0),
             EnableTimestepContactSetCache =
                 (byte)(timestepCacheEnabled ? 1 : 0),
-            FatAabbCacheMargin = solverSettings.FatAabbCacheMargin,
+            PersistentGuardEnvelopeMargin = solverSettings.PersistentGuardEnvelopeMargin,
             EnableDiagnostics =
                 (byte)(solverSettings.EnableDiagnostics ? 1 : 0),
             SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,

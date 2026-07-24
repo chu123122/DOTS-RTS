@@ -253,7 +253,7 @@ public sealed partial class AdaptiveParameterTuner
 
         SimulationDebuggerEffectiveSettings settings = _benchmarkBaselineSettings;
         CurrentBenchmarkRun.Trial.ApplyTo(ref settings);
-        if (settings.EnableFatAabbCache != 0 && settings.EnableTimestepContactSetCache == 0)
+        if (settings.EnablePersistentContactCache != 0 && settings.EnableTimestepContactSetCache == 0)
         {
             settings.EnableTimestepContactSetCache = 1;
             Debug.LogWarning("[Benchmark] A 依赖 B，已将本次 trial 修正为 A1_B1。");
@@ -731,8 +731,8 @@ public sealed partial class AdaptiveParameterTuner
                 AveragePersistentViewReuse = _persistentViewReuse * inv, AveragePersistentViewRebuild = _persistentViewRebuild * inv, AverageInteractionEnvelopeEscapes = _interactionEnvelopeEscapes * inv, AverageFullRebuilds = _fullRebuilds * inv, AverageIncrementalRepairs = _incrementalRepairs * inv,
                 AverageContactPairs = _contactPairs * inv, AverageActivePairs = _activePairs * inv, AveragePredictivePairs = _predictivePairs * inv,
                 AverageSoftOracleMissing = _softOracleMissing * inv,
-                CrossFrameCache = run.Trial.EnableFatAabbCache, CrossSubstepCache = run.Trial.EnableTimestepContactSetCache,
-                Diagnostics = run.Trial.EnableDiagnostics, GuardMargin = run.Trial.FatAabbCacheMargin, Substeps = run.Trial.SubstepCount, Iterations = run.Trial.IterationCount
+                CrossFrameCache = run.Trial.EnablePersistentContactCache, CrossSubstepCache = run.Trial.EnableTimestepContactSetCache,
+                Diagnostics = run.Trial.EnableDiagnostics, GuardMargin = run.Trial.PersistentGuardEnvelopeMargin, Substeps = run.Trial.SubstepCount, Iterations = run.Trial.IterationCount
             };
         }
     }

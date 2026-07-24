@@ -73,7 +73,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         bool requestedPersistentContactCache =
             IncrementalContactPipelineExperimentRuntime.OverrideEnabledFor(diagnosticsWorldId)
                 ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabledFor(diagnosticsWorldId)
-                : contactSolverSettings.EnableFatAabbCache;
+                : contactSolverSettings.EnablePersistentContactCache;
         // 持久邻居拓扑只能为跨子步接触集提供候选；不允许“跨帧开、跨子步关”。
         bool effectivePersistentContactCache =
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
