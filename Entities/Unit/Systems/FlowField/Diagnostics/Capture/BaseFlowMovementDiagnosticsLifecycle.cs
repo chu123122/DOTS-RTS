@@ -86,14 +86,14 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
-    private Entity ResolveDiagnosticSelectedEntity()
+    private Entity ResolveDiagnosticSelectedEntity(ulong worldId)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        Entity selected = SimulationDebuggerRuntime.SelectedEntity;
+        Entity selected = SimulationDebuggerRuntime.SelectedEntityFor(worldId);
         if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection selection) && selection.SelectedEntity != Entity.Null)
         {
             selected = selection.SelectedEntity;
-            SimulationDebuggerRuntime.SelectedEntity = selected;
+            SimulationDebuggerRuntime.SetSelectedEntityFor(worldId, selected);
         }
         return selected;
 #else
@@ -101,12 +101,15 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
-    private static bool ShouldCaptureParallelSelectedPairs(bool useParallelJacobi, Entity selectedEntity)
+    private static bool ShouldCaptureParallelSelectedPairs(
+        bool useParallelJacobi,
+        Entity selectedEntity,
+        SimulationDebuggerCaptureMask captureMask)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         return useParallelJacobi && selectedEntity != Entity.Null &&
-               (SimulationDebuggerRuntime.CaptureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-               (SimulationDebuggerRuntime.CaptureMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+               (captureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
+               (captureMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0;
 #else
         return false;
 #endif
@@ -129,7 +132,18 @@ public abstract partial class BaseFlowMovementSystem
         return scratch;
     }
 
-    private ContactDiagnosticsPublishHandles ScheduleContactDiagnosticsPublication(ContactDiagnosticsFrameResources scratch, NativeReference<PredictiveDiscContactStatistics> contactStatistics, NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics, int unitCount, float deltaTime, float softAvoidanceShell, UnitContactSolverSettings solverSettings, bool effectiveTimestepContactSetCache, bool effectivePersistentContactCache, JobHandle solveContactHandle)
+    private ContactDiagnosticsPublishHandles ScheduleContactDiagnosticsPublication(
+        ContactDiagnosticsFrameResources scratch,
+        NativeReference<PredictiveDiscContactStatistics> contactStatistics,
+        NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics,
+        CompletedSimulationStepMetadata completedStep,
+        int unitCount,
+        float deltaTime,
+        float softAvoidanceShell,
+        UnitContactSolverSettings solverSettings,
+        bool effectiveTimestepContactSetCache,
+        bool effectivePersistentContactCache,
+        JobHandle solveContactHandle)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         JobHandle statistics = new PublishPredictiveDiscContactStatisticsJob
@@ -139,6 +153,7 @@ public abstract partial class BaseFlowMovementSystem
         }.Schedule(solveContactHandle);
         JobHandle incremental = new PublishIncrementalContactPipelineStatisticsJob
         {
+            CompletedStep = completedStep,
             Configuration = IncrementalContactPipelineExperimentRuntime.CaptureConfiguration(unitCount, deltaTime, softAvoidanceShell, solverSettings, effectiveTimestepContactSetCache, effectivePersistentContactCache),
             SolverSource = contactStatistics, Source = incrementalStatistics,
             Target = _incrementalDiagnosticsEntity,

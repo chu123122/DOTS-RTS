@@ -85,6 +85,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
     protected override void OnUpdate()
     {
+        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
         var gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         var flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         var flowFieldRuntimeState = SystemAPI.GetSingleton<FlowFieldRuntimeState>();
@@ -92,7 +93,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         // 先发布上一时间步已经完成的统计，再应用下一时间步的实验配置。
         // 这样面板中的 ExperimentId、有效配置和求解结果始终属于同一帧。
-        PublishSimulationDebuggerSnapshot(gridComponent, contactSolverSettings);
+        PublishSimulationDebuggerSnapshot(diagnosticsWorldId);
         ApplySimulationDebuggerRuntimeOverrides(
             ref flowFieldSettings,
             ref contactSolverSettings);
@@ -108,7 +109,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
         if (SimulationDebuggerRuntime.TryConsumeContactCacheReset())
             ResetPersistentContactCaches();
-        Entity diagnosticSelectedEntity = ResolveDiagnosticSelectedEntity();
+        SimulationDebuggerCaptureMask diagnosticsCaptureMask =
+            SimulationDebuggerRuntime.CaptureMaskFor(diagnosticsWorldId);
+        int diagnosticsMaximumPairs =
+            SimulationDebuggerRuntime.MaximumVisualizedPairsFor(diagnosticsWorldId);
+        Entity diagnosticSelectedEntity = ResolveDiagnosticSelectedEntity(diagnosticsWorldId);
         if (!gridComponent.Grid.IsCreated) return;
         if (flowFieldRuntimeState.ActiveVersion == 0) return;
 
@@ -121,8 +126,29 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             contactSolverSettings.ContactPositionSolver ==
             ContactPositionSolverMode.Jacobi;
         bool useParallelJacobi = usesJacobiScratch;
-        bool captureParallelSelectedPairs =
-            ShouldCaptureParallelSelectedPairs(useParallelJacobi, diagnosticSelectedEntity);
+        bool captureParallelSelectedPairs = ShouldCaptureParallelSelectedPairs(
+            useParallelJacobi,
+            diagnosticSelectedEntity,
+            diagnosticsCaptureMask);
+        SimulationDebuggerEffectiveSettings completedEffectiveSettings =
+            BuildEffectiveSettings(
+                flowFieldSettings,
+                contactSolverSettings,
+                AdaptiveFatAabbSettings.Default);
+        CompletedSimulationStepMetadata completedStep = new CompletedSimulationStepMetadata
+        {
+            WorldId = diagnosticsWorldId,
+            ElapsedTime = SystemAPI.Time.ElapsedTime,
+            DeltaTime = SystemAPI.Time.DeltaTime,
+            UnitCount = unitCount,
+            MaximumVisualizedPairs = diagnosticsMaximumPairs,
+            SelectedEntity = diagnosticSelectedEntity,
+            CaptureMask = diagnosticsCaptureMask,
+            EffectiveSettings = completedEffectiveSettings,
+            Experiment = SimulationDebuggerRuntime.UpdateExperimentIdentity(
+                diagnosticsWorldId,
+                completedEffectiveSettings)
+        };
         ContactDiagnosticsFrameResources diagnosticsScratch =
             CreateContactDiagnosticsFrameResources(unitCount, contactSolverSettings, captureParallelSelectedPairs);
 
@@ -380,8 +406,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             PersistentSpatialVisitStamp = persistentSpatialVisitStamp,
             PersistentClassificationResults = persistentClassificationResults,
             PersistentClassificationState = persistentClassificationState,
-            SimulationDebuggerCaptureMask = SimulationDebuggerRuntime.CaptureMask,
-            SimulationDebuggerMaximumPairs = SimulationDebuggerRuntime.MaximumVisualizedPairs,
+            SimulationDebuggerCaptureMask = diagnosticsCaptureMask,
+            SimulationDebuggerMaximumPairs = diagnosticsMaximumPairs,
             SimulationDebuggerSelectedPairs = _simulationDebuggerSelectedPairs,
             ParallelSimulationDebuggerPairCandidates =
                 parallelSimulationDebuggerPairCandidates,
@@ -405,9 +431,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             : solveContactJob.Schedule(initializeSolverStateHandle);
 
         ContactDiagnosticsPublishHandles diagnosticsPublish = ScheduleContactDiagnosticsPublication(
-            diagnosticsScratch, contactStatistics, incrementalStatistics, unitCount,
-            SystemAPI.Time.DeltaTime, flowFieldSettings.SoftAvoidanceShell, contactSolverSettings,
-            effectiveTimestepContactSetCache, effectivePersistentContactCache, solveContactHandle);
+            diagnosticsScratch,
+            contactStatistics,
+            incrementalStatistics,
+            completedStep,
+            unitCount,
+            SystemAPI.Time.DeltaTime,
+            flowFieldSettings.SoftAvoidanceShell,
+            contactSolverSettings,
+            effectiveTimestepContactSetCache,
+            effectivePersistentContactCache,
+            solveContactHandle);
         JobHandle publishStatisticsHandle = diagnosticsPublish.Statistics;
         JobHandle publishIncrementalStatisticsHandle = diagnosticsPublish.Incremental;
 

@@ -15,6 +15,39 @@ public enum IncrementalContactPipelineMode : byte
 }
 
 /// <summary>
+/// Metadata captured when a simulation step is scheduled. The publishing job
+/// stamps the authoritative solver timestep after that step completes, so UI
+/// consumers never reconstruct old-step settings from the next update.
+/// </summary>
+public struct CompletedSimulationStepMetadata
+{
+#if RTS_CONTACT_DIAGNOSTICS
+    public ulong WorldId;
+    public uint SimulationStepId;
+    public double ElapsedTime;
+    public float DeltaTime;
+    public int UnitCount;
+    public int MaximumVisualizedPairs;
+    public Entity SelectedEntity;
+    public SimulationDebuggerCaptureMask CaptureMask;
+    public SimulationDebuggerEffectiveSettings EffectiveSettings;
+    public SimulationExperimentMetrics Experiment;
+#else
+    private byte _disabledStorage;
+    public ulong WorldId { get => default; set { } }
+    public uint SimulationStepId { get => default; set { } }
+    public double ElapsedTime { get => default; set { } }
+    public float DeltaTime { get => default; set { } }
+    public int UnitCount { get => default; set { } }
+    public int MaximumVisualizedPairs { get => default; set { } }
+    public Entity SelectedEntity { get => Entity.Null; set { } }
+    public SimulationDebuggerCaptureMask CaptureMask { get => default; set { } }
+    public SimulationDebuggerEffectiveSettings EffectiveSettings { get => default; set { } }
+    public SimulationExperimentMetrics Experiment { get => default; set { } }
+#endif
+}
+
+/// <summary>
 /// Effective configuration attached to the same completed timestep as the
 /// diagnostics counters. Gameplay-only builds retain only a one-byte unmanaged
 /// placeholder so the scheduler can keep a single source-compatible call graph.
@@ -67,6 +100,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public int SchemaVersion;
+    public CompletedSimulationStepMetadata CompletedStep;
     public IncrementalContactPipelineConfiguration Configuration;
     public PredictiveDiscContactStatistics SolverStatistics;
     public IncrementalContactPipelineStatistics Statistics;
@@ -83,6 +117,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
 #else
     private byte _disabledStorage;
     public int SchemaVersion { get => default; set { } }
+    public CompletedSimulationStepMetadata CompletedStep { get => default; set { } }
     public IncrementalContactPipelineConfiguration Configuration { get => default; set { } }
     public PredictiveDiscContactStatistics SolverStatistics { get => default; set { } }
     public IncrementalContactPipelineStatistics Statistics { get => default; set { } }
@@ -99,6 +134,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
 #endif
 
     public static IncrementalContactPipelineSnapshot From(
+        CompletedSimulationStepMetadata completedStep,
         IncrementalContactPipelineConfiguration configuration,
         PredictiveDiscContactStatistics solverStatistics,
         IncrementalContactPipelineStatistics statistics)
@@ -112,9 +148,11 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
         else if (statistics.UsedIncrementalTopology != 0)
             mode = IncrementalContactPipelineMode.IncrementalReuse;
 
+        completedStep.SimulationStepId = statistics.Timestep;
         return new IncrementalContactPipelineSnapshot
         {
             SchemaVersion = IncrementalContactPipelineStatistics.CurrentSchemaVersion,
+            CompletedStep = completedStep,
             Configuration = configuration,
             SolverStatistics = solverStatistics,
             Statistics = statistics,
@@ -139,6 +177,7 @@ public struct IncrementalContactPipelineSnapshot : IComponentData
 public struct PublishIncrementalContactPipelineStatisticsJob : IJob
 {
 #if RTS_CONTACT_DIAGNOSTICS
+    public CompletedSimulationStepMetadata CompletedStep;
     public IncrementalContactPipelineConfiguration Configuration;
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> SolverSource;
     [ReadOnly] public NativeReference<IncrementalContactPipelineStatistics> Source;
@@ -146,6 +185,7 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
     public ComponentLookup<IncrementalContactPipelineSnapshot> SnapshotLookup;
 #else
     private byte _disabledStorage;
+    public CompletedSimulationStepMetadata CompletedStep { get => default; set { } }
     public IncrementalContactPipelineConfiguration Configuration { get => default; set { } }
     public NativeReference<PredictiveDiscContactStatistics> SolverSource { get => default; set { } }
     public NativeReference<IncrementalContactPipelineStatistics> Source { get => default; set { } }
@@ -163,6 +203,7 @@ public struct PublishIncrementalContactPipelineStatisticsJob : IJob
         if (!SnapshotLookup.HasComponent(Target))
             return;
         SnapshotLookup[Target] = IncrementalContactPipelineSnapshot.From(
+            CompletedStep,
             Configuration,
             SolverSource.Value,
             Source.Value);

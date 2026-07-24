@@ -270,6 +270,7 @@ public struct SimulationDebuggerPairSample
 /// </summary>
 public sealed class SimulationDebuggerFrameSnapshot
 {
+    public ulong WorldId;
     public ulong FrameId;
     public uint SimulationStepId;
     public double ElapsedTime;
@@ -299,6 +300,7 @@ public sealed class SimulationDebuggerFrameSnapshot
     {
         var copy = new SimulationDebuggerFrameSnapshot
         {
+            WorldId = WorldId,
             FrameId = FrameId,
             SimulationStepId = SimulationStepId,
             ElapsedTime = ElapsedTime,
