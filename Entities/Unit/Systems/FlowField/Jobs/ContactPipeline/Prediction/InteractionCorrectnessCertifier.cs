@@ -83,6 +83,32 @@ public partial struct SolveXpbdUnitContactsJob
         };
     }
 
+    private InteractionCertificationEvidence BuildCertificationEvidence(
+        int startSubstep,
+        int endSubstepExclusive)
+    {
+        IncrementalContactCacheState cacheState = IncrementalCacheState.IsCreated
+            ? IncrementalCacheState.Value
+            : default;
+        int substepCount = math.max(1, SubstepCount);
+        return new InteractionCertificationEvidence
+        {
+            WorldId = Configuration.WorldId,
+            SimulationStepId = Configuration.SimulationStepId,
+            BodySetFingerprint = CalculateBodySetFingerprint(),
+            ConfigurationFingerprint =
+                Configuration.CalculateCertificationFingerprint(),
+            TopologyEpoch = cacheState.TopologyEpoch,
+            ClassificationFingerprint = CalculateClassificationEpoch(),
+            StartSubstep = (ushort)startSubstep,
+            EndSubstepExclusive = (ushort)endSubstepExclusive,
+            HorizonDuration = DeltaTime *
+                              (endSubstepExclusive - startSubstep) /
+                              substepCount,
+            BodyCount = States.Length
+        };
+    }
+
     /// <summary>
     /// Common commit hook used by both the serial reference path and the staged
     /// P1-P6 Jacobi path. Every consumer-visible compact view therefore receives
@@ -106,15 +132,12 @@ public partial struct SolveXpbdUnitContactsJob
             return;
 
         int substepCount = math.max(1, SubstepCount);
+        int end = EnableTimestepContactSetCache ? substepCount : 1;
         int start = EnableTimestepContactSetCache
-            ? math.clamp(scheduleStartSubstep, 0, substepCount - 1)
+            ? math.clamp(scheduleStartSubstep, 0, end)
             : 0;
-        int end = EnableTimestepContactSetCache
-            ? substepCount
-            : 1;
-        IncrementalContactCacheState cacheState = IncrementalCacheState.IsCreated
-            ? IncrementalCacheState.Value
-            : default;
+        InteractionCertificationEvidence evidence =
+            BuildCertificationEvidence(start, end);
 
         InteractionCertificationFlags flags =
             InteractionCertificationFlags.StructureVerified |
@@ -127,16 +150,15 @@ public partial struct SolveXpbdUnitContactsJob
 
         InteractionCertificate.Value = new InteractionCertificate
         {
-            WorldId = Configuration.WorldId,
-            SimulationStepId = Configuration.SimulationStepId,
-            BodySetFingerprint = CalculateBodySetFingerprint(),
-            ConfigurationFingerprint =
-                Configuration.CalculateCertificationFingerprint(),
-            TopologyEpoch = cacheState.TopologyEpoch,
-            ClassificationFingerprint = CalculateClassificationEpoch(),
-            StartSubstep = (ushort)start,
-            EndSubstepExclusive = (ushort)end,
-            HorizonDuration = DeltaTime * (end - start) / substepCount,
+            WorldId = evidence.WorldId,
+            SimulationStepId = evidence.SimulationStepId,
+            BodySetFingerprint = evidence.BodySetFingerprint,
+            ConfigurationFingerprint = evidence.ConfigurationFingerprint,
+            TopologyEpoch = evidence.TopologyEpoch,
+            ClassificationFingerprint = evidence.ClassificationFingerprint,
+            StartSubstep = evidence.StartSubstep,
+            EndSubstepExclusive = evidence.EndSubstepExclusive,
+            HorizonDuration = evidence.HorizonDuration,
             SourceMode = ToCertifiedSourceMode(result.SourceMode),
             Flags = flags,
             InteractionPairCount = math.max(0, result.InteractionPairCount),
