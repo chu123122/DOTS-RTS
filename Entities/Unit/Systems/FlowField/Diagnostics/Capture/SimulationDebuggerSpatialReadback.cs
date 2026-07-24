@@ -54,7 +54,7 @@ public abstract partial class BaseFlowMovementSystem
         if (captureCells &&
             _incrementalDiagnosticsEntity != Entity.Null &&
             EntityManager.Exists(_incrementalDiagnosticsEntity) &&
-            EntityManager.HasComponent<Stage3ContactHeatSample>(
+            EntityManager.HasBuffer<Stage3ContactHeatSample>(
                 _incrementalDiagnosticsEntity))
         {
             DynamicBuffer<Stage3ContactHeatSample> heatSamples =
