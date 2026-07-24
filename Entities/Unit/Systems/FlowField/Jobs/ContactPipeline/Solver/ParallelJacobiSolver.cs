@@ -53,6 +53,59 @@ public partial struct SolveXpbdUnitContactsJob
 {
     private const int JacobiPairBatchSize = 64;
 
+    private struct JacobiPairSolveResult
+    {
+        public UnitCollisionPair Pair;
+        public JacobiPairCorrection Correction;
+        public ContactConstraintEvaluation Evaluation;
+    }
+
+    private static JacobiPairSolveResult EvaluateJacobiPair(
+        int substepIndex,
+        float alpha,
+        UnitCollisionPair pair,
+        FlowMovementFrameState bodyA,
+        FlowMovementFrameState bodyB)
+    {
+        ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
+            ref pair,
+            bodyA,
+            bodyB,
+            alpha,
+            substepIndex);
+
+        JacobiPairCorrection correction = default;
+        correction.NewlyActivated = evaluation.NewlyActivated;
+        correction.PairCorrection = evaluation.PairCorrection;
+        if (math.abs(evaluation.AppliedLambda) > 0.0000001f)
+        {
+            if (pair.WasCorrectedThisTimestep == 0)
+            {
+                pair.WasCorrectedThisTimestep = 1;
+                correction.NewlyCorrected = 1;
+            }
+            if (bodyA.InverseMass > 0f)
+            {
+                correction.DeltaA = evaluation.Normal *
+                                    (bodyA.InverseMass * evaluation.AppliedLambda);
+                correction.ActiveA = 1;
+            }
+            if (bodyB.InverseMass > 0f)
+            {
+                correction.DeltaB = -evaluation.Normal *
+                                    (bodyB.InverseMass * evaluation.AppliedLambda);
+                correction.ActiveB = 1;
+            }
+        }
+
+        return new JacobiPairSolveResult
+        {
+            Pair = pair,
+            Correction = correction,
+            Evaluation = evaluation
+        };
+    }
+
     public JobHandle ScheduleParallelJacobi(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
 #if RTS_CONTACT_DIAGNOSTICS
@@ -220,39 +273,15 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = Pairs[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
-                ref pair,
-                bodyA,
-                bodyB,
+            JacobiPairSolveResult result = EvaluateJacobiPair(
+                SubstepIndex,
                 Alpha,
-                SubstepIndex);
+                pair,
+                bodyA,
+                bodyB);
 
-            JacobiPairCorrection correction = default;
-            correction.NewlyActivated = evaluation.NewlyActivated;
-            correction.PairCorrection = evaluation.PairCorrection;
-            if (math.abs(evaluation.AppliedLambda) > 0.0000001f)
-            {
-                if (pair.WasCorrectedThisTimestep == 0)
-                {
-                    pair.WasCorrectedThisTimestep = 1;
-                    correction.NewlyCorrected = 1;
-                }
-                if (bodyA.InverseMass > 0f)
-                {
-                    correction.DeltaA = evaluation.Normal *
-                                        (bodyA.InverseMass * evaluation.AppliedLambda);
-                    correction.ActiveA = 1;
-                }
-                if (bodyB.InverseMass > 0f)
-                {
-                    correction.DeltaB = -evaluation.Normal *
-                                        (bodyB.InverseMass * evaluation.AppliedLambda);
-                    correction.ActiveB = 1;
-                }
-            }
-
-            Pairs[pairIndex] = pair;
-            Corrections[pairIndex] = correction;
+            Pairs[pairIndex] = result.Pair;
+            Corrections[pairIndex] = result.Correction;
         }
     }
 
@@ -274,39 +303,15 @@ public partial struct SolveXpbdUnitContactsJob
             UnitCollisionPair pair = Pairs[pairIndex];
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
-            ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
-                ref pair,
-                bodyA,
-                bodyB,
+            JacobiPairSolveResult result = EvaluateJacobiPair(
+                SubstepIndex,
                 Alpha,
-                SubstepIndex);
+                pair,
+                bodyA,
+                bodyB);
 
-            JacobiPairCorrection correction = default;
-            correction.NewlyActivated = evaluation.NewlyActivated;
-            correction.PairCorrection = evaluation.PairCorrection;
-            if (math.abs(evaluation.AppliedLambda) > 0.0000001f)
-            {
-                if (pair.WasCorrectedThisTimestep == 0)
-                {
-                    pair.WasCorrectedThisTimestep = 1;
-                    correction.NewlyCorrected = 1;
-                }
-                if (bodyA.InverseMass > 0f)
-                {
-                    correction.DeltaA = evaluation.Normal *
-                                        (bodyA.InverseMass * evaluation.AppliedLambda);
-                    correction.ActiveA = 1;
-                }
-                if (bodyB.InverseMass > 0f)
-                {
-                    correction.DeltaB = -evaluation.Normal *
-                                        (bodyB.InverseMass * evaluation.AppliedLambda);
-                    correction.ActiveB = 1;
-                }
-            }
-
-            Pairs[pairIndex] = pair;
-            Corrections[pairIndex] = correction;
+            Pairs[pairIndex] = result.Pair;
+            Corrections[pairIndex] = result.Correction;
 
             ParallelSimulationDebuggerPairCapture capture = default;
             if (bodyA.Entity == DiagnosticSelectedEntity ||
@@ -316,12 +321,12 @@ public partial struct SolveXpbdUnitContactsJob
                 capture.Sample =
                     SolveXpbdUnitContactsJob.BuildSimulationDebuggerPairSample(
                         SubstepIndex,
-                        pair,
+                        result.Pair,
                         bodyA,
                         bodyB,
-                        evaluation.Normal,
-                        evaluation.ConstraintValue,
-                        evaluation.PairCorrection);
+                        result.Evaluation.Normal,
+                        result.Evaluation.ConstraintValue,
+                        result.Evaluation.PairCorrection);
             }
             DiagnosticPairCandidates[pairIndex] = capture;
         }
