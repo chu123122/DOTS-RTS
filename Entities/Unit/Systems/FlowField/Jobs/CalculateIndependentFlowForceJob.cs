@@ -11,8 +11,8 @@ namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
 /// Captures body facts and produces navigation-only movement intent. It reads the
-/// shared cell storage through FlowNavigationView and does not interpret wall or
-/// contact-solver policy.
+/// shared cell storage through FlowNavigationView and does not retain a complete
+/// FlowFieldCell in the simulation frame state.
 /// </summary>
 [BurstCompile]
 public partial struct CalculateIndependentFlowForceJob : IJobEntity
@@ -59,13 +59,12 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
             return;
         }
 
+        WriteNavigationCellSemantics(ref state, cellPos, cell);
         bool hasActiveDestination = destination.IsActive != 0;
         if (hasActiveDestination && destination.OrderVersion != ActiveRequestVersion)
         {
             arrivalState.IsSettled = true;
             state.CurrentVelocity = float3.zero;
-            state.CellPosition = cellPos;
-            state.Cell = cell;
             state.IsSettled = true;
             state.IsInsideGrid = true;
             state.MotionIntent.PreferredVelocity = float3.zero;
@@ -87,10 +86,11 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
 
         float3 desiredVelocity = float3.zero;
         if (hasActiveDestination && !isSettled &&
-            FlowNavigationView.IsReachable(cell))
+            state.Navigation.IsReachable != 0)
         {
             bool useDirectApproach =
-                cell.IntegrationValue <= destination.DirectApproachIntegrationDistance;
+                state.Navigation.IntegrationValue <=
+                destination.DirectApproachIntegrationDistance;
             if (useDirectApproach)
             {
                 float3 desiredDirection = math.normalizesafe(
@@ -104,22 +104,31 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
             else
             {
                 int2 dirOffset = FlowFieldUtils.GetDirectionOffset(
-                    cell.BestDirectionIndex);
+                    state.Navigation.BestDirectionIndex);
                 float3 desiredDirection = math.normalizesafe(
                     new float3(dirOffset.x, 0f, dirOffset.y));
                 desiredVelocity = desiredDirection * speed.Value;
             }
         }
 
-        state.CellPosition = cellPos;
-        state.Cell = cell;
         state.IsSettled = isSettled;
         state.IsInsideGrid = true;
         state.MotionIntent.PreferredVelocity = desiredVelocity;
-        // Compatibility field: mathematically this is a steering velocity error
-        // integrated under the MaxForce/MaxAcceleration policy.
         state.IndependentForce = desiredVelocity - velocity.Value;
         States[entityIndex] = state;
+    }
+
+    private static void WriteNavigationCellSemantics(
+        ref FlowMovementFrameState state,
+        int2 cellPosition,
+        FlowFieldCell cell)
+    {
+        state.Navigation.Cell = cellPosition;
+        state.Navigation.BestDirectionIndex = cell.BestDirectionIndex;
+        state.Navigation.IntegrationValue = cell.IntegrationValue;
+        state.Navigation.IsReachable = (byte)(
+            FlowNavigationView.IsReachable(cell) ? 1 : 0);
+        state.Navigation.IsBlocked = (byte)(cell.Cost == 0 ? 1 : 0);
     }
 }
 }
