@@ -100,7 +100,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         bool effectiveTimestepContactSetCache =
             IncrementalContactPipelineExperimentRuntime.OverrideEnabled
                 ? IncrementalContactPipelineExperimentRuntime.TimestepCacheEnabled
-                : SimulationDebuggerRuntime.TimestepContactSetCacheEnabled;
+                : ContactPipelineRuntimeOptions.TimestepContactSetCacheEnabled;
         bool requestedPersistentContactCache =
             IncrementalContactPipelineExperimentRuntime.OverrideEnabled
                 ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabled
@@ -315,10 +315,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 math.max((unitCount * 4 + 63) / 64, 1),
                 Allocator.TempJob)
             : default;
-        var contactStatistics =
-            new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
-        var incrementalStatistics =
-            new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
+        NativeReference<PredictiveDiscContactStatistics> contactStatistics =
+            diagnosticsScratch.ContactStatistics;
+        NativeReference<IncrementalContactPipelineStatistics> incrementalStatistics =
+            diagnosticsScratch.IncrementalStatistics;
         NativeList<Stage3ContactIterationDiagnostic> iterationDiagnostics = diagnosticsScratch.Iterations;
         NativeList<Stage3ContactPairDiagnostic> pairDiagnostics = diagnosticsScratch.Pairs;
         NativeReference<Stage3SelectedBodyDiagnostic> selectedBodyDiagnostic = diagnosticsScratch.SelectedBody;
@@ -531,12 +531,11 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle allStatisticsPublishedHandle = JobHandle.CombineDependencies(
             publishStatisticsHandle,
             publishIncrementalStatisticsHandle);
-        JobHandle statisticsDisposeHandle =
-            contactStatistics.Dispose(allStatisticsPublishedHandle);
-        JobHandle incrementalStatisticsDisposeHandle =
-            incrementalStatistics.Dispose(publishIncrementalStatisticsHandle);
+        JobHandle statisticsDisposeHandle = default;
+        JobHandle incrementalStatisticsDisposeHandle = default;
         JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameScratch(
-            diagnosticsScratch, solveContactHandle, publishStatisticsHandle);
+            diagnosticsScratch, solveContactHandle, publishStatisticsHandle,
+            publishIncrementalStatisticsHandle);
         JobHandle selectedDiagnosticDisposeHandle = default;
         JobHandle iterationDiagnosticDisposeHandle = default;
         JobHandle pairDiagnosticDisposeHandle = default;
