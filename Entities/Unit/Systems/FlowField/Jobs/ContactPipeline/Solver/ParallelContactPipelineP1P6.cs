@@ -171,7 +171,6 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsetsAndCounts = SoftIncidentWriteCursors,
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BodyCount = States.Length,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(escapeBlockCount, 1, handle);
@@ -180,6 +179,7 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 BlockOffsetsAndCounts = SoftIncidentWriteCursors,
                 DirtyBodies = IncrementalDirtyBodies,
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
@@ -217,7 +217,7 @@ public partial struct SolveXpbdUnitContactsJob
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
-            }.Schedule(States.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);
 
             handle = new PrepareP1P6SubstepRepairClassificationJob
             {
@@ -347,7 +347,6 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsetsAndCounts = SoftIncidentWriteCursors,
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BodyCount = States.Length,
                 Enabled = 1
             }.Schedule(escapeBlockCount, 1, handle);
@@ -356,6 +355,7 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 BlockOffsetsAndCounts = SoftIncidentWriteCursors,
                 DirtyBodies = IncrementalDirtyBodies,
+                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
@@ -704,8 +704,6 @@ public partial struct SolveXpbdUnitContactsJob
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         public NativeArray<int> BlockOffsetsAndCounts;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<byte> DirtyFlagsByBody;
         public int BodyCount;
         public byte Enabled;
 
@@ -716,7 +714,6 @@ public partial struct SolveXpbdUnitContactsJob
             int count = 0;
             for (int bodyIndex = begin; bodyIndex < end; bodyIndex++)
             {
-                DirtyFlagsByBody[bodyIndex] = 0;
                 if (Enabled != 0 && EscapeFlags[bodyIndex] != 0)
                     count++;
             }
@@ -729,10 +726,18 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public NativeArray<int> BlockOffsetsAndCounts;
         public NativeList<IncrementalDirtyBody> DirtyBodies;
+        public NativeArray<byte> DirtyFlagsByBody;
         public int BlockCount;
 
         public void Execute()
         {
+            for (int dirtyIndex = 0; dirtyIndex < DirtyBodies.Length; dirtyIndex++)
+            {
+                int bodyIndex = DirtyBodies[dirtyIndex].BodyIndex;
+                if ((uint)bodyIndex < (uint)DirtyFlagsByBody.Length)
+                    DirtyFlagsByBody[bodyIndex] = 0;
+            }
+
             int offset = 0;
             for (int blockIndex = 0; blockIndex < BlockCount; blockIndex++)
             {
@@ -770,8 +775,8 @@ public partial struct SolveXpbdUnitContactsJob
                     continue;
 
                 const IncrementalBodyDirtyFlags flags =
-                    IncrementalBodyDirtyFlags.Topology |
-                    IncrementalBodyDirtyFlags.Motion;
+                    IncrementalBodyDirtyFlags.Motion |
+                    IncrementalBodyDirtyFlags.CorrectedEscape;
                 DirtyBodies[writeIndex++] = new IncrementalDirtyBody
                 {
                     BodyIndex = bodyIndex,
@@ -816,11 +821,14 @@ public partial struct SolveXpbdUnitContactsJob
         public float RvoTimeHorizon;
         public byte Enabled;
 
-        public void Execute(int bodyIndex)
+        public void Execute(int dirtyIndex)
         {
-            if (Enabled == 0 || DirtyBodies.Length == 0)
+            if (Enabled == 0)
                 return;
 
+            int bodyIndex = DirtyBodies[dirtyIndex].BodyIndex;
+            if ((uint)bodyIndex >= (uint)States.Length)
+                return;
             FlowMovementFrameState state = States[bodyIndex];
             if (!state.IsInsideGrid)
                 return;
