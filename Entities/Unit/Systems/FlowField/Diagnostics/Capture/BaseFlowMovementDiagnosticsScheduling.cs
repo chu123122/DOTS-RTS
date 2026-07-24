@@ -58,7 +58,21 @@ public abstract partial class BaseFlowMovementSystem
         _simulationDebuggerSelectedPairs = new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
         _simulationDebuggerSelectedUnit = new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
         _simulationDebuggerSelectedUnitValid = new NativeReference<byte>(Allocator.Persistent);
-        _incrementalDiagnosticsEntity = EntityManager.CreateEntity(typeof(IncrementalContactPipelineSnapshot));
+        _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
+            typeof(IncrementalContactPipelineSnapshot),
+            typeof(PredictiveDiscContactStatistics),
+            typeof(ShadowNeighborCacheStatistics),
+            typeof(Stage3ContactDiagnosticSelection),
+            typeof(Stage3SelectedBodyDiagnostic));
+        EntityManager.SetComponentData(
+            _incrementalDiagnosticsEntity,
+            new Stage3ContactDiagnosticSelection { SelectedEntity = Entity.Null });
+        EntityManager.AddBuffer<Stage3ContactIterationDiagnostic>(
+            _incrementalDiagnosticsEntity);
+        EntityManager.AddBuffer<Stage3ContactPairDiagnostic>(
+            _incrementalDiagnosticsEntity);
+        EntityManager.AddBuffer<Stage3ContactHeatSample>(
+            _incrementalDiagnosticsEntity);
 #endif
     }
 

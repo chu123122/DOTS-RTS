@@ -126,16 +126,6 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                     0.025f,
                     1f)
             });
-            AddComponent(entity, new PredictiveDiscContactStatistics());
-            AddComponent(entity, new ShadowNeighborCacheStatistics());
-            AddComponent(entity, new Stage3ContactDiagnosticSelection
-            {
-                SelectedEntity = Entity.Null
-            });
-            AddComponent(entity, new Stage3SelectedBodyDiagnostic());
-            AddBuffer<Stage3ContactIterationDiagnostic>(entity);
-            AddBuffer<Stage3ContactPairDiagnostic>(entity);
-            AddBuffer<Stage3ContactHeatSample>(entity);
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             // 启动时先烘焙一次 Cost/Integration/Vector Field。
