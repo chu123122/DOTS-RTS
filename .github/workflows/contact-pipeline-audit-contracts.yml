@@ -1,0 +1,29 @@
+name: Contact pipeline audit contracts
+
+on:
+  pull_request:
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/**'
+      - '.github/workflows/contact-pipeline-audit-contracts.yml'
+  push:
+    branches:
+      - Simulation
+      - 'codex/**'
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/**'
+      - '.github/workflows/contact-pipeline-audit-contracts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate diagnostics compile boundaries
+        run: python .github/scripts/validate_contact_diagnostics.py
+      - name: Validate audit remediation contracts
+        run: python .github/scripts/validate_contact_pipeline_audit.py
