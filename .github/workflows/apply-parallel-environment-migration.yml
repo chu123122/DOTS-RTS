@@ -1,0 +1,33 @@
+name: Apply parallel environment migration
+
+on:
+  push:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/scripts/migrate_parallel_environment_views.py'
+      - '.github/workflows/apply-parallel-environment-migration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+      - name: Apply deterministic source migration
+        run: python3 .github/scripts/migrate_parallel_environment_views.py
+      - name: Commit migrated source
+        run: |
+          if git diff --quiet; then
+            echo "Migration already applied"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs
+          git commit -m "migrate P1-P6 environment semantics"
+          git push origin HEAD:codex/simulation-integration
