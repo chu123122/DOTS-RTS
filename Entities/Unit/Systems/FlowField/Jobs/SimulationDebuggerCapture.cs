@@ -5,11 +5,21 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+public struct ParallelSimulationDebuggerPairCapture
+{
+    public SimulationDebuggerPairSample Sample;
+    public byte IsValid;
+}
+
 public partial struct SolveXpbdUnitContactsJob
 {
     public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
     public int SimulationDebuggerMaximumPairs;
     public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
+    public NativeList<ParallelSimulationDebuggerPairCapture>
+        ParallelSimulationDebuggerPairCandidates;
+    public NativeList<SimulationDebuggerPairSample>
+        ParallelSimulationDebuggerPairScratch;
     public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
     public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
 
@@ -42,47 +52,91 @@ public partial struct SolveXpbdUnitContactsJob
              bodyB.Entity != DiagnosticSelectedEntity))
             return;
 
-        int sampleIndex = FindSimulationDebuggerPair(pair.BodyA, pair.BodyB);
-        bool isNew = sampleIndex < 0;
-        if (isNew)
+        MergeSimulationDebuggerPairSample(BuildSimulationDebuggerPairSample(
+            substepIndex,
+            pair,
+            bodyA,
+            bodyB,
+            normal,
+            constraintValue,
+            pairCorrection));
+    }
+
+    private static SimulationDebuggerPairSample BuildSimulationDebuggerPairSample(
+        int substepIndex,
+        UnitCollisionPair pair,
+        FlowMovementFrameState bodyA,
+        FlowMovementFrameState bodyB,
+        float3 normal,
+        float constraintValue,
+        float pairCorrection)
+    {
+        bool active = pair.WasActivated != 0;
+        return new SimulationDebuggerPairSample
+        {
+            BodyA = pair.BodyA,
+            BodyB = pair.BodyB,
+            EntityA = bodyA.Entity,
+            EntityB = bodyB.Entity,
+            GeneratedSubstep = substepIndex,
+            FirstActivatedSubstep = active ? substepIndex : -1,
+            LastActivatedSubstep = active ? substepIndex : -1,
+            StartSeparation = CalculateStartSeparation(pair, bodyA, bodyB),
+            Kind = pair.ContactMode == UnitContactMode.Predictive
+                ? SimulationDebuggerPairKind.PredictiveContact
+                : SimulationDebuggerPairKind.ActualContact,
+            PositionA = bodyA.PredictedPosition,
+            PositionB = bodyB.PredictedPosition,
+            ReferenceNormal = normal,
+            CurrentSeparation = constraintValue,
+            Lambda = pair.Lambda,
+            TotalCorrection = pairCorrection,
+            State = active
+                ? SimulationDebuggerPairState.Active
+                : SimulationDebuggerPairState.CachedInactive
+        };
+    }
+
+    private void MergeSimulationDebuggerPairSample(
+        SimulationDebuggerPairSample candidate)
+    {
+        int sampleIndex = FindSimulationDebuggerPair(
+            candidate.BodyA,
+            candidate.BodyB);
+        if (sampleIndex < 0)
         {
             int maximumPairs = math.max(1, SimulationDebuggerMaximumPairs);
             if (SimulationDebuggerSelectedPairs.Length >= maximumPairs)
                 return;
-            sampleIndex = SimulationDebuggerSelectedPairs.Length;
-            SimulationDebuggerSelectedPairs.Add(new SimulationDebuggerPairSample
-            {
-                BodyA = pair.BodyA,
-                BodyB = pair.BodyB,
-                EntityA = bodyA.Entity,
-                EntityB = bodyB.Entity,
-                GeneratedSubstep = substepIndex,
-                FirstActivatedSubstep = -1,
-                LastActivatedSubstep = -1,
-                StartSeparation = CalculateStartSeparation(pair, bodyA, bodyB),
-                Kind = pair.ContactMode == UnitContactMode.Predictive
-                    ? SimulationDebuggerPairKind.PredictiveContact
-                    : SimulationDebuggerPairKind.ActualContact
-            });
+            SimulationDebuggerSelectedPairs.Add(candidate);
+            return;
         }
 
-        SimulationDebuggerPairSample sample = SimulationDebuggerSelectedPairs[sampleIndex];
-        sample.PositionA = bodyA.PredictedPosition;
-        sample.PositionB = bodyB.PredictedPosition;
-        sample.ReferenceNormal = normal;
-        sample.CurrentSeparation = constraintValue;
-        sample.Lambda = pair.Lambda;
-        sample.TotalCorrection += pairCorrection;
-        sample.State = pair.WasActivated != 0
-            ? SimulationDebuggerPairState.Active
-            : SimulationDebuggerPairState.CachedInactive;
-        if (pair.WasActivated != 0)
+        SimulationDebuggerPairSample sample =
+            SimulationDebuggerSelectedPairs[sampleIndex];
+        sample.PositionA = candidate.PositionA;
+        sample.PositionB = candidate.PositionB;
+        sample.ReferenceNormal = candidate.ReferenceNormal;
+        sample.CurrentSeparation = candidate.CurrentSeparation;
+        sample.Lambda = candidate.Lambda;
+        sample.TotalCorrection += candidate.TotalCorrection;
+        sample.State = candidate.State;
+        if (candidate.State == SimulationDebuggerPairState.Active)
         {
             if (sample.FirstActivatedSubstep < 0)
-                sample.FirstActivatedSubstep = substepIndex;
-            sample.LastActivatedSubstep = substepIndex;
+                sample.FirstActivatedSubstep = candidate.FirstActivatedSubstep;
+            sample.LastActivatedSubstep = candidate.LastActivatedSubstep;
         }
         SimulationDebuggerSelectedPairs[sampleIndex] = sample;
+    }
+
+    private void MergeParallelSimulationDebuggerPairScratch()
+    {
+        for (int i = 0; i < ParallelSimulationDebuggerPairScratch.Length; i++)
+        {
+            MergeSimulationDebuggerPairSample(
+                ParallelSimulationDebuggerPairScratch[i]);
+        }
     }
 
     private void CaptureSimulationDebuggerSelectedUnit()

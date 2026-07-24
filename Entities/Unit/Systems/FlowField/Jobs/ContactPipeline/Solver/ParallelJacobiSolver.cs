@@ -1,5 +1,6 @@
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Profiling.LowLevel.Unsafe;
@@ -30,13 +31,15 @@ public struct JacobiBlockStatistics
     public float MaxPositionCorrection;
     public int NewlyActivatedPairCount;
     public int NewlyCorrectedPairCount;
+    public int SelectedPairCount;
+    public int SelectedPairOffset;
 }
 
 /// <summary>
 /// Multi-job Jacobi path. The topology, lifecycle, envelope validation and fallback
 /// remain serial coordination stages; pair evaluation and body gather/apply are
-/// conflict-free parallel stages. The serial Jacobi implementation remains the
-/// reference path used when selected-pair debugger capture is enabled.
+/// conflict-free parallel stages. Selected-pair debugger capture uses pair-exclusive
+/// scratch slots and deterministic compaction without changing the solver backend.
 /// </summary>
 public partial struct SolveXpbdUnitContactsJob
 {
@@ -225,6 +228,77 @@ public partial struct SolveXpbdUnitContactsJob
 
             Pairs[pairIndex] = pair;
             Corrections[pairIndex] = correction;
+        }
+    }
+
+    [BurstCompile]
+    private struct EvaluateParallelJacobiPairsWithDiagnosticsJob :
+        IJobParallelForDefer
+    {
+        public float Alpha;
+        public int SubstepIndex;
+        [ReadOnly] public NativeArray<FlowMovementFrameState> States;
+        public NativeArray<UnitCollisionPair> Pairs;
+        public NativeArray<JacobiPairCorrection> Corrections;
+        public NativeArray<ParallelSimulationDebuggerPairCapture>
+            DiagnosticPairCandidates;
+        public Entity DiagnosticSelectedEntity;
+
+        public void Execute(int pairIndex)
+        {
+            UnitCollisionPair pair = Pairs[pairIndex];
+            FlowMovementFrameState bodyA = States[pair.BodyA];
+            FlowMovementFrameState bodyB = States[pair.BodyB];
+            ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
+                ref pair,
+                bodyA,
+                bodyB,
+                Alpha,
+                SubstepIndex);
+
+            JacobiPairCorrection correction = default;
+            correction.NewlyActivated = evaluation.NewlyActivated;
+            correction.PairCorrection = evaluation.PairCorrection;
+            if (math.abs(evaluation.AppliedLambda) > 0.0000001f)
+            {
+                if (pair.WasCorrectedThisTimestep == 0)
+                {
+                    pair.WasCorrectedThisTimestep = 1;
+                    correction.NewlyCorrected = 1;
+                }
+                if (bodyA.InverseMass > 0f)
+                {
+                    correction.DeltaA = evaluation.Normal *
+                                        (bodyA.InverseMass * evaluation.AppliedLambda);
+                    correction.ActiveA = 1;
+                }
+                if (bodyB.InverseMass > 0f)
+                {
+                    correction.DeltaB = -evaluation.Normal *
+                                        (bodyB.InverseMass * evaluation.AppliedLambda);
+                    correction.ActiveB = 1;
+                }
+            }
+
+            Pairs[pairIndex] = pair;
+            Corrections[pairIndex] = correction;
+
+            ParallelSimulationDebuggerPairCapture capture = default;
+            if (bodyA.Entity == DiagnosticSelectedEntity ||
+                bodyB.Entity == DiagnosticSelectedEntity)
+            {
+                capture.IsValid = 1;
+                capture.Sample =
+                    SolveXpbdUnitContactsJob.BuildSimulationDebuggerPairSample(
+                        SubstepIndex,
+                        pair,
+                        bodyA,
+                        bodyB,
+                        evaluation.Normal,
+                        evaluation.ConstraintValue,
+                        evaluation.PairCorrection);
+            }
+            DiagnosticPairCandidates[pairIndex] = capture;
         }
     }
 
