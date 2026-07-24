@@ -13,18 +13,26 @@ public struct ParallelSimulationDebuggerPairCapture
 
 public partial struct SolveXpbdUnitContactsJob
 {
+#if RTS_CONTACT_DIAGNOSTICS
     public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
     public int SimulationDebuggerMaximumPairs;
     public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
-    public NativeList<ParallelSimulationDebuggerPairCapture>
-        ParallelSimulationDebuggerPairCandidates;
-    public NativeList<SimulationDebuggerPairSample>
-        ParallelSimulationDebuggerPairScratch;
+    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
+    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
     public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
     public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
+#else
+    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask { get => SimulationDebuggerCaptureMask.None; set { } }
+    public int SimulationDebuggerMaximumPairs { get => 0; set { } }
+    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs { get => default; set { } }
+    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates { get => default; set { } }
+    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch { get => default; set { } }
+    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit { get => default; set { } }
+    public NativeReference<byte> SimulationDebuggerSelectedUnitValid { get => default; set { } }
+#endif
 
     private bool CaptureSelectedSimulationDebuggerData =>
-        DiagnosticSelectedEntity != Entity.Null &&
+        EnableDiagnostics && DiagnosticSelectedEntity != Entity.Null &&
         (SimulationDebuggerCaptureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0;
 
     private bool CaptureSelectedSimulationDebuggerPairs =>
@@ -33,6 +41,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void ResetSimulationDebuggerCapture()
     {
+        if (!EnableDiagnostics) return;
         SimulationDebuggerSelectedPairs.Clear();
         SimulationDebuggerSelectedUnit.Value = default;
         SimulationDebuggerSelectedUnitValid.Value = 0;
@@ -132,6 +141,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void MergeParallelSimulationDebuggerPairScratch()
     {
+        if (!EnableDiagnostics) return;
         for (int i = 0; i < ParallelSimulationDebuggerPairScratch.Length; i++)
         {
             MergeSimulationDebuggerPairSample(
@@ -141,7 +151,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void CaptureSimulationDebuggerSelectedUnit()
     {
-        if (!CaptureSelectedSimulationDebuggerData)
+        if (!EnableDiagnostics || !CaptureSelectedSimulationDebuggerData)
             return;
 
         int bodyIndex = -1;

@@ -14,6 +14,7 @@ public partial struct SolveXpbdUnitContactsJob
         ref PredictiveDiscContactStatistics statistics,
         ref float penetrationSum)
     {
+        if (!EnableDiagnostics) return;
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             UnitCollisionPair pair = TimestepContactPairs[i];

@@ -110,13 +110,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
         if (SimulationDebuggerRuntime.TryConsumeContactCacheReset())
             ResetPersistentContactCaches();
-        Entity diagnosticSelectedEntity = SimulationDebuggerRuntime.SelectedEntity;
-        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection diagnosticSelection) &&
-            diagnosticSelection.SelectedEntity != Entity.Null)
-        {
-            diagnosticSelectedEntity = diagnosticSelection.SelectedEntity;
-            SimulationDebuggerRuntime.SelectedEntity = diagnosticSelectedEntity;
-        }
+        Entity diagnosticSelectedEntity = ResolveDiagnosticSelectedEntity();
         if (!gridComponent.Grid.IsCreated) return;
         if (flowFieldRuntimeState.ActiveVersion == 0) return;
 
@@ -130,12 +124,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ContactPositionSolverMode.Jacobi;
         bool useParallelJacobi = usesJacobiScratch;
         bool captureParallelSelectedPairs =
-            useParallelJacobi &&
-            diagnosticSelectedEntity != Entity.Null &&
-            (SimulationDebuggerRuntime.CaptureMask &
-             SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-            (SimulationDebuggerRuntime.CaptureMask &
-             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+            ShouldCaptureParallelSelectedPairs(useParallelJacobi, diagnosticSelectedEntity);
+        ContactDiagnosticsFrameScratch diagnosticsScratch =
+            CreateContactDiagnosticsFrameScratch(unitCount, contactSolverSettings, captureParallelSelectedPairs);
 
         // 同一 EntityQuery 的各阶段通过 EntityIndexInQuery 访问相同槽位，
         // 避免把仅在本帧有效的中间状态写回 ECS 组件。
@@ -223,9 +214,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         var incrementalNeighborPairScratch = new NativeList<PersistentNeighborPair>(
             math.max(unitCount * 8, 1),
             Allocator.TempJob);
-        var incrementalOracleContactPairs = new NativeList<UnitCollisionPair>(
-            math.max(unitCount * 4, 1),
-            Allocator.TempJob);
+        NativeList<UnitCollisionPair> incrementalOracleContactPairs =
+            diagnosticsScratch.IncrementalOracleContactPairs;
         var predictiveContactSchedule = new NativeList<PredictiveContactScheduleEntry>(
             math.max(unitCount * 2, 1),
             Allocator.TempJob);
@@ -306,16 +296,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ? new NativeReference<ParallelPersistentClassificationState>(
                 Allocator.TempJob)
             : default;
-        var parallelSimulationDebuggerPairCandidates = captureParallelSelectedPairs
-            ? new NativeList<ParallelSimulationDebuggerPairCapture>(
-                math.max(unitCount * 4, 1),
-                Allocator.TempJob)
-            : default;
-        var parallelSimulationDebuggerPairScratch = captureParallelSelectedPairs
-            ? new NativeList<SimulationDebuggerPairSample>(
-                math.max(unitCount, 1),
-                Allocator.TempJob)
-            : default;
+        NativeList<ParallelSimulationDebuggerPairCapture> parallelSimulationDebuggerPairCandidates =
+            diagnosticsScratch.ParallelPairCandidates;
+        NativeList<SimulationDebuggerPairSample> parallelSimulationDebuggerPairScratch =
+            diagnosticsScratch.ParallelPairScratch;
         var persistentSpatialVisitStampByProxy = new NativeArray<uint>(
             unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
         var persistentSpatialVisitStamp =
@@ -335,18 +319,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         var incrementalStatistics =
             new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
-        var iterationDiagnostics = new NativeList<Stage3ContactIterationDiagnostic>(
-            math.max(contactSolverSettings.SubstepCount * contactSolverSettings.IterationCount, 1),
-            Allocator.TempJob);
-        var pairDiagnostics = new NativeList<Stage3ContactPairDiagnostic>(
-            math.max(unitCount * 2, 1),
-            Allocator.TempJob);
-        var selectedBodyDiagnostic =
-            new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
-        var heatSamples = new NativeArray<Stage3ContactHeatSample>(
-            unitCount,
-            Allocator.TempJob,
-            NativeArrayOptions.ClearMemory);
+        NativeList<Stage3ContactIterationDiagnostic> iterationDiagnostics = diagnosticsScratch.Iterations;
+        NativeList<Stage3ContactPairDiagnostic> pairDiagnostics = diagnosticsScratch.Pairs;
+        NativeReference<Stage3SelectedBodyDiagnostic> selectedBodyDiagnostic = diagnosticsScratch.SelectedBody;
+        NativeArray<Stage3ContactHeatSample> heatSamples = diagnosticsScratch.HeatSamples;
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
   Configuration = ContactPipelineConfiguration.Create(
@@ -430,34 +406,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 initializeSolverStateHandle)
             : solveContactJob.Schedule(initializeSolverStateHandle);
 
-        var publishStatisticsJob = new PublishPredictiveDiscContactStatisticsJob
-        {
-            Source = contactStatistics,
-            SelectedBodySource = selectedBodyDiagnostic,
-            IterationSource = iterationDiagnostics,
-            PairSource = pairDiagnostics,
-            HeatSource = heatSamples
-        };
-        JobHandle publishStatisticsHandle =
-            publishStatisticsJob.Schedule(solveContactHandle);
-        var publishIncrementalStatisticsJob =
-            new PublishIncrementalContactPipelineStatisticsJob
-            {
-                Configuration = IncrementalContactPipelineExperimentRuntime.CaptureConfiguration(
-                    unitCount,
-                    SystemAPI.Time.DeltaTime,
-                    flowFieldSettings.SoftAvoidanceShell,
-                    contactSolverSettings,
-                    effectiveTimestepContactSetCache,
-                    effectivePersistentContactCache),
-                SolverSource = contactStatistics,
-                Source = incrementalStatistics,
-                Target = _incrementalDiagnosticsEntity,
-                SnapshotLookup =
-                    GetComponentLookup<IncrementalContactPipelineSnapshot>(false)
-            };
-        JobHandle publishIncrementalStatisticsHandle =
-            publishIncrementalStatisticsJob.Schedule(solveContactHandle);
+        ContactDiagnosticsPublishHandles diagnosticsPublish = ScheduleContactDiagnosticsPublication(
+            diagnosticsScratch, contactStatistics, incrementalStatistics, unitCount,
+            SystemAPI.Time.DeltaTime, flowFieldSettings.SoftAvoidanceShell, contactSolverSettings,
+            effectiveTimestepContactSetCache, effectivePersistentContactCache, solveContactHandle);
+        JobHandle publishStatisticsHandle = diagnosticsPublish.Statistics;
+        JobHandle publishIncrementalStatisticsHandle = diagnosticsPublish.Incremental;
 
         // FlowField 使用双缓冲。发布后旧 ActiveGrid 会成为下一次 PendingGrid，
         // 因此必须把本帧最后一个网格读取句柄注册给 BakeSystem。
@@ -498,8 +452,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             predictiveContactScratch.Dispose(applyMovementHandle);
         JobHandle incrementalNeighborPairScratchDisposeHandle =
             incrementalNeighborPairScratch.Dispose(applyMovementHandle);
-        JobHandle incrementalOracleContactPairDisposeHandle =
-            incrementalOracleContactPairs.Dispose(applyMovementHandle);
+        JobHandle incrementalOracleContactPairDisposeHandle = default;
         JobHandle predictiveContactScheduleDisposeHandle =
             predictiveContactSchedule.Dispose(applyMovementHandle);
         JobHandle predictiveContactScheduleScratchDisposeHandle =
@@ -557,14 +510,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             persistentClassificationState.IsCreated
                 ? persistentClassificationState.Dispose(applyMovementHandle)
                 : default;
-        JobHandle parallelSimulationDebuggerPairCandidateDisposeHandle =
-            parallelSimulationDebuggerPairCandidates.IsCreated
-                ? parallelSimulationDebuggerPairCandidates.Dispose(applyMovementHandle)
-                : default;
-        JobHandle parallelSimulationDebuggerPairScratchDisposeHandle =
-            parallelSimulationDebuggerPairScratch.IsCreated
-                ? parallelSimulationDebuggerPairScratch.Dispose(applyMovementHandle)
-                : default;
+        JobHandle parallelSimulationDebuggerPairCandidateDisposeHandle = default;
+        JobHandle parallelSimulationDebuggerPairScratchDisposeHandle = default;
         JobHandle persistentSpatialVisitStampArrayDisposeHandle =
             persistentSpatialVisitStampByProxy.Dispose(applyMovementHandle);
         JobHandle persistentSpatialVisitStampDisposeHandle =
@@ -588,12 +535,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             contactStatistics.Dispose(allStatisticsPublishedHandle);
         JobHandle incrementalStatisticsDisposeHandle =
             incrementalStatistics.Dispose(publishIncrementalStatisticsHandle);
-        JobHandle selectedDiagnosticDisposeHandle =
-            selectedBodyDiagnostic.Dispose(publishStatisticsHandle);
-        JobHandle iterationDiagnosticDisposeHandle =
-            iterationDiagnostics.Dispose(publishStatisticsHandle);
-        JobHandle pairDiagnosticDisposeHandle = pairDiagnostics.Dispose(publishStatisticsHandle);
-        JobHandle heatSampleDisposeHandle = heatSamples.Dispose(publishStatisticsHandle);
+        JobHandle diagnosticsScratchDisposeHandle = DisposeContactDiagnosticsFrameScratch(
+            diagnosticsScratch, solveContactHandle, publishStatisticsHandle);
+        JobHandle selectedDiagnosticDisposeHandle = default;
+        JobHandle iterationDiagnosticDisposeHandle = default;
+        JobHandle pairDiagnosticDisposeHandle = default;
+        JobHandle heatSampleDisposeHandle = default;
 
         JobHandle solverScratchDisposeHandle = JobHandle.CombineDependencies(
   stateDisposeHandle,
@@ -688,6 +635,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         diagnosticDisposeHandle = JobHandle.CombineDependencies(
   diagnosticDisposeHandle,
   heatSampleDisposeHandle);
+        diagnosticDisposeHandle = JobHandle.CombineDependencies(
+            diagnosticDisposeHandle, diagnosticsScratchDisposeHandle);
 
         Dependency = JobHandle.CombineDependencies(
   solverScratchDisposeHandle,
