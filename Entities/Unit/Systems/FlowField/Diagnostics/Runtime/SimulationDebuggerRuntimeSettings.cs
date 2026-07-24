@@ -10,13 +10,15 @@ public abstract partial class BaseFlowMovementSystem
         ref FlowFieldSettings flowSettings,
         ref UnitContactSolverSettings solverSettings)
     {
+        ulong worldId = World.Unmanaged.SequenceNumber;
         SimulationDebuggerEffectiveSettings current = BuildEffectiveSettings(
             flowSettings,
             solverSettings,
             AdaptiveFatAabbSettings.Default);
-        SimulationDebuggerRuntime.CaptureBaselineSettings(current);
+        SimulationDebuggerRuntime.CaptureBaselineSettings(worldId, current);
 
         if (!SimulationDebuggerRuntime.TryConsumeSettingsRequest(
+                worldId,
                 out SimulationDebuggerEffectiveSettings requested,
                 out _))
             return;
