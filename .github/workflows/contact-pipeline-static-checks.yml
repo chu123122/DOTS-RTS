@@ -154,24 +154,39 @@ jobs:
           solver = Path(
               'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
               'ParallelJacobiSolver.cs').read_text(encoding='utf-8')
+          p1p6 = Path(
+              'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
+              'ParallelContactPipelineP1P6.cs').read_text(encoding='utf-8')
           base = Path(
               'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs'
           ).read_text(encoding='utf-8')
-          required = [
+          required_solver = [
               'IJobParallelForDefer',
               'EvaluateParallelJacobiPairsJob',
               'GatherAndApplyParallelJacobiBodiesJob',
               'ActiveIncidentOffsets',
               'ScheduleParallelJacobi'
           ]
-          missing = [token for token in required if token not in solver]
+          required_capture = [
+              'EvaluateParallelJacobiPairsWithDiagnosticsJob',
+              'ParallelSimulationDebuggerPairCandidates',
+              'CountParallelSimulationDebuggerPairBlocksJob',
+              'PrefixParallelSimulationDebuggerPairsJob',
+              'ScatterParallelSimulationDebuggerPairsJob',
+              'MergeParallelSimulationDebuggerPairsJob'
+          ]
+          missing = [token for token in required_solver if token not in solver]
+          missing += [token for token in required_capture if token not in p1p6]
           if missing:
               raise SystemExit('Parallel Jacobi contract missing: ' + repr(missing))
           if 'Interlocked' in solver or 'Atomic' in solver:
               raise SystemExit('Parallel Jacobi must not use floating-point atomics')
-          if ('requiresSerialJacobiCapture' not in base or
-                  'SimulationDebuggerCaptureMask.SelectedPairs' not in base):
-              raise SystemExit('Selected-pair capture must route to serial Jacobi')
+          if 'requiresSerialJacobiCapture' in base:
+              raise SystemExit('Selected-pair capture must not change the Jacobi backend')
+          if ('bool useParallelJacobi = usesJacobiScratch;' not in base or
+                  'captureParallelSelectedPairs' not in base):
+              raise SystemExit(
+                  'Selected-pair capture must use the parallel pair-slot path')
           PY
 
       - name: Validate simple source structure
