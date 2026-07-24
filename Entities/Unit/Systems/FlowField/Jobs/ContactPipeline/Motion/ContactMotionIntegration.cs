@@ -16,7 +16,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (!state.IsInsideGrid)
                 continue;
 
-            // StartPosition 保存本 substep 的可信相对分离关系，不冻结实体位置。
+            // StartPosition saves the trusted separation relation for this substep.
             state.StartPosition = state.PredictedPosition;
             state.PreviousSubstepPosition = state.StartPosition;
             state.ContactPositionCorrection = float3.zero;
@@ -66,23 +66,29 @@ public partial struct SolveXpbdUnitContactsJob
         FlowMovementFrameState state,
         float substepDeltaTime)
     {
-        float3 totalForce = state.IndependentForce;
-        if (state.Cell.Cost == 0 && math.lengthsq(totalForce) < 0.1f)
+        float3 steeringVelocityError = state.IndependentForce;
+        if (IsObstacleCell(state.CellPosition) &&
+            math.lengthsq(steeringVelocityError) < 0.1f)
         {
-            float3 cellCenter = GridOrigin + new float3(
-                state.CellPosition.x * CellRadius * 2 + CellRadius,
-                state.CurrentPosition.y,
-                state.CellPosition.y * CellRadius * 2 + CellRadius);
+            float3 cellCenter = ObstacleCellCenter(
+                state.CellPosition,
+                state.CurrentPosition.y);
             float3 escapeDirection = state.PredictedPosition - cellCenter;
             escapeDirection.y = 0;
-            escapeDirection = math.normalizesafe(escapeDirection, new float3(1, 0, 0));
-            totalForce += escapeDirection * state.MoveSpeed * 5f;
+            escapeDirection = math.normalizesafe(
+                escapeDirection,
+                new float3(1, 0, 0));
+            steeringVelocityError += escapeDirection * state.MoveSpeed * 5f;
         }
 
-        if (math.lengthsq(totalForce) > state.MaxForce * state.MaxForce)
-            totalForce = math.normalizesafe(totalForce) * state.MaxForce;
+        if (math.lengthsq(steeringVelocityError) > state.MaxForce * state.MaxForce)
+        {
+            steeringVelocityError = math.normalizesafe(steeringVelocityError) *
+                                    state.MaxForce;
+        }
 
-        return state.IntegratedVelocity + totalForce * substepDeltaTime;
+        return state.IntegratedVelocity +
+               steeringVelocityError * substepDeltaTime;
     }
 
     private void ReconstructVelocities(
@@ -100,7 +106,8 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             state.IntegratedVelocity =
-                (state.PredictedPosition - state.PreviousSubstepPosition) / substepDeltaTime;
+                (state.PredictedPosition - state.PreviousSubstepPosition) /
+                substepDeltaTime;
             state.IntegratedVelocity.y = 0;
             float velocityChange = math.distance(
                 state.IntegratedVelocity,
@@ -117,8 +124,10 @@ public partial struct SolveXpbdUnitContactsJob
 
         if (simulatedBodyCount > 0)
         {
-            statistics.AverageSpeedBeforeContact += speedBeforeSum / simulatedBodyCount;
-            statistics.AverageSpeedAfterContact += speedAfterSum / simulatedBodyCount;
+            statistics.AverageSpeedBeforeContact +=
+                speedBeforeSum / simulatedBodyCount;
+            statistics.AverageSpeedAfterContact +=
+                speedAfterSum / simulatedBodyCount;
         }
     }
 }
