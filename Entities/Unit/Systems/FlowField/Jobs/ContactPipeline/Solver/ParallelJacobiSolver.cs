@@ -9,7 +9,7 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public struct ParallelJacobiRuntimeState
+public struct ParallelJacobiExecutionState
 {
     public byte IsValid;
 #if RTS_CONTACT_DIAGNOSTICS
@@ -23,7 +23,7 @@ public struct ParallelJacobiRuntimeState
 #endif
 }
 
-public struct ParallelJacobiIterationState
+public struct ParallelJacobiIterationTelemetry
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public float MaxViolationBeforeSolve;
@@ -39,7 +39,7 @@ public struct ParallelJacobiIterationState
 #endif
 }
 
-public struct JacobiBlockStatistics
+public struct JacobiBlockTelemetry
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public float TotalPositionCorrection;
@@ -70,9 +70,9 @@ public partial struct SolveXpbdUnitContactsJob
     private const int JacobiPairBatchSize = 64;
 
     public JobHandle ScheduleParallelJacobi(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState,
-        NativeReference<ParallelJacobiIterationState> iterationState,
-        NativeList<JacobiBlockStatistics> blockStatistics,
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics,
         JobHandle dependency)
     {
         JobHandle handle = new InitializeParallelJacobiPipelineJob
@@ -165,7 +165,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct InitializeParallelJacobiPipelineJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
         public void Execute()
         {
@@ -177,7 +177,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct PrepareParallelJacobiSubstepJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
         public int SubstepIndex;
 
         public void Execute()
@@ -190,9 +190,9 @@ public partial struct SolveXpbdUnitContactsJob
     private struct PrepareParallelJacobiIterationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
-        public NativeReference<ParallelJacobiIterationState> IterationState;
-        public NativeList<JacobiBlockStatistics> BlockStatistics;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+        public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
+        public NativeList<JacobiBlockTelemetry> BlockStatistics;
         public int SubstepIndex;
 
         public void Execute()
@@ -330,13 +330,13 @@ public partial struct SolveXpbdUnitContactsJob
     private struct ReduceParallelJacobiBlocksJob : IJobParallelForDefer
     {
         [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
-        public NativeArray<JacobiBlockStatistics> Blocks;
+        public NativeArray<JacobiBlockTelemetry> Blocks;
 
         public void Execute(int blockIndex)
         {
             int begin = blockIndex * JacobiPairBatchSize;
             int end = math.min(begin + JacobiPairBatchSize, Corrections.Length);
-            JacobiBlockStatistics block = default;
+            JacobiBlockTelemetry block = default;
             for (int pairIndex = begin; pairIndex < end; pairIndex++)
             {
                 JacobiPairCorrection correction = Corrections[pairIndex];
@@ -405,9 +405,9 @@ public partial struct SolveXpbdUnitContactsJob
     private struct FinalizeParallelJacobiIterationJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
-        public NativeReference<ParallelJacobiIterationState> IterationState;
-        [ReadOnly] public NativeList<JacobiBlockStatistics> BlockStatistics;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+        public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
+        [ReadOnly] public NativeList<JacobiBlockTelemetry> BlockStatistics;
         public int SubstepIndex;
         public int IterationIndex;
 
@@ -426,7 +426,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct FinalizeParallelJacobiSubstepJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
         public void Execute()
         {
@@ -438,7 +438,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct FinalizeParallelJacobiPipelineJob : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
         public void Execute()
         {
@@ -447,9 +447,9 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void InitializeParallelJacobiPipeline(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        var state = new ParallelJacobiRuntimeState
+        var state = new ParallelJacobiExecutionState
         {
             SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp,
             IsValid = 1
@@ -500,9 +500,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void PrepareParallelJacobiSubstep(
         int substepIndex,
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelJacobiRuntimeState runtime = runtimeState.Value;
+        ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
@@ -589,9 +589,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void PrepareParallelJacobiIteration(
         int substepIndex,
-        NativeReference<ParallelJacobiRuntimeState> runtimeState,
-        NativeReference<ParallelJacobiIterationState> iterationState,
-        NativeList<JacobiBlockStatistics> blockStatistics)
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics)
     {
         if (runtimeState.Value.IsValid == 0)
             return;
@@ -600,7 +600,7 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
-        ParallelJacobiIterationState iteration = default;
+        ParallelJacobiIterationTelemetry iteration = default;
 
         if (EnableDiagnostics)
         {
@@ -645,17 +645,17 @@ public partial struct SolveXpbdUnitContactsJob
     private void FinalizeParallelJacobiIteration(
         int substepIndex,
         int iterationIndex,
-        NativeReference<ParallelJacobiRuntimeState> runtimeState,
-        NativeReference<ParallelJacobiIterationState> iterationState,
-        NativeList<JacobiBlockStatistics> blockStatistics)
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics)
     {
-        ParallelJacobiRuntimeState runtime = runtimeState.Value;
+        ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
-        ParallelJacobiIterationState iteration = iterationState.Value;
+        ParallelJacobiIterationTelemetry iteration = iterationState.Value;
         // Parallel bodies only set disjoint flags. Rebuild the corrected-body
         // list in body-index order so envelope repair stays deterministic.
         CorrectedBodyIndices.Clear();
@@ -670,7 +670,7 @@ public partial struct SolveXpbdUnitContactsJob
         int newlyCorrected = 0;
         for (int i = 0; i < blockStatistics.Length; i++)
         {
-            JacobiBlockStatistics block = blockStatistics[i];
+            JacobiBlockTelemetry block = blockStatistics[i];
             totalPositionCorrection += block.TotalPositionCorrection;
             maxPositionCorrection = math.max(
                 maxPositionCorrection,
@@ -749,9 +749,9 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void FinalizeParallelJacobiSubstep(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelJacobiRuntimeState runtime = runtimeState.Value;
+        ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
@@ -767,9 +767,9 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void FinalizeParallelJacobiPipeline(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        ParallelJacobiRuntimeState runtime = runtimeState.Value;
+        ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 

@@ -36,4 +36,4 @@ When `RTS_CONTACT_DIAGNOSTICS` is absent:
 
 ## Migration status
 
-Source ownership is split into runtime control, capture, instrumentation, validation, presentation, recording, and experiment layers. Gameplay-only builds allocate and publish no diagnostics data; diagnostics builds publish one unified current-frame snapshot consumed by all presentation and recording surfaces. Historical RingBuffer storage is not implemented.
+Source ownership is split into runtime control, capture, instrumentation, validation, presentation, recording, and experiment layers. Resource owners and telemetry types now use role-based names; historical Stage3 and P1P6 names are intentionally deferred until runtime differential tests are available. Gameplay-only builds allocate and publish no diagnostics data; diagnostics builds publish one unified current-frame snapshot consumed by all presentation and recording surfaces. Historical RingBuffer storage is not implemented.

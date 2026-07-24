@@ -5,14 +5,14 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// Immutable publication of one completed simulation step. It is a current-state
 /// handoff only; no historical RingBuffer is retained.
 /// </summary>
-public sealed class SimulationDiagnosticsSnapshot
+public sealed class PublishedSimulationDiagnosticsSnapshot
 {
     public ulong Generation { get; }
     public uint SimulationStepId { get; }
     public SimulationDebuggerFrameSnapshot Frame { get; }
     public IncrementalContactPipelineSnapshot Pipeline { get; }
 
-    internal SimulationDiagnosticsSnapshot(
+    internal PublishedSimulationDiagnosticsSnapshot(
         ulong generation,
         uint simulationStepId,
         SimulationDebuggerFrameSnapshot frame,
@@ -25,10 +25,10 @@ public sealed class SimulationDiagnosticsSnapshot
     }
 }
 
-public static class SimulationDiagnosticsSnapshotRuntime
+public static class PublishedPublishedSimulationDiagnosticsRuntime
 {
     private static readonly object Gate = new object();
-    private static SimulationDiagnosticsSnapshot _latest;
+    private static PublishedSimulationDiagnosticsSnapshot _latest;
     private static ulong _generation;
 
     public static ulong Generation
@@ -49,7 +49,7 @@ public static class SimulationDiagnosticsSnapshotRuntime
 
         lock (Gate)
         {
-            _latest = new SimulationDiagnosticsSnapshot(
+            _latest = new PublishedSimulationDiagnosticsSnapshot(
                 ++_generation,
                 stepId,
                 frozenFrame,
@@ -57,7 +57,7 @@ public static class SimulationDiagnosticsSnapshotRuntime
         }
     }
 
-    public static bool TryGetLatest(out SimulationDiagnosticsSnapshot snapshot)
+    public static bool TryGetLatest(out PublishedSimulationDiagnosticsSnapshot snapshot)
     {
         lock (Gate)
         {
@@ -76,14 +76,14 @@ public static class SimulationDiagnosticsSnapshotRuntime
     }
 }
 #else
-public sealed class SimulationDiagnosticsSnapshot { }
-public static class SimulationDiagnosticsSnapshotRuntime
+public sealed class PublishedSimulationDiagnosticsSnapshot { }
+public static class PublishedPublishedSimulationDiagnosticsRuntime
 {
     public static ulong Generation => 0;
     public static void PublishComplete(
         SimulationDebuggerFrameSnapshot frame,
         IncrementalContactPipelineSnapshot pipeline) { }
-    public static bool TryGetLatest(out SimulationDiagnosticsSnapshot snapshot)
+    public static bool TryGetLatest(out PublishedSimulationDiagnosticsSnapshot snapshot)
     {
         snapshot = null;
         return false;

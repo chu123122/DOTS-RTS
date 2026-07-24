@@ -177,8 +177,8 @@ public static class IncrementalContactPipelineDiagnosticsRuntime
     {
         get
         {
-            return SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
-                       out SimulationDiagnosticsSnapshot unified)
+            return PublishedPublishedSimulationDiagnosticsRuntime.TryGetLatest(
+                       out PublishedSimulationDiagnosticsSnapshot unified)
                 ? unified.Pipeline
                 : default;
         }
@@ -197,8 +197,8 @@ public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
 
     protected override void OnUpdate()
     {
-        if (!SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
-                out SimulationDiagnosticsSnapshot published) ||
+        if (!PublishedPublishedSimulationDiagnosticsRuntime.TryGetLatest(
+                out PublishedSimulationDiagnosticsSnapshot published) ||
             published.Generation == _lastRecordedGeneration)
             return;
 

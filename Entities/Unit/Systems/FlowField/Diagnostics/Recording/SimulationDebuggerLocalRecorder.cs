@@ -82,8 +82,8 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         }
 
         if (Time.unscaledTime < _nextSampleAtUnscaledTime ||
-            !SimulationDiagnosticsSnapshotRuntime.TryGetLatest(
-                out SimulationDiagnosticsSnapshot published) ||
+            !PublishedPublishedSimulationDiagnosticsRuntime.TryGetLatest(
+                out PublishedSimulationDiagnosticsSnapshot published) ||
             published.Generation == _lastRecordedGeneration)
             return;
 
@@ -154,7 +154,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         return writer;
     }
 
-    private void WriteSample(SimulationDiagnosticsSnapshot published)
+    private void WriteSample(PublishedSimulationDiagnosticsSnapshot published)
     {
         SimulationDebuggerFrameSnapshot snapshot = published.Frame;
         IncrementalContactPipelineSnapshot incremental = published.Pipeline;
