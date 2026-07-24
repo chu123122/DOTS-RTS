@@ -260,9 +260,6 @@ public partial struct SolveXpbdUnitContactsJob
 
 
 
-
-
-
     private static int FindPairIndex(
         Unity.Collections.NativeList<UnitCollisionPair> pairs,
         int bodyA,
@@ -287,6 +284,12 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void BuildContactHeatSamples()
     {
+        // Configuration.EnableDiagnostics is compile-time false in gameplay-only
+        // builds. Keeping the guard inside the capture method lets Burst remove
+        // both body and pair scans without splitting the solver call graph.
+        if (!EnableDiagnostics)
+            return;
+
         for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
         {
             FlowMovementFrameState state = States[bodyIndex];
