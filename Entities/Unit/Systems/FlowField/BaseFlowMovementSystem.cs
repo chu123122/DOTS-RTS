@@ -20,6 +20,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     private EntityQuery _movementQuery;
     private ContactPersistentState _persistentState;
+    // Scheduled simulation identity is independent from persistent-cache age.
+    private uint _simulationStepId;
 
     protected override void OnCreate()
     {
@@ -89,6 +91,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0) return;
+        uint simulationStepId = NextSimulationStepId();
         if (_persistentState.RequiresCapacity(unitCount))
         {
             Dependency.Complete();
@@ -110,6 +113,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         CompletedSimulationStepMetadata completedStep = new CompletedSimulationStepMetadata
         {
             WorldId = diagnosticsWorldId,
+            SimulationStepId = simulationStepId,
             ElapsedTime = SystemAPI.Time.ElapsedTime,
             DeltaTime = SystemAPI.Time.DeltaTime,
             UnitCount = unitCount,
@@ -217,12 +221,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         NativeArray<Stage3ContactHeatSample> heatSamples = diagnosticsScratch.HeatSamples;
         var solveContactJob = new SolveXpbdUnitContactsJob
         {
-  Configuration = ContactPipelineConfiguration.Create(
-        SystemAPI.Time.DeltaTime,
-        flowFieldSettings,
-        contactSolverSettings,
-        effectivePersistentContactCache,
-        effectiveTimestepContactSetCache),
+            Configuration = ContactPipelineConfiguration.Create(
+                diagnosticsWorldId,
+                simulationStepId,
+                SystemAPI.Time.DeltaTime,
+                flowFieldSettings,
+                contactSolverSettings,
+                effectivePersistentContactCache,
+                effectiveTimestepContactSetCache),
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             GridOrigin = gridComponent.GridOrigin,
             GridDimensions = gridComponent.GridDimensions,
@@ -354,6 +360,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         Dependency = JobHandle.CombineDependencies(
             solverScratchDisposeHandle,
             diagnosticsScratchDisposeHandle);
+    }
+
+    private uint NextSimulationStepId()
+    {
+        _simulationStepId = _simulationStepId == uint.MaxValue
+            ? 1u
+            : _simulationStepId + 1u;
+        return _simulationStepId;
     }
 
     private void ResetPersistentContactCaches()
