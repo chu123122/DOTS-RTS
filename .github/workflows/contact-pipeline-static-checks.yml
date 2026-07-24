@@ -119,7 +119,7 @@ jobs:
               'public struct IncrementalContactCacheState':
                   pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs',
               'public struct IncrementalContactPipelineStatistics':
-                  flow / 'Diagnostics/ContactPipelineTelemetry.cs'
+                  flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs'
           }
           for symbol, expected_path in ownership.items():
               paths = [
@@ -132,7 +132,7 @@ jobs:
               pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs'
           ).read_text(encoding='utf-8')
           telemetry = (
-              flow / 'Diagnostics/ContactPipelineTelemetry.cs'
+              flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs'
           ).read_text(encoding='utf-8')
           if 'Nanoseconds' in runtime_types or 'OraclePairCount' in runtime_types:
               raise SystemExit('Telemetry leaked into authoritative runtime state')
@@ -143,6 +143,40 @@ jobs:
           temp += list(Path('.github/workflows').glob('audit-*.yml'))
           if temp:
               raise SystemExit('Temporary workflows remain: ' + repr(temp))
+          PY
+
+      - name: Validate diagnostics source layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          root = Path('Entities/Unit/Systems/FlowField')
+          expected = [
+              root / 'Diagnostics/Capture/ContactPipelineTelemetry.cs',
+              root / 'Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs',
+              root / 'Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs',
+              root / 'Diagnostics/Capture/Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
+              root / 'Diagnostics/Capture/Jobs/Stage3ContactDiagnosticRecorder.cs',
+              root / 'Diagnostics/Instrumentation/ContactPipelineProfilerClock.cs',
+              root / 'Diagnostics/Validation/IncrementalContactOracle.cs',
+              root / 'Diagnostics/README.md'
+          ]
+          missing = [str(path) for path in expected if not path.exists()]
+          if missing:
+              raise SystemExit('Diagnostics ownership files missing: ' + repr(missing))
+          legacy = [
+              root / 'Diagnostics/ContactPipelineTelemetry.cs',
+              root / 'Diagnostics/IncrementalContactPipelineDiagnostics.cs',
+              root / 'Diagnostics/SimulationDebuggerSnapshotPublishing.cs',
+              root / 'Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
+              root / 'Jobs/Stage3ContactDiagnosticRecorder.cs',
+              root / 'Jobs/IncrementalContactOracle.cs',
+              root / 'Jobs/ContactPipeline/Core/ContactPipelineProfilerClock.cs'
+          ]
+          returned = [str(path) for path in legacy if path.exists()]
+          if returned:
+              raise SystemExit('Diagnostics files returned to runtime folders: ' + repr(returned))
           PY
 
       - name: Validate diagnostics schema
@@ -248,9 +282,15 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
-          for path in pipeline.rglob('*.cs'):
-              text = path.read_text(encoding='utf-8')
-              if text.count('{') != text.count('}'):
-                  raise SystemExit(f'Brace mismatch: {path}')
+          roots = [
+              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline'),
+              Path('Entities/Unit/Systems/FlowField/Diagnostics/Capture'),
+              Path('Entities/Unit/Systems/FlowField/Diagnostics/Instrumentation'),
+              Path('Entities/Unit/Systems/FlowField/Diagnostics/Validation')
+          ]
+          for root in roots:
+              for path in root.rglob('*.cs'):
+                  text = path.read_text(encoding='utf-8')
+                  if text.count('{') != text.count('}'):
+                      raise SystemExit(f'Brace mismatch: {path}')
           PY
