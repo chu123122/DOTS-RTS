@@ -128,7 +128,6 @@ public partial struct SolveXpbdUnitContactsJob
             false);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
-        IssueFullSweepSubstepCertificate();
         statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
     }
@@ -169,10 +168,10 @@ public partial struct SolveXpbdUnitContactsJob
         CommitTimestepContactViews(
             ref statistics,
             ref incrementalStatistics,
-            fallback);
+            fallback,
+            scheduleStartSubstep);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
-        IssueInteractionCertificate(result, scheduleStartSubstep);
 
         long elapsed = TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
@@ -281,7 +280,8 @@ public partial struct SolveXpbdUnitContactsJob
     private void CommitTimestepContactViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics,
-        bool fallback)
+        bool fallback,
+        int scheduleStartSubstep = 0)
     {
         TimestepContactPairs.Clear();
         TimestepContactPairs.AddRange(Pairs.AsArray());
@@ -296,7 +296,10 @@ public partial struct SolveXpbdUnitContactsJob
             if (!fallback)
                 continue;
 
-            int previousIndex = FindPairIndex(PreviousTimestepContactPairs, pair.BodyA, pair.BodyB);
+            int previousIndex = FindPairIndex(
+                PreviousTimestepContactPairs,
+                pair.BodyA,
+                pair.BodyB);
             if (previousIndex >= 0)
             {
                 UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
@@ -313,6 +316,13 @@ public partial struct SolveXpbdUnitContactsJob
             }
             TimestepContactPairs[pairIndex] = pair;
         }
+
+        // This is the single consumer-view commit boundary shared by the serial
+        // and staged Jacobi implementations. Candidate cache source is hidden
+        // behind the certificate before any lower stage consumes the compact views.
+        IssueCertificateForCommittedViews(
+            incrementalStatistics,
+            scheduleStartSubstep);
     }
 
     private void ResetTimestepContactSetForSubstep()
@@ -350,9 +360,6 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void BuildContactHeatSamples()
     {
-        // Configuration.EnableDiagnostics is compile-time false in gameplay-only
-        // builds. Keeping the guard inside the capture method lets Burst remove
-        // both body and pair scans without splitting the solver call graph.
         if (!EnableDiagnostics)
             return;
 
