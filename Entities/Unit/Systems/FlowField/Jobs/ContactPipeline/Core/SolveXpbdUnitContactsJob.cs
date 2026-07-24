@@ -183,7 +183,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
             if (EnablePersistentContactCache)
                 PrepareInitialPersistentDirtyBodySet();
             long initialContactSetStart = ProfilerUnsafeUtility.Timestamp;
-            BuildTimestepContactSet(
+            BuildOrRefreshTimestepContactViews(
                 ref statistics,
                 ref incrementalStatistics,
                 false,
@@ -201,7 +201,7 @@ public partial struct SolveXpbdUnitContactsJob : IJob
                 // 被上层配置强制关闭，因此这里只会执行全量统一 Sweep。
                 PrepareTimestepContactPrediction(substepDeltaTime, true);
                 long substepInteractionStart = ProfilerUnsafeUtility.Timestamp;
-                BuildSubstepInteractionSet(
+                BuildSubstepInteractionAndSoftViews(
                     ref statistics,
                     ref incrementalStatistics);
                 statistics.PairGenerationNanoseconds += TimestampToNanoseconds(

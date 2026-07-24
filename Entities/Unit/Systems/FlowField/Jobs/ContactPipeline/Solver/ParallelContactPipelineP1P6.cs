@@ -1725,7 +1725,7 @@ public partial struct SolveXpbdUnitContactsJob
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         long start = ProfilerUnsafeUtility.Timestamp;
-        BuildTimestepContactSet(ref statistics, ref incremental, false, false);
+        BuildOrRefreshTimestepContactViews(ref statistics, ref incremental, false, false);
         statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - start);
         RebuildPersistentIncidentPairLookupIfNeededP1P6();
@@ -1793,7 +1793,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - validationStart);
-            BuildTimestepContactSet(
+            BuildOrRefreshTimestepContactViews(
                 ref statistics,
                 ref incremental,
                 true,
@@ -1814,7 +1814,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (dirtyRatio > IncrementalDirtyBodyRatioThreshold ||
             IncrementalCacheState.Value.IsValid == 0)
         {
-            BuildTimestepContactSet(
+            BuildOrRefreshTimestepContactViews(
                 ref statistics,
                 ref incremental,
                 true,
@@ -1847,7 +1847,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             incremental.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - mappingStart);
-            BuildTimestepContactSet(
+            BuildOrRefreshTimestepContactViews(
                 ref statistics,
                 ref incremental,
                 true,
@@ -2035,7 +2035,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (!EnableTimestepContactSetCache)
         {
             long start = ProfilerUnsafeUtility.Timestamp;
-            BuildSubstepInteractionSet(ref statistics, ref incremental);
+            BuildSubstepInteractionAndSoftViews(ref statistics, ref incremental);
             InvalidateSoftIncidentIndexP1P6();
             statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
@@ -2068,7 +2068,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref incrementalStatistics))
             return;
 
-        BuildTimestepContactSet(
+        BuildOrRefreshTimestepContactViews(
             ref statistics,
             ref incrementalStatistics,
             true,

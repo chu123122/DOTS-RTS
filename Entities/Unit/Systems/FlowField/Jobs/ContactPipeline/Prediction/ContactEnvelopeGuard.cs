@@ -241,7 +241,7 @@ public partial struct SolveXpbdUnitContactsJob
             return;
         }
 
-        BuildTimestepContactSet(
+        BuildOrRefreshTimestepContactViews(
             ref statistics,
             ref incrementalStatistics,
             true,

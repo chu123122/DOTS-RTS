@@ -324,7 +324,7 @@ public partial struct SolveXpbdUnitContactsJob
                 PersistentNeighborPairs.Length;
             ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
                 ref incrementalStatistics);
-            CommitFinalizedTimestepContactView(
+            CommitTimestepContactViews(
                 ref statistics,
                 ref incrementalStatistics,
                 false);
@@ -449,7 +449,7 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalCacheState.Value = cacheState;
 
         ValidateSoftAvoidancePairViewAgainstQuadraticOracle(ref incremental);
-        CommitFinalizedTimestepContactView(ref statistics, ref incremental, false);
+        CommitTimestepContactViews(ref statistics, ref incremental, false);
         incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - phase.ClassificationStartTimestamp);
         FinalizePersistentBuildTimingP1P6(
