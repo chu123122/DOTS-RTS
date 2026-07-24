@@ -8,3 +8,8 @@
  create mode 100644 audit-batches.log
 + git diff --check
 + git add -A
++ git commit -m fix: publish immutable step-consistent diagnostics snapshots
+[codex/diagnostics-audit-runner 5044dcb] fix: publish immutable step-consistent diagnostics snapshots
+ 8 files changed, 125 insertions(+), 99 deletions(-)
++ git diff --check
++ git add -A
