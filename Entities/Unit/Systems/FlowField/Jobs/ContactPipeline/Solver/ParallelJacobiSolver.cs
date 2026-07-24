@@ -11,28 +11,52 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public struct ParallelJacobiRuntimeState
 {
+    public byte IsValid;
+#if RTS_CONTACT_DIAGNOSTICS
     public float PenetrationSum;
     public long SolverStartTimestamp;
     public long IterationStartTimestamp;
-    public byte IsValid;
+#else
+    public float PenetrationSum { get => default; set { } }
+    public long SolverStartTimestamp { get => default; set { } }
+    public long IterationStartTimestamp { get => default; set { } }
+#endif
 }
 
 public struct ParallelJacobiIterationState
 {
+#if RTS_CONTACT_DIAGNOSTICS
     public float MaxViolationBeforeSolve;
     public float AverageViolationBeforeSolve;
     public float TotalWallPositionCorrection;
     public float MaxWallPositionCorrection;
+#else
+    private byte _disabledStorage;
+    public float MaxViolationBeforeSolve { get => default; set { } }
+    public float AverageViolationBeforeSolve { get => default; set { } }
+    public float TotalWallPositionCorrection { get => default; set { } }
+    public float MaxWallPositionCorrection { get => default; set { } }
+#endif
 }
 
 public struct JacobiBlockStatistics
 {
+#if RTS_CONTACT_DIAGNOSTICS
     public float TotalPositionCorrection;
     public float MaxPositionCorrection;
     public int NewlyActivatedPairCount;
     public int NewlyCorrectedPairCount;
     public int SelectedPairCount;
     public int SelectedPairOffset;
+#else
+    private byte _disabledStorage;
+    public float TotalPositionCorrection { get => default; set { } }
+    public float MaxPositionCorrection { get => default; set { } }
+    public int NewlyActivatedPairCount { get => default; set { } }
+    public int NewlyCorrectedPairCount { get => default; set { } }
+    public int SelectedPairCount { get => default; set { } }
+    public int SelectedPairOffset { get => default; set { } }
+#endif
 }
 
 /// <summary>
@@ -445,8 +469,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (substepDeltaTime <= 0f)
         {
             state.IsValid = 0;
-            Statistics.Value = statistics;
-            IncrementalStatistics.Value = incrementalStatistics;
+            StoreContactStatistics(statistics);
+            StoreIncrementalStatistics(incrementalStatistics);
             runtimeState.Value = state;
             return;
         }
@@ -472,8 +496,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ProfilerUnsafeUtility.Timestamp - start);
         }
 
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
         runtimeState.Value = state;
     }
 
@@ -485,8 +509,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtime.IsValid == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incrementalStatistics = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
 
@@ -561,8 +585,8 @@ public partial struct SolveXpbdUnitContactsJob
         statistics.TimestepContactSetSubstepUseCount++;
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
 
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
         runtimeState.Value = runtime;
     }
 
@@ -575,8 +599,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtimeState.Value.IsValid == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incrementalStatistics = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
         ParallelJacobiIterationState iteration = default;
@@ -616,8 +640,8 @@ public partial struct SolveXpbdUnitContactsJob
                          JacobiPairBatchSize;
         blockStatistics.ResizeUninitialized(blockCount);
 
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
         iterationState.Value = iteration;
     }
 
@@ -632,8 +656,8 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtime.IsValid == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incrementalStatistics = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
         ParallelJacobiIterationState iteration = iterationState.Value;
         // Parallel bodies only set disjoint flags. Rebuild the corrected-body
         // list in body-index order so envelope repair stays deterministic.
@@ -722,8 +746,8 @@ public partial struct SolveXpbdUnitContactsJob
             }
         }
 
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
         runtimeState.Value = runtime;
     }
 
@@ -734,14 +758,14 @@ public partial struct SolveXpbdUnitContactsJob
         if (runtime.IsValid == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         statistics.IterationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - runtime.IterationStartTimestamp);
         AccumulateConstraintStatistics(ref statistics, ref runtime.PenetrationSum);
         ReconstructVelocities(
             DeltaTime / math.max(1, SubstepCount),
             ref statistics);
-        Statistics.Value = statistics;
+        StoreContactStatistics(statistics);
         runtimeState.Value = runtime;
     }
 
@@ -754,8 +778,8 @@ public partial struct SolveXpbdUnitContactsJob
 
         int substepCount = math.max(1, SubstepCount);
         int iterationCount = math.max(1, IterationCount);
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incrementalStatistics = IncrementalStatistics.Value;
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
 
         if (EnableDiagnostics)
             CaptureSelectedBodyAndPairs(substepCount - 1);
@@ -825,8 +849,8 @@ public partial struct SolveXpbdUnitContactsJob
                 : 0f;
 
         CaptureSimulationDebuggerSelectedUnit();
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incrementalStatistics;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incrementalStatistics);
     }
 }
 }
