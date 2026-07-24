@@ -1,6 +1,7 @@
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
@@ -42,6 +43,59 @@ public partial struct SolveXpbdUnitContactsJob
             default:
                 return CertifiedInteractionSourceMode.FullSweep;
         }
+    }
+
+    private ContactViewBuildResult InferCommittedViewBuildResult(
+        IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        ContactInteractionSourceMode sourceMode =
+            ContactInteractionSourceMode.FullSweep;
+        bool persistent = EnablePersistentContactCache &&
+                          IncrementalCacheState.IsCreated &&
+                          IncrementalCacheState.Value.IsValid != 0;
+        if (persistent)
+        {
+            if (incrementalStatistics.UsedFullRebuild != 0)
+                sourceMode = ContactInteractionSourceMode.PersistentFullRebuild;
+            else if (incrementalStatistics.IncrementalRepairCount > 0)
+                sourceMode = ContactInteractionSourceMode.PersistentRepair;
+            else
+                sourceMode = ContactInteractionSourceMode.PersistentReuse;
+        }
+
+        int interactionPairCount =
+            incrementalStatistics.CurrentInteractionPairCount > 0
+                ? incrementalStatistics.CurrentInteractionPairCount
+                : persistent
+                    ? PersistentNeighborPairs.Length
+                    : TimestepInteractionPairs.Length;
+        return new ContactViewBuildResult
+        {
+            SourceMode = sourceMode,
+            PersistentViewReady = (byte)(persistent ? 1 : 0),
+            UsedFullRebuild = (byte)(
+                incrementalStatistics.UsedFullRebuild != 0 ? 1 : 0),
+            RepairedBodyCount = sourceMode ==
+                                ContactInteractionSourceMode.PersistentRepair
+                ? math.max(0, incrementalStatistics.TopologyDirtyBodyCount)
+                : 0,
+            InteractionPairCount = interactionPairCount
+        };
+    }
+
+    /// <summary>
+    /// Common commit hook used by both the serial reference path and the staged
+    /// P1-P6 Jacobi path. Every consumer-visible compact view therefore receives
+    /// an explicit certificate even when the caller bypasses the serial source
+    /// resolver.
+    /// </summary>
+    private void IssueCertificateForCommittedViews(
+        IncrementalContactPipelineStatistics incrementalStatistics,
+        int scheduleStartSubstep = 0)
+    {
+        IssueInteractionCertificate(
+            InferCommittedViewBuildResult(incrementalStatistics),
+            scheduleStartSubstep);
     }
 
     private void IssueInteractionCertificate(
