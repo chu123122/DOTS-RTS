@@ -48,7 +48,7 @@ public partial struct SolveXpbdUnitContactsJob
     public NativeReference<uint> PersistentSpatialVisitStamp;
 
     private JobHandle ScheduleInitialPersistentContactSetP1P6(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState,
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
         JobHandle dependency)
     {
         JobHandle handle = new PreparePersistentClassificationP1P6Job
@@ -95,7 +95,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct PreparePersistentClassificationP1P6Job : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
         public void Execute()
         {
@@ -198,7 +198,7 @@ public partial struct SolveXpbdUnitContactsJob
     private struct CommitPersistentClassificationP1P6Job : IJob
     {
         public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiRuntimeState> RuntimeState;
+        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
         public void Execute()
         {
@@ -207,7 +207,7 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void PreparePersistentClassificationP1P6(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
         ParallelPersistentClassificationState phase = new ParallelPersistentClassificationState
         {
@@ -358,7 +358,7 @@ public partial struct SolveXpbdUnitContactsJob
         return false;
     }
     private void CommitPersistentClassificationP1P6(
-        NativeReference<ParallelJacobiRuntimeState> runtimeState)
+        NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
         ParallelPersistentClassificationState phase =
             PersistentClassificationState.Value;

@@ -35,3 +35,10 @@
  7 files changed, 33 insertions(+), 27 deletions(-)
 + git diff --check
 + git add -A
++ git commit -m test: add contact pipeline audit contracts and verification matrix
+[codex/diagnostics-audit-runner 8cef903] test: add contact pipeline audit contracts and verification matrix
+ 3 files changed, 113 insertions(+)
+ create mode 100644 .github/scripts/validate_contact_pipeline_audit.py
+ create mode 100644 Entities/Unit/Systems/FlowField/Diagnostics/VERIFICATION_MATRIX.md
++ git diff --check
++ git add -A

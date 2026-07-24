@@ -3,10 +3,10 @@ import re
 
 flow = Path('Entities/Unit/Systems/FlowField')
 base = (flow / 'BaseFlowMovementSystem.cs').read_text(encoding='utf-8')
-helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsScheduling.cs').read_text(encoding='utf-8')
+helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs').read_text(encoding='utf-8')
 solver = (flow / 'Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
-snapshot = (flow / 'Diagnostics/Capture/SimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
+snapshot = (flow / 'Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
 forbidden_allocations = (
     'new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob)',
     'new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob)',
@@ -30,7 +30,7 @@ if re.search(r'(?m)^\s*Statistics\.Value', production):
     raise SystemExit('Direct contact telemetry ABI returned')
 if 'IncrementalStatistics.Value' in production:
     raise SystemExit('Direct incremental telemetry ABI returned')
-if 'SimulationDiagnosticsSnapshotRuntime' not in runtime or 'SimulationDiagnosticsSnapshotRuntime' not in snapshot:
+if 'PublishedSimulationDiagnosticsRuntime' not in runtime or 'PublishedSimulationDiagnosticsRuntime' not in snapshot:
     raise SystemExit('Unified current-frame snapshot handoff missing')
 if 'class SimulationDiagnosticsRingBuffer' in snapshot:
     raise SystemExit('RingBuffer is explicitly out of scope')
