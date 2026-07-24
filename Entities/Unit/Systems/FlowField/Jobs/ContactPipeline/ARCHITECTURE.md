@@ -39,6 +39,22 @@ its fields are not valid control inputs. An oracle mismatch invalidates the
 runtime state through an explicit write to `IncrementalContactCacheState`; the
 telemetry counter itself never becomes the authority.
 
+## Diagnostics compile boundary
+
+`RTS_CONTACT_DIAGNOSTICS` is a Scripting Define Symbol managed by the
+`SimulationDiagnosticsBuildSettings` inspector asset. Applying a profile
+triggers a Unity script recompile.
+
+- **Editor Diagnostics** enables the symbol for the active build target used by
+  Play Mode.
+- **Development Diagnostics** enables the selected development targets.
+- **Release Gameplay Only** removes the symbol from all supported targets.
+
+The build-settings asset and inspector are editor-only. Runtime code may inspect
+`SimulationDiagnosticsCompileStatus`, but it may not call `UnityEditor` APIs.
+The next compile-gate step removes telemetry containers and presentation systems
+from the player assembly when the symbol is absent.
+
 ## Lifetimes
 
 | Data | Lifetime | Stable identity |

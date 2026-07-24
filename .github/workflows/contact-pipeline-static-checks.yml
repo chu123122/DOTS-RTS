@@ -206,6 +206,42 @@ jobs:
                   'Selected-pair capture must use the parallel pair-slot path')
           PY
 
+      - name: Validate diagnostics build profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          editor_settings = Path(
+              'Entities/Unit/Systems/FlowField/Editor/'
+              'SimulationDiagnosticsBuildSettings.cs')
+          compile_status = Path(
+              'Entities/Unit/Systems/FlowField/Diagnostics/'
+              'SimulationDiagnosticsCompileStatus.cs')
+          asset = Path(
+              'Entities/Unit/Systems/FlowField/Editor/'
+              'SimulationDiagnosticsBuildSettings.asset')
+          for path in (editor_settings, compile_status, asset):
+              if not path.exists():
+                  raise SystemExit(f'Missing diagnostics build artifact: {path}')
+          editor_text = editor_settings.read_text(encoding='utf-8')
+          required = [
+              'RTS_CONTACT_DIAGNOSTICS',
+              'PlayerSettings.GetScriptingDefineSymbols',
+              'PlayerSettings.SetScriptingDefineSymbols',
+              'Editor Diagnostics',
+              'Development Diagnostics',
+              'Release Gameplay Only'
+          ]
+          missing = [token for token in required if token not in editor_text]
+          if missing:
+              raise SystemExit(
+                  'Diagnostics build settings contract missing: ' + repr(missing))
+          runtime_text = compile_status.read_text(encoding='utf-8')
+          if 'UnityEditor' in runtime_text:
+              raise SystemExit('Runtime compile status must not reference UnityEditor')
+          PY
+
       - name: Validate simple source structure
         shell: bash
         run: |
