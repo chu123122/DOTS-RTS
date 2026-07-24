@@ -89,7 +89,7 @@ jobs:
           production = '\n'.join(p.read_text(encoding='utf-8') for p in pipeline.rglob('*.cs'))
           occurrences = [
               str(path) for path in pipeline.rglob('*.cs')
-              if 'PersistentGuardEnvelopeMargin' in path.read_text(encoding='utf-8')
+              if 'FatAabbCacheMargin' in path.read_text(encoding='utf-8')
           ]
           expected = str(pipeline / 'Core/ContactPipelineConfiguration.cs')
           if occurrences != [expected]:

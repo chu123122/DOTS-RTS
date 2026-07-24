@@ -43,6 +43,12 @@ The following are enforced by repository CI:
 - gameplay preprocessing contains no Jacobi iteration/block telemetry types,
   allocations or pure telemetry reduction/finalize jobs;
 - persistent classification timestamps do not occupy gameplay struct storage;
-- this document has a committed Unity `.meta` file.
+- this document has a committed Unity `.meta` file;
+- persistent and frame-local contact resources have separate lifetime owners;
+- dirty-body block offsets are not reused as soft incident cursors;
+- contact-view source resolution, classification and commit are explicit stages;
+- persistent classification phase state is separate from diagnostics telemetry;
+- normal and diagnostics Jacobi jobs share one pair-evaluation implementation;
+- legacy Fat-AABB configuration names survive only as serialization migration attributes.
 
 These checks are not substitutes for the Unity-required matrix above.

@@ -144,6 +144,7 @@ public partial struct SolveXpbdUnitContactsJob
             ref incrementalStatistics,
             forceFullBroadPhase,
             scheduleStartSubstep);
+        ObserveContactViewBuildResult(result, ref incrementalStatistics);
 
         if (result.PersistentViewReady != 0)
         {
@@ -208,8 +209,6 @@ public partial struct SolveXpbdUnitContactsJob
         int interactionPairCount = persistentViewReady
             ? PersistentNeighborPairs.Length
             : TimestepInteractionPairs.Length;
-        incrementalStatistics.CurrentInteractionPairCount = interactionPairCount;
-
         ContactInteractionSourceMode sourceMode = ContactInteractionSourceMode.FullSweep;
         if (persistentViewReady)
         {
@@ -230,11 +229,20 @@ public partial struct SolveXpbdUnitContactsJob
                 (!sourcedFromIncrementalCache && forceFullBroadPhase)
                     ? 1
                     : 0),
-            RepairedBodyCount = math.max(
-                0,
-                incrementalStatistics.IncrementalRepairCount - repairCountBefore),
+            RepairedBodyCount = sourceMode == ContactInteractionSourceMode.PersistentRepair
+                ? math.max(0, incrementalStatistics.TopologyDirtyBodyCount)
+                : 0,
             InteractionPairCount = interactionPairCount
         };
+    }
+
+    private static void ObserveContactViewBuildResult(
+        ContactViewBuildResult result,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        incrementalStatistics.CurrentInteractionPairCount = result.InteractionPairCount;
+        if (result.UsedFullRebuild != 0)
+            incrementalStatistics.UsedFullRebuild = 1;
     }
 
     private void ClassifyTimestepContacts(

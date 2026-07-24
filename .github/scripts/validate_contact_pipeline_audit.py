@@ -6,6 +6,7 @@ solver = flow / "Jobs/ContactPipeline/Solver/ParallelJacobiSolver.cs"
 p1p6 = flow / "Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs"
 persistent = flow / "Jobs/ContactPipeline/Persistent/PersistentParallelClassificationP1P6.cs"
 base = flow / "BaseFlowMovementSystem.cs"
+resources = flow / "ContactPipelineResources.cs"
 reset = flow / "Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs"
 snapshot = flow / "Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs"
 publishing = flow / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs"
@@ -20,7 +21,7 @@ timestep = flow / "Jobs/ContactPipeline/Prediction/TimestepContactSet.cs"
 verification = flow / "Diagnostics/VERIFICATION_MATRIX.md"
 verification_meta = flow / "Diagnostics/VERIFICATION_MATRIX.md.meta"
 
-required_paths = (solver, p1p6, persistent, base, reset, snapshot, publishing,
+required_paths = (solver, p1p6, persistent, base, resources, reset, snapshot, publishing,
                   pipeline_snapshot, runtime, experiment, contracts, oracle,
                   authoring, grid, timestep, verification, verification_meta)
 for path in required_paths:
@@ -149,3 +150,63 @@ if "Unity required" not in verification.read_text(encoding="utf-8"):
     raise SystemExit("Verification matrix no longer distinguishes unexecuted Unity tests")
 if "guid:" not in verification_meta.read_text(encoding="utf-8"):
     raise SystemExit("Verification matrix Unity metadata is invalid")
+
+
+# P2 maintenance boundaries: resource ownership, explicit stages and terminology.
+base_text = base.read_text(encoding="utf-8")
+resources_text = resources.read_text(encoding="utf-8")
+for required in ("struct ContactPersistentState", "struct ContactFrameResources",
+                 "ContactFrameResources Create(", "JobHandle Dispose("):
+    if required not in resources_text:
+        raise SystemExit(f"Contact resource lifetime owner missing: {required}")
+if re.search(r"new Native(?:Array|List|Reference|Parallel)", base_text):
+    raise SystemExit("BaseFlowMovementSystem again allocates contact Native resources directly")
+if "DirtyBodyBlockOffsets" not in resources_text or "DirtyBodyBlockOffsets" not in p1p6_text:
+    raise SystemExit("Dirty-body block scratch is not independently owned")
+for forbidden in ("BlockOffsetsAndCounts = SoftIncidentWriteCursors",
+                  "BlockOffsets = SoftIncidentWriteCursors",
+                  "EscapeCountsByBlock = SoftIncidentWriteCursors"):
+    if forbidden in p1p6_text:
+        raise SystemExit(f"Soft incident cursor reused across phase semantics: {forbidden}")
+
+persistent_text = persistent.read_text(encoding="utf-8")
+release_maintenance = preprocess_diagnostics(resources_text + "\n" + persistent_text, False)
+for required in ("struct PersistentClassificationPhaseState",
+                 "struct PersistentClassificationTelemetryState",
+                 "RefreshPersistentPairSourceForClassification"):
+    if required not in persistent_text:
+        raise SystemExit(f"Persistent classification boundary missing: {required}")
+if "PersistentClassificationTelemetryState" in release_maintenance:
+    raise SystemExit("Persistent classification telemetry exists in gameplay preprocessing")
+if "ParallelPersistentClassificationState" in persistent_text + resources_text + p1p6_text + base_text:
+    raise SystemExit("Mixed persistent classification state returned")
+
+if solver_text.count("XpbdContactConstraintMath.Evaluate(") != 1:
+    raise SystemExit("Parallel Jacobi pair math is duplicated outside EvaluateJacobiPair")
+if solver_text.count("EvaluateJacobiPair(") < 3:
+    raise SystemExit("Both parallel Jacobi jobs do not share EvaluateJacobiPair")
+
+for required in ("ContactViewBuildResult", "ResolveInteractionSource(",
+                 "ObserveContactViewBuildResult(", "ClassifyTimestepContacts(",
+                 "CommitTimestepContactViews("):
+    if required not in timestep_text:
+        raise SystemExit(f"Explicit contact-view phase/result missing: {required}")
+commit_match = re.search(
+    r"private void CommitTimestepContactViews\(.*?\n    \}", timestep_text, re.S)
+if not commit_match:
+    raise SystemExit("Cannot locate CommitTimestepContactViews")
+if "ValidateIncrementalContactSetAgainstQuadraticOracle" in commit_match.group(0):
+    raise SystemExit("Oracle validation is hidden inside the commit phase")
+
+if "enum StagedContactPipelinePhase" not in p1p6_text:
+    raise SystemExit("Historical P1-P6 scheduling lacks named phase documentation")
+source_without_migration_attributes = all_source.replace(
+    '[FormerlySerializedAs("enableFatAabbCache")]', '').replace(
+    '[FormerlySerializedAs("fatAabbCacheMargin")]', '')
+for forbidden in ("EnableFatAabbCache", "FatAabbCacheMargin",
+                  "enableFatAabbCache", "fatAabbCacheMargin"):
+    if forbidden in source_without_migration_attributes:
+        raise SystemExit(f"Legacy persistent-cache terminology returned: {forbidden}")
+for required in ("EnablePersistentContactCache", "PersistentGuardEnvelopeMargin"):
+    if required not in grid.read_text(encoding="utf-8"):
+        raise SystemExit(f"Persistent contact setting missing: {required}")
