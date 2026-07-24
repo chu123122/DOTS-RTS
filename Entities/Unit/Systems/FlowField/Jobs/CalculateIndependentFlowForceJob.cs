@@ -9,22 +9,19 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-
 /// <summary>
-/// 计算不依赖其他单位的移动力，并初始化本帧单位状态。
-/// 本阶段只读取单位自身状态和流场，不访问邻居。
+/// Captures body facts and produces navigation-only movement intent. It reads the
+/// shared cell storage through FlowNavigationView and does not interpret wall or
+/// contact-solver policy.
 /// </summary>
 [BurstCompile]
 public partial struct CalculateIndependentFlowForceJob : IJobEntity
 {
-    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
-    public float3 GridOrigin;
-    public int2 GridDimensions;
-    public float CellRadius;
+    [ReadOnly] public NativeArray<FlowFieldCell> NavigationCells;
+    public FlowGridGeometry NavigationGrid;
     public uint ActiveRequestVersion;
 
     [ReadOnly] public NativeArray<float2> CollisionFootprints;
-
     public NativeArray<FlowMovementFrameState> States;
 
     public void Execute(
@@ -50,24 +47,23 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
             Radius = math.cmax(CollisionFootprints[entityIndex]) * 0.5f
         };
 
-        // 越界单位不参与本帧后续求解，并在最终阶段停止速度。
-        int2 cellPos = FlowFieldUtils.WorldToCell(transform.Position, GridOrigin, CellRadius);
-        if (cellPos.x < 0 || cellPos.x >= GridDimensions.x ||
-            cellPos.y < 0 || cellPos.y >= GridDimensions.y)
+        int2 cellPos = NavigationGrid.WorldToCell(transform.Position);
+        if (!FlowNavigationView.TryRead(
+                NavigationCells,
+                NavigationGrid,
+                cellPos,
+                out FlowFieldCell cell))
         {
             state.IsInsideGrid = false;
             States[entityIndex] = state;
             return;
         }
 
-        int flatIndex = FlowFieldUtils.GetFlatIndex(cellPos, GridDimensions);
-        FlowFieldCell cell = Grid[flatIndex];
-
         bool hasActiveDestination = destination.IsActive != 0;
         if (hasActiveDestination && destination.OrderVersion != ActiveRequestVersion)
         {
-            // 新订单已经分配，但与它对应的距离场尚未发布。
-            // 等待期间必须清零旧速度，避免单位先靠近新槽位、随后又被旧向量场拉回。
+            // The order exists but its matching flow field has not been published.
+            // Stop instead of applying a stale direction field.
             arrivalState.IsSettled = true;
             state.CurrentVelocity = float3.zero;
             state.CellPosition = cellPos;
@@ -82,46 +78,47 @@ public partial struct CalculateIndependentFlowForceJob : IJobEntity
         float2 destinationDelta = destination.Position.xz - transform.Position.xz;
         float destinationDistance = math.length(destinationDelta);
         float arrivalEnterRadius = math.max(0.01f, destination.ArrivalRadius);
-        float arrivalExitRadius = arrivalEnterRadius + math.max(0.05f, state.Radius * 0.5f);
+        float arrivalExitRadius = arrivalEnterRadius +
+                                  math.max(0.05f, state.Radius * 0.5f);
         bool isSettled = !hasActiveDestination ||
                          (arrivalState.IsSettled
                              ? destinationDistance <= arrivalExitRadius
                              : destinationDistance <= arrivalEnterRadius);
         arrivalState.IsSettled = isSettled;
 
-        float3 moveForce = float3.zero;
-        if (hasActiveDestination && !isSettled && cell.Cost != 0)
+        float3 desiredVelocity = float3.zero;
+        if (hasActiveDestination && !isSettled &&
+            FlowNavigationView.IsReachable(cell))
         {
             bool useDirectApproach =
-                cell.IntegrationValue != ushort.MaxValue &&
                 cell.IntegrationValue <= destination.DirectApproachIntegrationDistance;
-            float3 desiredVelocity;
             if (useDirectApproach)
             {
                 float3 desiredDirection = math.normalizesafe(
                     new float3(destinationDelta.x, 0f, destinationDelta.y));
                 float brakingDistance = math.max(
-                    CellRadius * 2f,
+                    NavigationGrid.CellRadius * 2f,
                     math.max(state.Radius * 2f, arrivalExitRadius));
                 float speedScale = math.saturate(destinationDistance / brakingDistance);
                 desiredVelocity = desiredDirection * speed.Value * speedScale;
             }
             else
             {
-                int2 dirOffset = FlowFieldUtils.GetDirectionOffset(cell.BestDirectionIndex);
+                int2 dirOffset = FlowFieldUtils.GetDirectionOffset(
+                    cell.BestDirectionIndex);
                 float3 desiredDirection = math.normalizesafe(
                     new float3(dirOffset.x, 0f, dirOffset.y));
                 desiredVelocity = desiredDirection * speed.Value;
             }
-
-            moveForce = desiredVelocity - velocity.Value;
         }
 
         state.CellPosition = cellPos;
         state.Cell = cell;
         state.IsSettled = isSettled;
         state.IsInsideGrid = true;
-        state.IndependentForce = moveForce;
+        // Transitional compatibility field: mathematically this is a steering
+        // velocity error integrated under MaxForce/MaxAcceleration policy.
+        state.IndependentForce = desiredVelocity - velocity.Value;
         States[entityIndex] = state;
     }
 }
