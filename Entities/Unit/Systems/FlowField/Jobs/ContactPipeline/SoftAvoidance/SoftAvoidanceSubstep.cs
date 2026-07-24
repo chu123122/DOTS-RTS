@@ -1,8 +1,4 @@
-using Unity.Burst;
-using Unity.Collections;
-using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Profiling.LowLevel.Unsafe;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
@@ -30,7 +26,7 @@ public partial struct SolveXpbdUnitContactsJob
             }
 
             float3 position = state.PredictedPosition;
-            int2 currentCell = FlowFieldUtils.WorldToCell(position, GridOrigin, CellRadius);
+            int2 currentCell = EnvironmentGeometry.WorldToCell(position);
             AccumulateWallAvoidanceVelocity(
                 position,
                 currentCell,
@@ -65,7 +61,10 @@ public partial struct SolveXpbdUnitContactsJob
             if (state.SoftAvoidanceNeighborCount > 0 &&
                 SoftAvoidanceVelocitySolver ==
                 SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer)
-                state.SoftAvoidanceVelocity /= state.SoftAvoidanceNeighborCount;
+            {
+                state.SoftAvoidanceVelocity /=
+                    state.SoftAvoidanceNeighborCount;
+            }
 
             state.SoftAvoidanceVelocity += state.WallAvoidanceVelocity;
             float maxAvoidanceSpeed = math.max(0f, state.MoveSpeed);
@@ -73,7 +72,8 @@ public partial struct SolveXpbdUnitContactsJob
                 maxAvoidanceSpeed * maxAvoidanceSpeed)
             {
                 state.SoftAvoidanceVelocity =
-                    math.normalizesafe(state.SoftAvoidanceVelocity) * maxAvoidanceSpeed;
+                    math.normalizesafe(state.SoftAvoidanceVelocity) *
+                    maxAvoidanceSpeed;
             }
 
             States[bodyIndex] = state;
@@ -181,7 +181,9 @@ public partial struct SolveXpbdUnitContactsJob
             for (int bodyB = bodyA + 1; bodyB < States.Length; bodyB++)
             {
                 if (!States[bodyB].IsInsideGrid ||
-                    !CouldEnterSoftAvoidanceRange(States[bodyA], States[bodyB]))
+                    !CouldEnterSoftAvoidanceRange(
+                        States[bodyA],
+                        States[bodyB]))
                     continue;
                 oracleCount++;
                 if (FindPairIndex(SoftAvoidancePairs, bodyA, bodyB) < 0)
@@ -195,7 +197,7 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private int AccumulateUnitAvoidanceVelocities(
-        NativeArray<UnitCollisionPair> candidates,
+        Unity.Collections.NativeArray<UnitCollisionPair> candidates,
         float softShell,
         float substepDeltaTime)
     {
@@ -206,14 +208,12 @@ public partial struct SolveXpbdUnitContactsJob
             FlowMovementFrameState bodyA = States[pair.BodyA];
             FlowMovementFrameState bodyB = States[pair.BodyB];
 
-            // 快速距离预检：跳过明显超出软避让范围的候选对。
-            // Fat AABB 缓存可能因大 margin 产生大量候选对，但软避让
-            // 只需处理 softShell 范围内的对。不预检则每个对都进
-            // TryCalculatePairVelocities 做完整计算后才被 reject。
-            float3 softDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            float3 softDelta =
+                bodyA.PredictedPosition - bodyB.PredictedPosition;
             softDelta.y = 0;
             float softDistSq = math.lengthsq(softDelta);
-            float softMaxDist = bodyA.Radius + bodyB.Radius + softShell;
+            float softMaxDist =
+                bodyA.Radius + bodyB.Radius + softShell;
             if (softDistSq > softMaxDist * softMaxDist)
                 continue;
 
@@ -257,8 +257,7 @@ public partial struct SolveXpbdUnitContactsJob
         float softShell,
         ref float3 avoidanceVelocity)
     {
-        if (currentCell.x < 0 || currentCell.x >= GridDimensions.x ||
-            currentCell.y < 0 || currentCell.y >= GridDimensions.y)
+        if (!EnvironmentGeometry.Contains(currentCell))
             return;
 
         for (int x = -1; x <= 1; x++)
@@ -266,19 +265,15 @@ public partial struct SolveXpbdUnitContactsJob
             for (int y = -1; y <= 1; y++)
             {
                 int2 checkCell = currentCell + new int2(x, y);
-                if (checkCell.x < 0 || checkCell.x >= GridDimensions.x ||
-                    checkCell.y < 0 || checkCell.y >= GridDimensions.y)
+                if (!IsObstacleCell(checkCell))
                     continue;
 
-                int checkIndex = FlowFieldUtils.GetFlatIndex(checkCell, GridDimensions);
-                if (Grid[checkIndex].Cost != 0)
-                    continue;
-
-                float3 wallPosition = GridOrigin + new float3(
-                    checkCell.x * CellRadius * 2f + CellRadius,
-                    position.y,
-                    checkCell.y * CellRadius * 2f + CellRadius);
-                float wallCheckRadius = CellRadius + math.max(0f, bodyRadius) + softShell;
+                float3 wallPosition = ObstacleCellCenter(
+                    checkCell,
+                    position.y);
+                float wallCheckRadius = CellRadius +
+                                        math.max(0f, bodyRadius) +
+                                        softShell;
                 avoidanceVelocity += SoftAvoidanceMath.CalculateWallVelocity(
                     position,
                     wallPosition,
