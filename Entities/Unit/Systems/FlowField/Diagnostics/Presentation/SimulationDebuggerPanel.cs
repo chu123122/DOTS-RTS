@@ -195,6 +195,13 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label("仿真诊断", _headerStyle, GUILayout.Width(78f));
+        ulong[] worldIds = SimulationDebuggerRuntime.GetRegisteredWorldIds();
+        GUILayout.Label($"W:{SimulationDebuggerRuntime.TargetWorldId}", _mutedStyle, GUILayout.Width(74f));
+        GUI.enabled = worldIds.Length > 1;
+        if (GUILayout.Button("切换世界", GUILayout.Width(64f)) &&
+            SimulationDebuggerRuntime.SelectNextWorld())
+            RefreshCaptureMask();
+        GUI.enabled = true;
         if (GUILayout.Button("字−", GUILayout.Width(34f)))
             FontScale = Mathf.Clamp(FontScale - ZoomStep, 0.5f, 2f);
         GUILayout.Label($"{FontScale * 100f:0}%", _mutedStyle, GUILayout.Width(38f));

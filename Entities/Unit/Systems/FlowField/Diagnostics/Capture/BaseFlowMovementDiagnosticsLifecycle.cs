@@ -154,7 +154,7 @@ public abstract partial class BaseFlowMovementSystem
         JobHandle incremental = new PublishIncrementalContactPipelineStatisticsJob
         {
             CompletedStep = completedStep,
-            Configuration = IncrementalContactPipelineExperimentRuntime.CaptureConfiguration(unitCount, deltaTime, softAvoidanceShell, solverSettings, effectiveTimestepContactSetCache, effectivePersistentContactCache),
+            Configuration = IncrementalContactPipelineExperimentRuntime.CaptureConfiguration(completedStep.WorldId, unitCount, deltaTime, softAvoidanceShell, solverSettings, effectiveTimestepContactSetCache, effectivePersistentContactCache),
             SolverSource = contactStatistics, Source = incrementalStatistics,
             Target = _incrementalDiagnosticsEntity,
             SnapshotLookup = GetComponentLookup<IncrementalContactPipelineSnapshot>(false)

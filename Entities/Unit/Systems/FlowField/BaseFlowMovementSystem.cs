@@ -58,6 +58,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             new NativeReference<IncrementalContactCacheState>(Allocator.Persistent);
         CreatePersistentIncidentLookup();
         CreatePersistentDiagnostics();
+        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
+        SimulationDebuggerRuntime.RegisterWorld(diagnosticsWorldId);
+        IncrementalContactPipelineExperimentRuntime.RegisterWorld(diagnosticsWorldId);
     }
 
     protected override void OnDestroy()
@@ -81,6 +84,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             _incrementalContactCacheState.Dispose();
         DisposePersistentIncidentLookup();
         DisposePersistentDiagnostics();
+        ulong diagnosticsWorldId = World.Unmanaged.SequenceNumber;
+        IncrementalContactPipelineExperimentRuntime.UnregisterWorld(diagnosticsWorldId);
+        SimulationDebuggerRuntime.UnregisterWorld(diagnosticsWorldId);
     }
 
     protected override void OnUpdate()
@@ -97,17 +103,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         ApplySimulationDebuggerRuntimeOverrides(
             ref flowFieldSettings,
             ref contactSolverSettings);
-        IncrementalContactPipelineExperimentRuntime.Apply(ref contactSolverSettings);
+        IncrementalContactPipelineExperimentRuntime.Apply(diagnosticsWorldId, ref contactSolverSettings);
         bool effectiveTimestepContactSetCache =
             contactSolverSettings.EnableTimestepContactSetCache;
         bool requestedPersistentContactCache =
-            IncrementalContactPipelineExperimentRuntime.OverrideEnabled
-                ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabled
+            IncrementalContactPipelineExperimentRuntime.OverrideEnabledFor(diagnosticsWorldId)
+                ? IncrementalContactPipelineExperimentRuntime.CrossFrameContactCacheEnabledFor(diagnosticsWorldId)
                 : contactSolverSettings.EnableFatAabbCache;
         // 持久邻居拓扑只能为跨子步接触集提供候选；不允许“跨帧开、跨子步关”。
         bool effectivePersistentContactCache =
             requestedPersistentContactCache && effectiveTimestepContactSetCache;
-        if (SimulationDebuggerRuntime.TryConsumeContactCacheReset())
+        if (SimulationDebuggerRuntime.TryConsumeContactCacheReset(diagnosticsWorldId))
             ResetPersistentContactCaches();
         SimulationDebuggerCaptureMask diagnosticsCaptureMask =
             SimulationDebuggerRuntime.CaptureMaskFor(diagnosticsWorldId);
