@@ -1,12 +1,18 @@
+using Unity.Mathematics;
+
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Normalized runtime configuration for one contact-pipeline invocation.
+/// Normalized immutable configuration for one contact-pipeline invocation.
 /// Serialized legacy names are translated at the BaseFlowMovementSystem boundary;
-/// production pipeline modules only consume the semantics defined here.
+/// production modules consume this same-step snapshot only.
 /// </summary>
 public struct ContactPipelineConfiguration
 {
+    // Identity belongs to the scheduled simulation step, not to persistent-cache age.
+    public ulong WorldId;
+    public uint SimulationStepId;
+
     public float DeltaTime;
     public int SubstepCount;
     public int IterationCount;
@@ -37,7 +43,42 @@ public struct ContactPipelineConfiguration
     public float GuardEnvelopeMargin;
     public float TimestepContactMargin;
 
+    /// <summary>
+    /// Exact-input fingerprint used as one part of the certification evidence.
+    /// It is not sufficient by itself: entity mapping and guard containment must
+    /// still be verified before a certificate is issued.
+    /// </summary>
+    public uint CalculateCertificationFingerprint()
+    {
+        uint flags = 0u;
+        flags |= EnablePredictivePairGeneration ? 1u << 0 : 0u;
+        flags |= EnablePredictiveContacts ? 1u << 1 : 0u;
+        flags |= EnablePersistentContactCache ? 1u << 2 : 0u;
+        flags |= EnableTimestepContactSetCache ? 1u << 3 : 0u;
+        flags |= (uint)ContactPositionSolver << 8;
+        flags |= (uint)SoftAvoidanceVelocitySolver << 16;
+
+        uint first = math.hash(new uint4(
+            math.asuint(DeltaTime),
+            (uint)math.max(1, SubstepCount),
+            (uint)math.max(1, IterationCount),
+            math.asuint(Compliance)));
+        uint second = math.hash(new uint4(
+            math.asuint(PredictiveSkin),
+            math.asuint(GuardEnvelopeMargin),
+            math.asuint(TimestepContactMargin),
+            math.asuint(SoftAvoidanceShell)));
+        uint third = math.hash(new uint4(
+            math.asuint(SoftAvoidanceResponseRate),
+            math.asuint(SettledSoftAvoidanceMultiplier),
+            math.asuint(RvoTimeHorizon),
+            flags));
+        return math.hash(new uint3(first, second, third));
+    }
+
     public static ContactPipelineConfiguration Create(
+        ulong worldId,
+        uint simulationStepId,
         float deltaTime,
         FlowFieldSettings flowSettings,
         UnitContactSolverSettings solverSettings,
@@ -46,6 +87,8 @@ public struct ContactPipelineConfiguration
     {
         return new ContactPipelineConfiguration
         {
+            WorldId = worldId,
+            SimulationStepId = simulationStepId,
             DeltaTime = deltaTime,
             SubstepCount = solverSettings.SubstepCount,
             IterationCount = solverSettings.IterationCount,
