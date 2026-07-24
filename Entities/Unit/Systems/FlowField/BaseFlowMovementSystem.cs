@@ -64,7 +64,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         UnitContactSolverSettings contactSolverSettings =
             SystemAPI.GetSingleton<UnitContactSolverSettings>();
 
-        // Publish the completed previous step before freezing controls for this one.
         PublishSimulationDebuggerSnapshot(worldId, gridComponent);
         ApplySimulationDebuggerRuntimeOverrides(
             ref flowFieldSettings,
@@ -156,15 +155,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             CollisionFootprints = frame.CollisionFootprints
         }.ScheduleParallel(_movementQuery, Dependency);
 
-        // Navigation/arrival stage. Its output still uses the compatibility state
-        // array; the next migration splits these fields physically without changing
-        // the solver schedule.
+        FlowGridGeometry gridGeometry = new FlowGridGeometry(
+            gridComponent.GridOrigin,
+            gridComponent.GridDimensions,
+            gridComponent.CellRadius);
         JobHandle intentHandle = new CalculateIndependentFlowForceJob
         {
-            Grid = gridComponent.Grid,
-            GridOrigin = gridComponent.GridOrigin,
-            GridDimensions = gridComponent.GridDimensions,
-            CellRadius = gridComponent.CellRadius,
+            NavigationCells = gridComponent.Grid,
+            NavigationGrid = gridGeometry,
             ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
             CollisionFootprints = frame.CollisionFootprints,
             States = frame.States
@@ -227,8 +225,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 effectivePersistentContactCache,
                 solveHandle);
 
-        // FlowField uses double buffering. The active grid can only be recycled
-        // after the final solver reader is complete.
         World.GetExistingSystemManaged<FlowFieldBakeSystem>()
             ?.RegisterActiveGridReader(solveHandle);
 
