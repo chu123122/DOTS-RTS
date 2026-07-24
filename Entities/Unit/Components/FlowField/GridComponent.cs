@@ -90,6 +90,7 @@ public struct UnitContactSolverSettings : IComponentData
     public bool VisualizeSelectedContacts;
     public float DiagnosticCaptureDuration;
     public float DiagnosticCaptureInterval;
+    public bool EnableTimestepContactSetCache;
     public bool EnableFatAabbCache;
     public float FatAabbCacheMargin;
     public float TimestepContactMargin;
