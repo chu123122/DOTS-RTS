@@ -1,11 +1,13 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+#if RTS_CONTACT_DIAGNOSTICS
 [BurstCompile]
 public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 {
@@ -36,4 +38,39 @@ public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
         heatDestination.AddRange(HeatSource);
     }
 }
+#else
+/// <summary>
+/// Gameplay-only publication facade. Changing the backend from IJobEntity to an
+/// empty IJob removes the diagnostic entity query while preserving the existing
+/// scheduler call site and source member names.
+/// </summary>
+[BurstCompile]
+public struct PublishPredictiveDiscContactStatisticsJob : IJob
+{
+    private byte _disabledStorage;
+    public NativeReference<PredictiveDiscContactStatistics> Source { get => default; set { } }
+    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource
+    {
+        get => default;
+        set { }
+    }
+    public NativeList<Stage3ContactIterationDiagnostic> IterationSource
+    {
+        get => default;
+        set { }
+    }
+    public NativeList<Stage3ContactPairDiagnostic> PairSource
+    {
+        get => default;
+        set { }
+    }
+    public NativeArray<Stage3ContactHeatSample> HeatSource
+    {
+        get => default;
+        set { }
+    }
+
+    public void Execute() { }
+}
+#endif
 }
