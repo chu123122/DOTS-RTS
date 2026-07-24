@@ -186,7 +186,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           csv_path = Path(
-              'Entities/Unit/Systems/FlowField/Diagnostics/'
+              'Entities/Unit/Systems/FlowField/Diagnostics/Recording/'
               'IncrementalContactPipelineCsvRecorder.cs')
           csv_text = csv_path.read_text(encoding='utf-8')
           if 'CsvSchemaVersion = 7' not in csv_text:
@@ -294,3 +294,11 @@ jobs:
                   if text.count('{') != text.count('}'):
                       raise SystemExit(f'Brace mismatch: {path}')
           PY
+
+
+  diagnostics-compile-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate diagnostics compile boundaries
+        run: python .github/scripts/validate_contact_diagnostics.py
