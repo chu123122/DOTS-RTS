@@ -34,6 +34,8 @@ remains in the production tree.
 - Architecture contracts are protected by a dedicated static CI workflow.
 - Permanent Jacobi checks follow the focused solver, P1-P6 scheduler, solver-resource
   and constraint-stage owners rather than the deleted all-capability solver layout.
+- Terminal source ownership checks live in a standalone repository script so the
+  permanent workflow remains declarative and reviewable.
 
 ## Remaining capability-boundary debt
 - P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
