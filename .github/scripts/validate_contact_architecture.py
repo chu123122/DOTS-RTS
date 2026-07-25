@@ -129,6 +129,26 @@ for retired in (
 ):
     if retired.exists():
         raise SystemExit(f"Retired aggregate composition/resource path still exists: {retired}")
+for retired in (
+    ROOT / "Jobs/Compatibility",
+    ROOT / "Jobs/Compatibility.meta",
+):
+    if retired.exists():
+        raise SystemExit(f"Retired compatibility path still exists: {retired}")
+for forbidden in (
+    "AdaptiveFatAabbCellHistory",
+    "AdaptiveFatAabbCellMetric",
+    "AdaptiveFatAabbRegion",
+    "AdaptiveFatAabbRegionHistory",
+    "AdaptiveFatAabbBodyRouting",
+    "AdaptiveFatAabbDebugCell",
+    "AdaptiveFatAabbDebugRegion",
+    "AdaptiveFatAabbDebugProxy",
+    "AdaptiveFatAabbCacheFeedback",
+):
+    for cs_path in ROOT.rglob("*.cs"):
+        if forbidden in cs_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Retired compatibility type remains in {cs_path}: {forbidden}")
 for forbidden in ("ContactPersistentState", "ContactFrameResources", "ComposeContactPipelineScheduler("):
     for cs_path in ROOT.rglob("*.cs"):
         if forbidden in cs_path.read_text(encoding="utf-8"):

@@ -183,6 +183,8 @@ for retired in (flow / "ContactPipelineResources.cs", flow / "ContactPipelineRes
 for forbidden in ("ContactPersistentState", "ContactFrameResources", "ComposeContactPipelineScheduler("):
     if forbidden in base_text + resources_text:
         raise SystemExit(f"Retired aggregate resource/composition symbol returned: {forbidden}")
+if (flow / "Jobs/Compatibility").exists() or (flow / "Jobs/Compatibility.meta").exists():
+    raise SystemExit("Retired contact compatibility directory returned")
 if re.search(r"new Native(?:Array|List|Reference|Parallel)", base_text):
     raise SystemExit("BaseFlowMovementSystem again allocates contact Native resources directly")
 if "DirtyBodyBlockOffsets" not in resources_text or "DirtyBodyBlockOffsets" not in p1p6_text:
