@@ -1532,8 +1532,10 @@ public partial struct InteractionCertificationJob
     private bool MapDirtyIncidentNeighborPairsToCurrentBodies()
     {
         Pairs.Clear();
+#if RTS_CONTACT_DIAGNOSTICS
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
+#endif
 
         RebuildPersistentIncidentPairLookupIfNeededP1P6();
         if (!PersistentIncidentPairLookup.IsCreated ||
@@ -2040,8 +2042,10 @@ public partial struct InteractionCertificationJob
             return false;
 
         Pairs.Clear();
+#if RTS_CONTACT_DIAGNOSTICS
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
+#endif
         ContactPipelineShared.AppendBodyPairsAsConstraints(TimestepInteractionPairs.AsArray(), Pairs);
         return true;
     }

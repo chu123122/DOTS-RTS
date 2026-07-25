@@ -42,7 +42,7 @@ internal struct InteractionCertificationFrameResources
     public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
 #endif
 
-    public static InteractionCertificationFrameResources Create(int unitCount, bool useParallelJacobi)
+    public static InteractionCertificationFrameResources Create(int unitCount)
     {
         int one = math.max(unitCount, 1);
         return new InteractionCertificationFrameResources
@@ -65,18 +65,12 @@ internal struct InteractionCertificationFrameResources
             PredictiveContactScheduleCursor = new NativeReference<int>(Allocator.TempJob),
             InteractionCertificate = new NativeReference<InteractionCertificate>(Allocator.TempJob),
             InteractionViolations = new NativeList<InteractionCertificateViolation>(one, Allocator.TempJob),
-            PersistentClassificationResults = useParallelJacobi
-                ? new NativeList<PersistentPairClassificationResult>(math.max(unitCount * 8, 1), Allocator.TempJob)
-                : default,
-            PersistentClassificationState = useParallelJacobi
-                ? new NativeReference<PersistentClassificationPhaseState>(Allocator.TempJob)
-                : default,
+            PersistentClassificationResults = new NativeList<PersistentPairClassificationResult>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            PersistentClassificationState = new NativeReference<PersistentClassificationPhaseState>(Allocator.TempJob),
             PersistentSpatialVisitStampByProxy = new NativeArray<uint>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             PersistentSpatialVisitStamp = new NativeReference<uint>(Allocator.TempJob),
 #if RTS_CONTACT_DIAGNOSTICS
-            PersistentClassificationTelemetry = useParallelJacobi
-                ? new NativeReference<PersistentClassificationTelemetryState>(Allocator.TempJob)
-                : default,
+            PersistentClassificationTelemetry = new NativeReference<PersistentClassificationTelemetryState>(Allocator.TempJob),
 #endif
         };
     }
@@ -94,6 +88,7 @@ internal struct InteractionCertificationFrameResources
         return new InteractionCertificationJob
         {
             Configuration = configuration,
+            RuntimeState = execution.ParallelJacobiRuntimeState,
             SerialControl = execution.SerialControlState,
             GridOrigin = grid.GridOrigin,
             GridDimensions = grid.GridDimensions,
@@ -149,6 +144,8 @@ internal struct InteractionCertificationFrameResources
             PersistentIncidentPairLookup = candidates.IncidentPairLookup,
             PersistentIncidentLookupEpoch = candidates.IncidentLookupEpoch,
 #if RTS_CONTACT_DIAGNOSTICS
+            IterationState = execution.ParallelJacobiIterationState,
+            BlockStatistics = execution.ParallelJacobiBlockTelemetry,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             PersistentClassificationTelemetry = PersistentClassificationTelemetry,
             IncrementalOracleContactPairs = diagnostics.IncrementalOracleContactPairs,

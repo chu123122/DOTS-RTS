@@ -32,6 +32,7 @@ public partial struct ConstraintSolverJob
     }
 
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void BeginP1P6FinalizeSubstep(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
@@ -45,7 +46,9 @@ public partial struct ConstraintSolverJob
         StoreContactStatistics(statistics);
         runtimeState.Value = runtime;
     }
+#endif
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void FinalizeP1P6VelocityStatistics(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         int blockCount)
@@ -73,6 +76,7 @@ public partial struct ConstraintSolverJob
         }
         StoreContactStatistics(statistics);
     }
+#endif
 
 }
 }

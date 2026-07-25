@@ -5,6 +5,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
+#if RTS_CONTACT_DIAGNOSTICS
     /// <summary>
     /// Diagnostic-only O(N^2) oracle. It evaluates the exact swept-disc test
     /// independently of the incremental topology and records false negatives.
@@ -114,5 +115,11 @@ public partial struct InteractionCertificationJob
         // explicit gameplay correctness policy, never to diagnostics.
         incrementalStatistics.OracleMismatch = 1;
     }
+#else
+    private void ValidateIncrementalContactSetAgainstQuadraticOracle(
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+    }
+#endif
 }
 }

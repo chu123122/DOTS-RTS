@@ -135,14 +135,6 @@ public partial struct InteractionCertificationJob : IJob
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeArray<Stage3ContactHeatSample> HeatSamples;
-#else
-    public Entity DiagnosticSelectedEntity;
-    public NativeList<BodyPair> IncrementalOracleContactPairs;
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
-    public NativeArray<Stage3ContactHeatSample> HeatSamples;
 #endif
 
     private float DeltaTime => Configuration.DeltaTime;

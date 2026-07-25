@@ -74,21 +74,6 @@ public partial struct ConstraintSolverJob : IJob
     public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
     public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
     public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
-#else
-    public Entity DiagnosticSelectedEntity;
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
-    public NativeArray<Stage3ContactHeatSample> HeatSamples;
-    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
-    public int SimulationDebuggerMaximumPairs;
-    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
-    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
-    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
-    public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
 #endif
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;

@@ -41,9 +41,6 @@ public partial struct SoftAvoidanceJob : IJob
     public NativeList<JacobiBlockTelemetry> BlockStatistics;
     public NativeArray<int> EscapeCountsByBlock;
     public int EscapeBlockCount;
-#else
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #endif
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
     private float SoftAvoidanceShell => Configuration.SoftAvoidanceShell;

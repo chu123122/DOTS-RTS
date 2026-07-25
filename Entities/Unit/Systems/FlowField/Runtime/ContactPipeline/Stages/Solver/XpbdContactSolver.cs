@@ -181,6 +181,7 @@ public partial struct ConstraintSolverJob
                 evaluation.NewlyActivated;
             TimestepContactPairs[pairIndex] = pair;
 
+#if RTS_CONTACT_DIAGNOSTICS
             CaptureSimulationDebuggerPair(
                 substepIndex,
                 pair,
@@ -191,6 +192,7 @@ public partial struct ConstraintSolverJob
                 evaluation.Normal,
                 evaluation.ConstraintValue,
                 evaluation.PairCorrection);
+#endif
 
             if (math.abs(evaluation.AppliedLambda) <= 0.0000001f)
                 continue;
@@ -264,6 +266,7 @@ public partial struct ConstraintSolverJob
                 evaluation.NewlyActivated;
             TimestepContactPairs[pairIndex] = pair;
 
+#if RTS_CONTACT_DIAGNOSTICS
             CaptureSimulationDebuggerPair(
                 substepIndex,
                 pair,
@@ -274,6 +277,7 @@ public partial struct ConstraintSolverJob
                 evaluation.Normal,
                 evaluation.ConstraintValue,
                 evaluation.PairCorrection);
+#endif
 
             JacobiPairCorrection correction = default;
             if (math.abs(evaluation.AppliedLambda) > 0.0000001f)

@@ -119,6 +119,7 @@ internal struct JacobiPairSolveResult
         }
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
     internal struct EvaluateParallelJacobiPairsWithDiagnosticsJob :
         IJobParallelForDefer
@@ -181,6 +182,7 @@ internal struct JacobiPairSolveResult
             DiagnosticPairCandidates[pairIndex] = capture;
         }
     }
+#endif
 
 #if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]

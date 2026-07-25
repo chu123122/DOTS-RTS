@@ -20,40 +20,21 @@ internal struct ConstraintSolverFrameResources
     public NativeArray<int> DirtyBodyBlockOffsets;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
 
-    public static ConstraintSolverFrameResources Create(
-        int unitCount,
-        bool usesJacobiScratch,
-        bool useParallelJacobi)
+    public static ConstraintSolverFrameResources Create(int unitCount)
     {
         int one = math.max(unitCount, 1);
         return new ConstraintSolverFrameResources
         {
             CorrectedBodyFlags = new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             CorrectedBodyIndices = new NativeList<int>(one, Allocator.TempJob),
-            ActiveIncidentOffsets = usesJacobiScratch
-                ? new NativeArray<int>(unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            ActiveIncidentWriteCursors = usesJacobiScratch
-                ? new NativeArray<int>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            ActiveIncidentPairIndices = usesJacobiScratch
-                ? new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob)
-                : default,
-            JacobiPairCorrections = usesJacobiScratch
-                ? new NativeList<JacobiPairCorrection>(math.max(unitCount * 4, 1), Allocator.TempJob)
-                : default,
-            EnvelopeEscapeFlags = useParallelJacobi
-                ? new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            ParallelBodyResults = useParallelJacobi
-                ? new NativeArray<ParallelBodyStageResult>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            DirtyBodyBlockOffsets = useParallelJacobi
-                ? new NativeArray<int>(one, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            ActiveIncidentIndexState = usesJacobiScratch
-                ? new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob)
-                : default
+            ActiveIncidentOffsets = new NativeArray<int>(unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            ActiveIncidentWriteCursors = new NativeArray<int>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            ActiveIncidentPairIndices = new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            JacobiPairCorrections = new NativeList<JacobiPairCorrection>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            EnvelopeEscapeFlags = new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            ParallelBodyResults = new NativeArray<ParallelBodyStageResult>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            DirtyBodyBlockOffsets = new NativeArray<int>(one, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            ActiveIncidentIndexState = new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob)
         };
     }
 
@@ -74,6 +55,7 @@ internal struct ConstraintSolverFrameResources
         return new ConstraintSolverJob
         {
             Configuration = configuration,
+            RuntimeState = execution.ParallelJacobiRuntimeState,
             SerialControl = execution.SerialControlState,
             Grid = grid.Grid,
             GridOrigin = grid.GridOrigin,
@@ -94,6 +76,8 @@ internal struct ConstraintSolverFrameResources
             ActiveIncidentIndexState = ActiveIncidentIndexState,
             ParallelBodyStatistics = ParallelBodyResults,
 #if RTS_CONTACT_DIAGNOSTICS
+            IterationState = execution.ParallelJacobiIterationState,
+            BlockStatistics = execution.ParallelJacobiBlockTelemetry,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             IncrementalStatistics = diagnostics.IncrementalStatistics,
             Statistics = diagnostics.ContactStatistics,

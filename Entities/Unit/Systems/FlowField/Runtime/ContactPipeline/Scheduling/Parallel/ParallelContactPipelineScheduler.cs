@@ -24,10 +24,7 @@ public partial struct CrowdContactPipelineScheduler
 #endif
         JobHandle dependency)
     {
-        ContactPipelineLifecycleJob initialize = Lifecycle;
-        initialize.Operation = ContactPipelineLifecycleOperation.InitializeParallel;
-        initialize.RuntimeState = runtimeState;
-        JobHandle handle = initialize.Schedule(dependency);
+        JobHandle handle = ParallelLifecycle.Schedule(dependency);
 
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);

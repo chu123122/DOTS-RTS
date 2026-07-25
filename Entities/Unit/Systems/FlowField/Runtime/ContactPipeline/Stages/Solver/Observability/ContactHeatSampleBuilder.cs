@@ -1,3 +1,4 @@
+#if RTS_CONTACT_DIAGNOSTICS
 using Unity.Mathematics;
 using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
@@ -48,3 +49,4 @@ public partial struct ConstraintSolverJob
     }
 }
 }
+#endif

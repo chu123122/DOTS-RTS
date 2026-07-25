@@ -109,11 +109,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             contactSolverSettings.ContactPositionSolver ==
             ContactPositionSolverMode.Jacobi;
         bool useParallelJacobi = usesJacobiScratch;
-        bool captureParallelSelectedPairs = ShouldCaptureParallelSelectedPairs(
-            useParallelJacobi,
-            selectedEntity,
-            captureMask);
-
         SimulationDebuggerEffectiveSettings effectiveSettings =
             BuildEffectiveSettings(
                 flowFieldSettings,
@@ -138,20 +133,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         ContactDiagnosticsFrameResources diagnostics =
             CreateContactDiagnosticsFrameResources(
                 unitCount,
-                contactSolverSettings,
-                captureParallelSelectedPairs);
+                contactSolverSettings);
         CrowdStepBodyResources body = CrowdStepBodyResources.Create(unitCount);
         InteractionCertificationFrameResources certificationResources =
-            InteractionCertificationFrameResources.Create(unitCount, useParallelJacobi);
+            InteractionCertificationFrameResources.Create(unitCount);
         SoftAvoidanceFrameResources softResources =
-            SoftAvoidanceFrameResources.Create(unitCount, useParallelJacobi);
+            SoftAvoidanceFrameResources.Create(unitCount);
         ConstraintSolverFrameResources solverResources =
-            ConstraintSolverFrameResources.Create(
-                unitCount,
-                usesJacobiScratch,
-                useParallelJacobi);
+            ConstraintSolverFrameResources.Create(unitCount);
         ContactPipelineExecutionResources executionResources =
-            ContactPipelineExecutionResources.Create(unitCount, useParallelJacobi);
+            ContactPipelineExecutionResources.Create(unitCount);
 
         ComponentLookup<PhysicsCollider> colliderLookup =
             SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
@@ -194,12 +185,19 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 contactSolverSettings,
                 effectivePersistentContactCache,
                 effectiveTimestepContactSetCache);
-        ContactPipelineLifecycleJob lifecycle = _candidateStore.CreateLifecycleJob(
-            configuration,
-            executionResources,
-            solverResources,
-            diagnostics,
-            _simulationDebuggerSelectedPairs);
+        SerialContactPipelineLifecycleJob serialLifecycle =
+            executionResources.CreateSerialLifecycleJob(
+                configuration,
+                solverResources,
+                diagnostics,
+                _simulationDebuggerSelectedPairs);
+        ParallelContactPipelineLifecycleJob parallelLifecycle =
+            _candidateStore.CreateParallelLifecycleJob(
+                configuration,
+                executionResources,
+                solverResources,
+                diagnostics,
+                _simulationDebuggerSelectedPairs);
         InteractionCertificationJob certification = certificationResources.CreateJob(
             configuration,
             gridComponent,
@@ -237,7 +235,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         CrowdContactPipelineScheduler solver = new CrowdContactPipelineScheduler
         {
             Configuration = configuration,
-            Lifecycle = lifecycle,
+            SerialLifecycle = serialLifecycle,
+            ParallelLifecycle = parallelLifecycle,
             Certification = certification,
             Motion = motion,
             SoftAvoidance = softAvoidance,

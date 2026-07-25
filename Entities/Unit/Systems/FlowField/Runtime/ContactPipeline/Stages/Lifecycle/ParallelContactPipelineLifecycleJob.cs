@@ -7,18 +7,14 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public enum ContactPipelineLifecycleOperation : byte
-{
-    InitializeSerial,
-    InitializeParallel
-}
-
+/// <summary>
+/// Initializes parallel execution and candidate indexes. Every NativeContainer field
+/// is required on the parallel path; no optional serial container is carried.
+/// </summary>
 [BurstCompile]
-public partial struct ContactPipelineLifecycleJob : IJob
+public struct ParallelContactPipelineLifecycleJob : IJob
 {
-    public ContactPipelineLifecycleOperation Operation;
     public ContactPipelineConfiguration Configuration;
-    public NativeReference<SerialContactPipelineControlState> SerialControl;
     public NativeReference<ParallelJacobiExecutionState> RuntimeState;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<int> PersistentProxyIndexByBody;
@@ -37,57 +33,44 @@ public partial struct ContactPipelineLifecycleJob : IJob
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
     public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
-#else
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
-    public NativeReference<PredictiveDiscContactStatistics> Statistics { get => default; set { } }
 #endif
-    private float DeltaTime => Configuration.DeltaTime;
-    private int SubstepCount => Configuration.SubstepCount;
-    private bool EnablePersistentContactCache => Configuration.EnablePersistentContactCache;
-    private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
+
+    public void Execute()
     {
+        ParallelJacobiExecutionState runtime = new ParallelJacobiExecutionState
+        {
+            IsValid = 1
+        };
 #if RTS_CONTACT_DIAGNOSTICS
-        IncrementalStatistics.Value = value;
-#endif
-    }
-    private void StoreContactStatistics(PredictiveDiscContactStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        Statistics.Value = value;
-#endif
-    }
-    private void ResetContactDiagnosticsCapture()
-    {
-#if RTS_CONTACT_DIAGNOSTICS
+        runtime.SolverStartTimestamp =
+            Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp;
         if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
         if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
         if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
         if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
-#endif
-    }
-    public void Execute()
-    {
-        if (Operation == ContactPipelineLifecycleOperation.InitializeParallel)
-        {
-            InitializeP1P6Pipeline(RuntimeState);
-            return;
-        }
-        SerialContactPipelineControlState control = new SerialContactPipelineControlState
-        {
-            IsValid = (byte)(DeltaTime / math.max(1, SubstepCount) > 0f ? 1 : 0),
-#if RTS_CONTACT_DIAGNOSTICS
-            SolverStartTimestamp = Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp
-#endif
-        };
-        SerialControl.Value = control;
-        PredictiveDiscContactStatistics statistics = new PredictiveDiscContactStatistics
+        IncrementalStatistics.Value = default;
+        Statistics.Value = new PredictiveDiscContactStatistics
         {
             TimestepContactSetFirstEscapeSubstep = -1
         };
-        ResetContactDiagnosticsCapture();
-        StoreIncrementalStatistics(default);
-        StoreContactStatistics(statistics);
+#endif
         ActiveIncidentIndexState.Value = default;
+
+        if (Configuration.DeltaTime / math.max(1, Configuration.SubstepCount) <= 0f)
+            runtime.IsValid = 0;
+        if (!Configuration.EnablePersistentContactCache)
+        {
+            PersistentSweptProxies.Clear();
+            PersistentProxyIndexByBody.Clear();
+            PersistentNeighborPairs.Clear();
+            PersistentPredictiveContacts.Clear();
+            PersistentSpatialMembership.Clear();
+            PersistentSpatialMembershipEpoch.Value = 0;
+            PersistentIncidentPairLookup.Clear();
+            PersistentIncidentLookupEpoch.Value = 0;
+            IncrementalCacheState.Value = default;
+        }
+        RuntimeState.Value = runtime;
     }
 }
 }

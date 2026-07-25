@@ -32,8 +32,6 @@ public partial struct MotionIntegrationJob : IJob
     public NativeArray<CrowdBodyStepState> StepStates;
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
-#else
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #endif
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;

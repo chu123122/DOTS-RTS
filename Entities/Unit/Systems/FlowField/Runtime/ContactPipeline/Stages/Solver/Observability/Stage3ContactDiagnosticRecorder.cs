@@ -1,3 +1,4 @@
+#if RTS_CONTACT_DIAGNOSTICS
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -358,3 +359,4 @@ public partial struct ConstraintSolverJob
     }
 }
 }
+#endif

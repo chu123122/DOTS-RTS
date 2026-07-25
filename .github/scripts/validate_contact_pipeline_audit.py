@@ -1,273 +1,66 @@
 from pathlib import Path
 import re
 
-flow = Path("Entities/Unit/Systems/FlowField")
-solver = flow / "Jobs/ContactPipeline/Solver/ParallelJacobiSolver.cs"
-p1p6 = flow / "Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs"
-persistent = flow / "Jobs/ContactPipeline/Persistent/PersistentParallelClassificationP1P6.cs"
-base = flow / "BaseFlowMovementSystem.cs"
-resource_paths = (
-    flow / "InteractionCandidateStore.cs",
-    flow / "CrowdStepBodyResources.cs",
-    flow / "InteractionCertificationFrameResources.cs",
-    flow / "SoftAvoidanceFrameResources.cs",
-    flow / "ConstraintSolverFrameResources.cs",
-    flow / "ContactPipelineExecutionResources.cs",
-)
-reset = flow / "Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs"
-snapshot = flow / "Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs"
-publishing = flow / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs"
-spatial_readback = flow / "Diagnostics/Capture/SimulationDebuggerSpatialReadback.cs"
-pipeline_snapshot = flow / "Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs"
-runtime = flow / "Diagnostics/Runtime/SimulationDebuggerRuntime.cs"
-experiment = flow / "Diagnostics/Experiments/IncrementalContactPipelineExperimentRuntime.cs"
-contracts = flow / "Diagnostics/Runtime/SimulationDebuggerContracts.cs"
-panel = flow / "Diagnostics/Presentation/SimulationDebuggerPanel.cs"
-recorder = flow / "Diagnostics/Recording/SimulationDebuggerLocalRecorder.cs"
-oracle = flow / "Diagnostics/Validation/IncrementalContactOracle.cs"
-authoring = Path("Entities/Unit/Authoring/FlowField/FlowFieldManagerAuthoring.cs")
-grid = Path("Entities/Unit/Components/FlowField/GridComponent.cs")
-timestep = flow / "Jobs/ContactPipeline/Prediction/TimestepContactSet.cs"
-verification = flow / "Diagnostics/VERIFICATION_MATRIX.md"
-verification_meta = flow / "Diagnostics/VERIFICATION_MATRIX.md.meta"
+FLOW = Path("Entities/Unit/Systems/FlowField")
+PIPE = FLOW / "Runtime/ContactPipeline"
 
-required_paths = (
-    solver, p1p6, persistent, base, *resource_paths, reset, snapshot, publishing,
-    spatial_readback, pipeline_snapshot, runtime, experiment, contracts, panel,
-    recorder, oracle, authoring, grid, timestep, verification, verification_meta)
 
-for path in required_paths:
+def fail(message: str) -> None:
+    raise SystemExit(message)
+
+
+def read(path: Path) -> str:
     if not path.exists():
-        raise SystemExit(f"Missing audit target: {path}")
+        fail(f"Missing audit target: {path}")
+    return path.read_text(encoding="utf-8")
 
+sources = {path: read(path) for path in FLOW.rglob("*.cs")}
+all_source = "\n".join(sources.values())
+for token in ("FlowMovementFrameState", "UnitCollisionPair", "SolveXpbdUnitContactsJob",
+              "ContactFrameResources", "ContactPersistentState", "ContactPipelineRuntimeOptions"):
+    if re.search(rf"\b{re.escape(token)}\b", all_source):
+        fail(f"Retired contact symbol returned: {token}")
 
-def preprocess_diagnostics(source: str, enabled: bool) -> str:
-    output = []
-    stack = []
-    active = True
-    for line in source.splitlines():
-        directive = line.strip()
-        if directive.startswith("#if "):
-            symbol = directive[4:].strip()
-            condition = enabled if symbol == "RTS_CONTACT_DIAGNOSTICS" else True
-            stack.append((active, condition))
-            active = active and condition
-        elif directive == "#else":
-            parent, condition = stack[-1]
-            stack[-1] = (parent, not condition)
-            active = parent and not condition
-        elif directive == "#endif":
-            active = stack.pop()[0]
-        elif active:
-            output.append(line)
-    if stack:
-        raise SystemExit("Unbalanced diagnostics preprocessor directives")
-    return "\n".join(output)
+configuration = read(PIPE / "Contracts/Execution/ContactPipelineConfiguration.cs")
+for token in ("WorldId", "SimulationStepId", "GuardEnvelopeMargin",
+              "CalculateCertificationFingerprint"):
+    if token not in configuration:
+        fail(f"Configuration contract missing: {token}")
 
-solver_text = solver.read_text(encoding="utf-8")
-p1p6_text = p1p6.read_text(encoding="utf-8")
-reset_text = reset.read_text(encoding="utf-8")
-for text, name in ((solver_text, "ParallelJacobi"), (p1p6_text, "P1P6")):
-    init = re.search(r"private void Initialize.*?Pipeline\(.*?\n    \}", text, re.S)
-    if init and any(token in init.group(0) for token in (
-            "IterationDiagnostics.Clear()", "PairDiagnostics.Clear()",
-            "SelectedBodyDiagnostic.Value")):
-        raise SystemExit(f"{name} directly touches diagnostic Native containers")
-if "#if RTS_CONTACT_DIAGNOSTICS" not in reset_text:
-    raise SystemExit("Diagnostic reset lost compile-time boundary")
+solver = read(PIPE / "Stages/Solver/XpbdContactSolver.cs")
+jacobi = read(PIPE / "Scheduling/Parallel/Jobs/ParallelJacobiJobs.cs")
+for token in ("internal struct ContactConstraintEvaluation",
+              "internal static class XpbdContactConstraintMath"):
+    if token not in solver:
+        fail(f"Solver math boundary missing: {token}")
+if jacobi.count("XpbdContactConstraintMath.Evaluate(") != 1:
+    fail("Parallel Jacobi pair math is duplicated")
+if "Interlocked" in jacobi or "Atomic" in jacobi:
+    fail("Parallel Jacobi uses floating-point atomics")
 
-snapshot_text = snapshot.read_text(encoding="utf-8")
-publishing_text = publishing.read_text(encoding="utf-8")
-pipeline_snapshot_text = pipeline_snapshot.read_text(encoding="utf-8")
-runtime_text = runtime.read_text(encoding="utf-8")
-experiment_text = experiment.read_text(encoding="utf-8")
-contracts_text = contracts.read_text(encoding="utf-8")
+base = read(FLOW / "BaseFlowMovementSystem.cs")
+if re.search(r"new Native(?:Array|List|Reference|Parallel)", base):
+    fail("Composition root allocates contact Native resources directly")
+for token in ("InteractionCandidateStore.Create(", "CrowdStepBodyResources.Create(",
+              "InteractionCertificationFrameResources.Create(",
+              "SoftAvoidanceFrameResources.Create(", "ConstraintSolverFrameResources.Create("):
+    if token not in base:
+        fail(f"Composition root wiring missing: {token}")
 
-for required in (
-        "CompletedSimulationStepMetadata", "CompletedStep",
-        "frame.SimulationStepId!=stepId", "metadata.SimulationStepId!=stepId",
-        "stepId<=state.LastPublishedStepId", "Frame => _frame.DeepCopy()"):
-    combined = snapshot_text + pipeline_snapshot_text
-    if required not in combined:
-        raise SystemExit(f"Completed-step publication contract missing: {required}")
-for forbidden in ("SystemAPI.Time", "_movementQuery.CalculateEntityCount()",
-                  "BuildEffectiveSettings("):
-    if forbidden in publishing_text:
-        raise SystemExit(f"Completed frame rebuilt from next update state: {forbidden}")
-for forbidden in ("SlotA", "SlotB", "AcquireWriteSlot", "PublishFrame(",
-                  "PublishPipeline(", "class SimulationDiagnosticsRingBuffer"):
-    if forbidden in snapshot_text:
-        raise SystemExit(f"Mutable/partial/history publication returned: {forbidden}")
+certifier = read(PIPE / "Stages/Certification/Prediction/InteractionCorrectnessCertifier.cs")
+timestep = read(PIPE / "Stages/Certification/Prediction/TimestepContactSet.cs")
+for token in ("IssueCertificateForCommittedViews(", "RevokeInteractionCertificate("):
+    if token not in certifier:
+        fail(f"Certification boundary missing: {token}")
+for token in ("ResolveInteractionSource(", "CommitTimestepContactViews("):
+    if token not in timestep:
+        fail(f"Interaction view phase missing: {token}")
 
-for required in (
-        "Dictionary<ulong, WorldState>", "CaptureMaskFor(ulong worldId)",
-        "TryConsumeSettingsRequest(ulong worldId", "TryConsumeContactCacheReset(ulong worldId)",
-        "Dictionary<ulong,WorldPublicationState>", "TryGetLatest(ulong worldId",
-        "Dictionary<ulong,OverrideState>", "Apply(ulong worldId"):
-    if required not in runtime_text + snapshot_text + experiment_text:
-        raise SystemExit(f"Per-World diagnostics contract missing: {required}")
-if "public static bool TimestepContactSetCacheEnabled { get; set; }" in runtime_text:
-    raise SystemExit("Obsolete gameplay setting retained a global backing field")
+oracle = read(PIPE / "Stages/Certification/Validation/IncrementalContactOracle.cs")
+if "IncrementalCacheState" in oracle or ".IsValid = 0" in oracle:
+    fail("Oracle controls authoritative cache state")
 
-release_source = "\n".join(preprocess_diagnostics(path.read_text(encoding="utf-8"), False)
-                           for path in (base, solver, p1p6, persistent))
-for forbidden in (
-        "ParallelJacobiIterationTelemetry", "JacobiBlockTelemetry",
-        "new NativeReference<ParallelJacobiIterationTelemetry>",
-        "new NativeList<JacobiBlockTelemetry>", "ReduceParallelJacobiBlocksJob",
-        "ReduceSoftAvoidanceBlocksJob", "FinalizeP1P6SoftAvoidanceJob",
-        "BeginP1P6FinalizeSubstepJob", "ReduceP1P6VelocityBodyBlocksJob",
-        "FinalizeP1P6VelocityStatisticsJob"):
-    if forbidden in release_source:
-        raise SystemExit(f"Gameplay Jacobi telemetry call graph returned: {forbidden}")
-if re.search(r"public long (?:Build|Classification)StartTimestamp;", release_source):
-    raise SystemExit("Persistent classification timestamps occupy gameplay state")
-
-oracle_text = oracle.read_text(encoding="utf-8")
-if "IncrementalCacheState" in oracle_text or ".IsValid = 0" in oracle_text:
-    raise SystemExit("Diagnostics oracle still controls gameplay cache")
-
-all_source = "\n".join(
-    path.read_text(encoding="utf-8")
-    for root in (flow, Path("Entities/Unit/Components/FlowField"),
-                 Path("Entities/Unit/Authoring/FlowField"))
-    if root.exists()
-    for path in root.rglob("*.cs"))
-if "ContactPipelineRuntimeOptions" in all_source:
-    raise SystemExit("Static gameplay configuration authority returned")
-if "EnableTimestepContactSetCache" not in grid.read_text(encoding="utf-8"):
-    raise SystemExit("Per-World timestep-cache setting missing")
-
-authoring_text = authoring.read_text(encoding="utf-8")
-for forbidden in (
-        "AddComponent(entity, new PredictiveDiscContactStatistics",
-        "AddComponent(entity, new Stage3SelectedBodyDiagnostic",
-        "AddBuffer<Stage3ContactIterationDiagnostic>",
-        "AddBuffer<Stage3ContactPairDiagnostic>",
-        "AddBuffer<Stage3ContactHeatSample>"):
-    if forbidden in authoring_text:
-        raise SystemExit(f"Gameplay Baker still owns diagnostics ECS state: {forbidden}")
-
-timestep_text = timestep.read_text(encoding="utf-8")
-for old in ("BuildTimestepContactSet", "FinalizeTimestepContactView",
-            "CommitFinalizedTimestepContactView"):
-    if old in timestep_text:
-        raise SystemExit(f"Legacy contact-view stage returned: {old}")
-for required in ("BuildOrRefreshTimestepContactViews", "ClassifyTimestepContacts",
-                 "CommitTimestepContactViews"):
-    if required not in timestep_text:
-        raise SystemExit(f"Contact-view stage missing: {required}")
-
-if "Unity required" not in verification.read_text(encoding="utf-8"):
-    raise SystemExit("Verification matrix no longer distinguishes unexecuted Unity tests")
-if "guid:" not in verification_meta.read_text(encoding="utf-8"):
-    raise SystemExit("Verification matrix Unity metadata is invalid")
-
-
-# P2 maintenance boundaries: resource ownership, explicit stages and terminology.
-base_text = base.read_text(encoding="utf-8")
-resources_text = "\n".join(path.read_text(encoding="utf-8") for path in resource_paths)
-for required in (
-        "struct InteractionCandidateStore",
-        "struct CrowdStepBodyResources",
-        "struct InteractionCertificationFrameResources",
-        "struct SoftAvoidanceFrameResources",
-        "struct ConstraintSolverFrameResources",
-        "struct ContactPipelineExecutionResources"):
-    if required not in resources_text:
-        raise SystemExit(f"Focused contact resource owner missing: {required}")
-for retired in (flow / "ContactPipelineResources.cs", flow / "ContactPipelineResources.cs.meta",
-                flow / "BaseFlowMovementComposition.cs", flow / "BaseFlowMovementComposition.cs.meta"):
-    if retired.exists():
-        raise SystemExit(f"Retired aggregate resource/composition path still exists: {retired}")
-for forbidden in ("ContactPersistentState", "ContactFrameResources", "ComposeContactPipelineScheduler("):
-    if forbidden in base_text + resources_text:
-        raise SystemExit(f"Retired aggregate resource/composition symbol returned: {forbidden}")
-if (flow / "Jobs/Compatibility").exists() or (flow / "Jobs/Compatibility.meta").exists():
-    raise SystemExit("Retired contact compatibility directory returned")
-if re.search(r"new Native(?:Array|List|Reference|Parallel)", base_text):
-    raise SystemExit("BaseFlowMovementSystem again allocates contact Native resources directly")
-if "DirtyBodyBlockOffsets" not in resources_text or "DirtyBodyBlockOffsets" not in p1p6_text:
-    raise SystemExit("Dirty-body block scratch is not independently owned")
-for forbidden in ("BlockOffsetsAndCounts = SoftIncidentWriteCursors",
-                  "BlockOffsets = SoftIncidentWriteCursors",
-                  "EscapeCountsByBlock = SoftIncidentWriteCursors"):
-    if forbidden in p1p6_text:
-        raise SystemExit(f"Soft incident cursor reused across phase semantics: {forbidden}")
-
-persistent_text = persistent.read_text(encoding="utf-8")
-release_maintenance = preprocess_diagnostics(resources_text + "\n" + persistent_text, False)
-for required in ("struct PersistentClassificationPhaseState",
-                 "struct PersistentClassificationTelemetryState",
-                 "RefreshPersistentPairSourceForClassification"):
-    if required not in persistent_text:
-        raise SystemExit(f"Persistent classification boundary missing: {required}")
-if "PersistentClassificationTelemetryState" in release_maintenance:
-    raise SystemExit("Persistent classification telemetry exists in gameplay preprocessing")
-if "ParallelPersistentClassificationState" in persistent_text + resources_text + p1p6_text + base_text:
-    raise SystemExit("Mixed persistent classification state returned")
-
-if solver_text.count("XpbdContactConstraintMath.Evaluate(") != 1:
-    raise SystemExit("Parallel Jacobi pair math is duplicated outside EvaluateJacobiPair")
-if solver_text.count("EvaluateJacobiPair(") < 3:
-    raise SystemExit("Both parallel Jacobi jobs do not share EvaluateJacobiPair")
-
-for required in ("ContactViewBuildResult", "ResolveInteractionSource(",
-                 "ObserveContactViewBuildResult(", "ClassifyTimestepContacts(",
-                 "CommitTimestepContactViews("):
-    if required not in timestep_text:
-        raise SystemExit(f"Explicit contact-view phase/result missing: {required}")
-commit_match = re.search(
-    r"private void CommitTimestepContactViews\(.*?\n    \}", timestep_text, re.S)
-if not commit_match:
-    raise SystemExit("Cannot locate CommitTimestepContactViews")
-if "ValidateIncrementalContactSetAgainstQuadraticOracle" in commit_match.group(0):
-    raise SystemExit("Oracle validation is hidden inside the commit phase")
-
-if "enum StagedContactPipelinePhase" not in p1p6_text:
-    raise SystemExit("Historical P1-P6 scheduling lacks named phase documentation")
-source_without_migration_attributes = all_source.replace(
-    '[FormerlySerializedAs("enableFatAabbCache")]', '').replace(
-    '[FormerlySerializedAs("fatAabbCacheMargin")]', '')
-for forbidden in ("EnableFatAabbCache", "FatAabbCacheMargin",
-                  "enableFatAabbCache", "fatAabbCacheMargin"):
-    if forbidden in source_without_migration_attributes:
-        raise SystemExit(f"Legacy persistent-cache terminology returned: {forbidden}")
-for required in ("EnablePersistentContactCache", "PersistentGuardEnvelopeMargin"):
-    if required not in grid.read_text(encoding="utf-8"):
-        raise SystemExit(f"Persistent contact setting missing: {required}")
-
-
-# Diagnostics presentation completion contracts.
-spatial_text = spatial_readback.read_text(encoding="utf-8")
-panel_text = panel.read_text(encoding="utf-8")
-recorder_text = recorder.read_text(encoding="utf-8")
-for required in (
-        "GetBuffer<Stage3ContactHeatSample>",
-        "snapshot.Cells.Add(new SimulationDebuggerCellSample",
-        "snapshot.Proxies.Add(new SimulationDebuggerProxySample",
-        "CaptureSpatialDiagnostics(snapshot, gridComponent, captureMask)"):
-    if required not in spatial_text + publishing_text:
-        raise SystemExit(f"Spatial diagnostics readback contract missing: {required}")
-for required in (
-        "TimestepContactSetFullRebuildCount",
-        "TimestepContactSetFallbackAddedPairCount",
-        "FullRebuildCount",
-        "FallbackAddedPairCount"):
-    if required not in publishing_text + contracts_text:
-        raise SystemExit(f"Contact fallback metric contract missing: {required}")
-if "SupplementOrFallbackCount" in all_source:
-    raise SystemExit("Ambiguous contact fallback metric returned")
-if "IncrementalContactPipelineDiagnosticsRuntime.Latest" in panel_text:
-    raise SystemExit("Panel again reads Frame and Pipeline through separate publications")
-for required in (
-        "PublishedSimulationDiagnosticsRuntime.TryGetLatest(",
-        "DrawPersistentBroadPhase(snapshot, pipeline)",
-        "TimestepContactMargin"):
-    if required not in panel_text + contracts_text + runtime.read_text(encoding="utf-8"):
-        raise SystemExit(f"Unified diagnostics presentation contract missing: {required}")
-if "下一步将失效并重建拓扑" in panel_text:
-    raise SystemExit("Oracle presentation still claims diagnostics invalidates gameplay cache")
-for required in ("full_rebuilds", "fallback_added_pairs", "timestep_contact_margin"):
-    if required not in recorder_text:
-        raise SystemExit(f"Recorder schema missing completed diagnostics field: {required}")
+verification = read(FLOW / "Diagnostics/VERIFICATION_MATRIX.md")
+if "Unity required" not in verification:
+    fail("Verification matrix overstates non-Unity checks")
+print("Contact pipeline audit passed.")

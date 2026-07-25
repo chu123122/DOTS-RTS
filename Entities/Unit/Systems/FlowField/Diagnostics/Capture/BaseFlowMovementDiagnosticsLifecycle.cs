@@ -101,27 +101,13 @@ public abstract partial class BaseFlowMovementSystem
 #endif
     }
 
-    private static bool ShouldCaptureParallelSelectedPairs(
-        bool useParallelJacobi,
-        Entity selectedEntity,
-        SimulationDebuggerCaptureMask captureMask)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        return useParallelJacobi && selectedEntity != Entity.Null &&
-               (captureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-               (captureMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0;
-#else
-        return false;
-#endif
-    }
-
-    private static ContactDiagnosticsFrameResources CreateContactDiagnosticsFrameResources(int unitCount, UnitContactSolverSettings settings, bool captureParallelSelectedPairs)
+    private static ContactDiagnosticsFrameResources CreateContactDiagnosticsFrameResources(int unitCount, UnitContactSolverSettings settings)
     {
         ContactDiagnosticsFrameResources scratch = default;
 #if RTS_CONTACT_DIAGNOSTICS
         scratch.IncrementalOracleContactPairs = new NativeList<BodyPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
-        scratch.ParallelPairCandidates = captureParallelSelectedPairs ? new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob) : default;
-        scratch.ParallelPairScratch = captureParallelSelectedPairs ? new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob) : default;
+        scratch.ParallelPairCandidates = new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob);
+        scratch.ParallelPairScratch = new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob);
         scratch.Iterations = new NativeList<Stage3ContactIterationDiagnostic>(math.max(settings.SubstepCount * settings.IterationCount, 1), Allocator.TempJob);
         scratch.Pairs = new NativeList<Stage3ContactPairDiagnostic>(math.max(unitCount * 2, 1), Allocator.TempJob);
         scratch.SelectedBody = new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);

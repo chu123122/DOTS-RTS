@@ -4,7 +4,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
-
+#if RTS_CONTACT_DIAGNOSTICS
     private void AddSelectedPairDiagnostic(
         ContactConstraint pair,
         Stage3ContactDiagnosticPairKind kind,
@@ -60,6 +60,7 @@ public partial struct InteractionCertificationJob
             OtherClosestPosition = otherClosest
         });
     }
+#endif
 
     private void ResetCorrectedBodyTracking()
     {

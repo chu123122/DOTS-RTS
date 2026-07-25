@@ -1,3 +1,4 @@
+#if RTS_CONTACT_DIAGNOSTICS
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -5,12 +6,6 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public struct ParallelSimulationDebuggerPairCapture
-{
-    public SimulationDebuggerPairSample Sample;
-    public byte IsValid;
-}
-
 public partial struct ConstraintSolverJob
 {
 
@@ -233,3 +228,4 @@ public partial struct ConstraintSolverJob
     }
 }
 }
+#endif

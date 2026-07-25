@@ -13,22 +13,14 @@ internal struct SoftAvoidanceFrameResources
     public NativeList<int> IncidentPairIndices;
     public NativeList<SoftAvoidancePairContribution> PairContributions;
 
-    public static SoftAvoidanceFrameResources Create(int unitCount, bool useParallelJacobi)
+    public static SoftAvoidanceFrameResources Create(int unitCount)
     {
         return new SoftAvoidanceFrameResources
         {
-            IncidentOffsets = useParallelJacobi
-                ? new NativeArray<int>(unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            IncidentWriteCursors = useParallelJacobi
-                ? new NativeArray<int>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory)
-                : default,
-            IncidentPairIndices = useParallelJacobi
-                ? new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob)
-                : default,
-            PairContributions = useParallelJacobi
-                ? new NativeList<SoftAvoidancePairContribution>(math.max(unitCount * 4, 1), Allocator.TempJob)
-                : default
+            IncidentOffsets = new NativeArray<int>(unitCount + 1, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            IncidentWriteCursors = new NativeArray<int>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            IncidentPairIndices = new NativeList<int>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            PairContributions = new NativeList<SoftAvoidancePairContribution>(math.max(unitCount * 4, 1), Allocator.TempJob)
         };
     }
 
@@ -44,6 +36,7 @@ internal struct SoftAvoidanceFrameResources
         return new SoftAvoidanceJob
         {
             Configuration = configuration,
+            RuntimeState = execution.ParallelJacobiRuntimeState,
             Grid = grid.Grid,
             GridOrigin = grid.GridOrigin,
             GridDimensions = grid.GridDimensions,

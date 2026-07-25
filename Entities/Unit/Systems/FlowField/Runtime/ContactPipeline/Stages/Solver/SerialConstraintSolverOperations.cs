@@ -93,7 +93,9 @@ public partial struct ConstraintSolverJob
         statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
 #endif
+#if RTS_CONTACT_DIAGNOSTICS
         AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
+#endif
         SerialControl.Value = control;
         StoreContactStatistics(statistics);
     }

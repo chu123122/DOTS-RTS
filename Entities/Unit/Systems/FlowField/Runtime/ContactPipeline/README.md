@@ -1,37 +1,63 @@
 # Contact Pipeline modules
 
-The contact pipeline has one authoritative data flow:
+The runtime has one authoritative flow:
 
-`Persistent topology -> persistent classification -> timestep views -> solvers`.
+`candidate state -> certification -> certified views -> soft/motion/solver -> result`.
 
-## Core
+## Physical ownership
 
-Owns orchestration only. It schedules the phases and the XPBD iteration loop. It must not implement broad-phase caching, lifecycle classification, or editor diagnostics.
+```text
+Runtime/ContactPipeline/
+├── Contracts/
+│   ├── Body/                    # one timestep body product per file
+│   ├── Certification/           # evidence, certificate, violations
+│   ├── Execution/               # immutable configuration and execution state
+│   └── Interaction/             # BodyPair, ContactConstraint, proxy/schedule types
+├── State/
+│   ├── Persistent/              # cross-step candidate owner
+│   └── Frame/                   # focused TempJob resource owners
+├── Kernels/                     # container-free/shared Burst-compatible algorithms
+├── Scheduling/
+│   ├── CrowdContactPipelineScheduler.cs
+│   ├── Serial/                  # reserved for serial scheduling composition
+│   └── Parallel/
+│       ├── ParallelContactPipelineScheduler.cs
+│       └── Jobs/                # executable parallel job algorithms
+├── Stages/
+│   ├── Lifecycle/
+│   ├── Certification/
+│   │   ├── BroadPhase/
+│   │   ├── Persistent/
+│   │   ├── Prediction/
+│   │   └── Validation/
+│   ├── SoftAvoidance/
+│   ├── Motion/
+│   └── Solver/
+│       └── Observability/       # compile-gated solver capture fragments
+└── Observability/
+    └── Contracts/               # small data-only runtime observation ABI
+```
 
-## BroadPhase
+The public namespace remains `RTS.Unit.FlowField.Jobs` during this migration to
+avoid an unrelated API rename. Physical ownership, not the historical namespace,
+is the module boundary.
 
-Produces frame-local candidate interaction pairs. It never owns cross-frame contact state.
+## Rules
 
-## Persistent
-
-Owns stable entity-pair topology, contact lifecycle classification, classification versions, and derived stable keys. This is the only cross-frame contact authority.
-
-## Prediction
-
-Builds timestep/substep envelopes and frame-local interaction/contact views from the persistent authority or the full-sweep reference path.
-
-## Motion
-
-Owns frame-local velocity preparation, position prediction, and velocity reconstruction. It does not own pair topology or contact lifecycle.
-
-## Solver
-
-Consumes compact frame-local constraints only. XPBD and wall projection cannot mutate persistent pair topology directly.
-
-## SoftAvoidance
-
-Consumes only the compact frame-local soft-avoidance view. It must not read legacy Fat AABB caches or the full persistent neighbor set directly.
-
-## Legacy/FatAabb
-
-Quarantined historical implementation. Files remain temporarily for compatibility and diagnostics while the next refactor phase removes runtime ownership and dead execution paths. New production code must not add dependencies on this folder.
+- `BaseFlowMovementSystem` is the World composition root and never implements pair,
+  certificate, solver, or diagnostics algorithms.
+- Resource owners only allocate/dispose their lifetime and construct their focused
+  stage job. There is no aggregate NativeContainer bag.
+- Scheduled job structs keep NativeContainers as direct fields for Collections
+  Safety; container-bearing view wrappers are forbidden. Every direct container
+  capability is constructed for the lifetime of the stage ABI, even when the
+  selected operation does not consume it; Unity validates the complete scheduled
+  job layout, not the active enum branch.
+- The scheduler owns only job construction and `JobHandle` order. Parallel job
+  algorithms live under `Scheduling/Parallel/Jobs`.
+- Persistent state is candidate input. Only Certification may accept, repair,
+  rebuild, or commit consumer views.
+- SoftAvoidance and Solver are scheduled only after an issued certificate passes
+  the consumer-view gate.
+- Diagnostics presentation/recording/control never participate in correctness.
+  `RTS_CONTACT_DIAGNOSTICS` removes telemetry containers and capture algorithms.

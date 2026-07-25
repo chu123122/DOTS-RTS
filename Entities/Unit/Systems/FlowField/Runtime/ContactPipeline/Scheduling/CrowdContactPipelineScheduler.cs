@@ -19,7 +19,8 @@ public partial struct CrowdContactPipelineScheduler
     internal const int JacobiPairBatchSize = 64;
 
     public ContactPipelineConfiguration Configuration;
-    public ContactPipelineLifecycleJob Lifecycle;
+    public SerialContactPipelineLifecycleJob SerialLifecycle;
+    public ParallelContactPipelineLifecycleJob ParallelLifecycle;
     public InteractionCertificationJob Certification;
     public MotionIntegrationJob Motion;
     public SoftAvoidanceJob SoftAvoidance;
@@ -99,9 +100,7 @@ public partial struct CrowdContactPipelineScheduler
 
     public JobHandle ScheduleSerial(JobHandle dependency)
     {
-        ContactPipelineLifecycleJob lifecycle = Lifecycle;
-        lifecycle.Operation = ContactPipelineLifecycleOperation.InitializeSerial;
-        JobHandle handle = lifecycle.Schedule(dependency);
+        JobHandle handle = SerialLifecycle.Schedule(dependency);
 
         InteractionCertificationJob certification = Certification;
         certification.Operation = InteractionCertificationOperation.InitializeSerial;

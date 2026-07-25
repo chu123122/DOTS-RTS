@@ -76,7 +76,8 @@ optional materialized TimestepInteractionPairs
 
 A clean persistent path is not required to materialize one universal pair array.
 Lower stages must not branch on `SourceMode`; provenance exists for audit and
-telemetry only.
+telemetry only. The scheduler may only branch on certificate validity and fails
+closed before a consumer stage when scope or committed-view counts mismatch.
 
 ## Certificate scope
 
@@ -96,7 +97,8 @@ owner and reissues a certificate after recovery.
 
 The shared `CommitTimestepContactViews` function is the certification commit
 boundary for both the serial reference implementation and the staged P1-P6
-Jacobi implementation.
+Jacobi implementation. `ValidateConsumerViewsSerial` and
+`ValidateConsumerViewsP1P6` are the only scheduling gates.
 
 ## Layer ownership
 
@@ -232,14 +234,19 @@ edges. It must not know pair classification, guard proof, repair policy, XPBD
 lambda math, CSR construction or heatmap aggregation.
 
 `CrowdContactPipelineScheduler` is managed scheduling composition only; it is not
-a scheduled job and carries no algorithm implementation. `InteractionCertificationJob`,
+a scheduled job and carries no algorithm implementation. Executable parallel jobs
+live under `Scheduling/Parallel/Jobs`. `InteractionCertificationJob`,
 `SoftAvoidanceJob`, `MotionIntegrationJob` and `ConstraintSolverJob` are scheduled
 directly, so Collections Safety sees their actual NativeContainer capabilities.
 There is no aggregate composition adapter. `InteractionCandidateStore`,
 `CrowdStepBodyResources`, `InteractionCertificationFrameResources`,
 `SoftAvoidanceFrameResources`, `ConstraintSolverFrameResources` and
 `ContactPipelineExecutionResources` create and dispose their own lifetime-specific
-containers and bind only their focused job.
+containers and bind only their focused job. A stage job may dispatch several
+operations through an enum, but Unity Collections Safety validates every direct
+`NativeContainer` field when that job is scheduled. Frame owners therefore
+construct the complete stage capability set in both serial and Jacobi modes;
+leaving an inactive-mode field as `default` is not a valid optimization.
 
 ## CI boundary
 
@@ -250,7 +257,8 @@ migration:
 - scheduled step identity cannot be derived from cache generation;
 - compact views must be signed at their common commit boundary;
 - the retired all-capability solver type and environment-access partial cannot return;
-- aggregate composition/resource bags and the `Jobs/Compatibility` graveyard cannot return;
+- aggregate composition/resource bags, flat resource owners and the historical
+  `Jobs/ContactPipeline` root cannot return;
 - the scheduling composition cannot become another `IJob`;
 - SoftAvoidance, Motion and Wall stages cannot reach persistent candidate fields;
 - serial environment stages cannot interpret navigation cost directly;

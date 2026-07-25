@@ -15,8 +15,10 @@ public partial struct InteractionCertificationJob
         SweptCellEntries.Clear();
         Pairs.Clear();
         TimestepInteractionPairs.Clear();
+#if RTS_CONTACT_DIAGNOSTICS
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
+#endif
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
 
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
@@ -154,6 +156,7 @@ public partial struct InteractionCertificationJob
                                      math.max(0f, TimestepContactMargin) * 2f;
             if (minDistanceSq > retainedDistance * retainedDistance)
             {
+#if RTS_CONTACT_DIAGNOSTICS
                 if (EnableDiagnostics)
                 {
                     AddSelectedPairDiagnostic(
@@ -164,6 +167,7 @@ public partial struct InteractionCertificationJob
                         radiusSum,
                         0);
                 }
+#endif
                 continue;
             }
 

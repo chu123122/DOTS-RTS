@@ -1,6 +1,7 @@
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using RTS.Unit.FlowField.Diagnostics;
 using RTS.Unit.FlowField.Jobs;
 
 namespace RTS.Unit.FlowField.Systems
@@ -15,21 +16,37 @@ internal struct ContactPipelineExecutionResources
     public NativeList<JacobiBlockTelemetry> ParallelJacobiBlockTelemetry;
 #endif
 
-    public static ContactPipelineExecutionResources Create(int unitCount, bool useParallelJacobi)
+    public static ContactPipelineExecutionResources Create(int unitCount)
     {
         return new ContactPipelineExecutionResources
         {
-            ParallelJacobiRuntimeState = useParallelJacobi
-                ? new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob)
-                : default,
+            ParallelJacobiRuntimeState = new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob),
             SerialControlState = new NativeReference<SerialContactPipelineControlState>(Allocator.TempJob),
 #if RTS_CONTACT_DIAGNOSTICS
-            ParallelJacobiIterationState = useParallelJacobi
-                ? new NativeReference<ParallelJacobiIterationTelemetry>(Allocator.TempJob)
-                : default,
-            ParallelJacobiBlockTelemetry = useParallelJacobi
-                ? new NativeList<JacobiBlockTelemetry>(math.max((unitCount * 4 + 63) / 64, 1), Allocator.TempJob)
-                : default,
+            ParallelJacobiIterationState = new NativeReference<ParallelJacobiIterationTelemetry>(Allocator.TempJob),
+            ParallelJacobiBlockTelemetry = new NativeList<JacobiBlockTelemetry>(math.max((unitCount * 4 + 63) / 64, 1), Allocator.TempJob),
+#endif
+        };
+    }
+
+    public SerialContactPipelineLifecycleJob CreateSerialLifecycleJob(
+        ContactPipelineConfiguration configuration,
+        ConstraintSolverFrameResources solver,
+        ContactDiagnosticsFrameResources diagnostics,
+        NativeList<SimulationDebuggerPairSample> debuggerSelectedPairs)
+    {
+        return new SerialContactPipelineLifecycleJob
+        {
+            Configuration = configuration,
+            SerialControl = SerialControlState,
+            ActiveIncidentIndexState = solver.ActiveIncidentIndexState,
+#if RTS_CONTACT_DIAGNOSTICS
+            IncrementalStatistics = diagnostics.IncrementalStatistics,
+            Statistics = diagnostics.ContactStatistics,
+            IterationDiagnostics = diagnostics.Iterations,
+            PairDiagnostics = diagnostics.Pairs,
+            SelectedBodyDiagnostic = diagnostics.SelectedBody,
+            SimulationDebuggerSelectedPairs = debuggerSelectedPairs,
 #endif
         };
     }
