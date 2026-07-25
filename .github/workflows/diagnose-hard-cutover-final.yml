@@ -1,0 +1,46 @@
+name: Diagnose hard cutover payload
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+    paths:
+      - '.github/workflows/diagnose-hard-cutover-final.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 1
+      - name: Collect payload statistics
+        run: |
+          set -euo pipefail
+          {
+            find .github/cutover/final -type f -name '*.b64' -print0 \
+              | sort -z \
+              | while IFS= read -r -d '' file; do
+                  printf '%s ' "$file"
+                  wc -c < "$file" | tr -d '\n'
+                  printf ' '
+                  sha256sum "$file" | cut -d' ' -f1
+                done
+            for phase in phase3 phase4 phase5; do
+              find ".github/cutover/final/${phase}" -type f -name '*.b64' -print0 \
+                | sort -z \
+                | xargs -0 cat > "/tmp/${phase}.b64"
+              printf '/tmp/%s.b64 ' "$phase"
+              wc -c < "/tmp/${phase}.b64" | tr -d '\n'
+              printf ' '
+              sha256sum "/tmp/${phase}.b64" | cut -d' ' -f1
+            done
+          } > /tmp/payload-stats.txt
+          cat /tmp/payload-stats.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-cutover-payload-stats
+          path: /tmp/payload-stats.txt
+          retention-days: 1
