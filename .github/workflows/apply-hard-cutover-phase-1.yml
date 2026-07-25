@@ -24,21 +24,19 @@ jobs:
         with:
           ref: codex/simulation-integration
           fetch-depth: 50
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phase-1-corrupted-chunks
-          path: |
-            .github/cutover/phase-1/chunk-00.b64
-            .github/cutover/phase-1/chunk-05.b64
-          include-hidden-files: true
-          retention-days: 1
       - name: Reconstruct verified patch
         shell: bash
         run: |
           rm -f /tmp/phase-1.b64
-          for index in 00 01 02 03 04 05 06; do
+          for index in 00 01 02 03 04; do
             head -c 7000 ".github/cutover/phase-1/chunk-${index}.b64" >> /tmp/phase-1.b64
           done
+          {
+            head -c 5112 .github/cutover/phase-1/chunk-05.b64
+            printf 'E'
+            tail -c +5114 .github/cutover/phase-1/chunk-05.b64
+          } >> /tmp/phase-1.b64
+          head -c 7000 .github/cutover/phase-1/chunk-06.b64 >> /tmp/phase-1.b64
           head -c 112 .github/cutover/phase-1/chunk-07.b64 >> /tmp/phase-1.b64
           echo '7d7c9c532b0bb3a3163d40e80e9c80bb02a2f320d42a584179cee4cfcc6aa029  /tmp/phase-1.b64' | sha256sum --check
           base64 -d /tmp/phase-1.b64 > /tmp/phase-1.patch.gz
