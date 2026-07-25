@@ -17,26 +17,34 @@ public partial struct SolveXpbdUnitContactsJob
 
         IncrementalOracleContactPairs.Clear();
         float skin = math.max(0f, PredictiveSkin);
-        for (int bodyAIndex = 0; bodyAIndex < States.Length; bodyAIndex++)
+        for (int bodyAIndex = 0; bodyAIndex < Bodies.Length; bodyAIndex++)
         {
-            FlowMovementFrameState bodyA = States[bodyAIndex];
-            if (!bodyA.IsInsideGrid)
+            CrowdBodySnapshot bodyASnapshot = Bodies[bodyAIndex];
+            CrowdNavigationState bodyANavigation = NavigationStates[bodyAIndex];
+            CrowdMotionIntent bodyAIntent = MotionIntents[bodyAIndex];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[bodyAIndex];
+            CrowdBodyStepState bodyAStep = StepStates[bodyAIndex];
+            if (!(bodyASnapshot.IsInsideSimulationDomain != 0))
                 continue;
 
             for (int bodyBIndex = bodyAIndex + 1;
-                 bodyBIndex < States.Length;
+                 bodyBIndex < Bodies.Length;
                  bodyBIndex++)
             {
-                FlowMovementFrameState bodyB = States[bodyBIndex];
-                if (!bodyB.IsInsideGrid)
+                CrowdBodySnapshot bodyBSnapshot = Bodies[bodyBIndex];
+                CrowdNavigationState bodyBNavigation = NavigationStates[bodyBIndex];
+                CrowdMotionIntent bodyBIntent = MotionIntents[bodyBIndex];
+                CrowdMotionEvidence bodyBEvidence = MotionEvidence[bodyBIndex];
+                CrowdBodyStepState bodyBStep = StepStates[bodyBIndex];
+                if (!(bodyBSnapshot.IsInsideSimulationDomain != 0))
                     continue;
 
-                float radiusSum = bodyA.Radius + bodyB.Radius;
+                float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
                 float3 relativeStart =
-                    bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
+                    bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
                 float3 relativeDisplacement =
-                    (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-                    (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+                    (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
+                    (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
                 relativeStart.y = 0f;
                 relativeDisplacement.y = 0f;
                 float relativeLengthSq = math.lengthsq(relativeDisplacement);

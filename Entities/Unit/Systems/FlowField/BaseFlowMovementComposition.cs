@@ -98,7 +98,12 @@ public abstract partial class BaseFlowMovementSystem
             SimulationDebuggerSelectedUnit = _simulationDebuggerSelectedUnit,
             SimulationDebuggerSelectedUnitValid = _simulationDebuggerSelectedUnitValid,
 
-            States = frame.States
+            Bodies = frame.Bodies,
+            NavigationStates = frame.NavigationStates,
+            MotionIntents = frame.MotionIntents,
+            MotionEvidence = frame.MotionEvidence,
+            StepStates = frame.StepStates,
+            Results = frame.Results
         };
     }
 }

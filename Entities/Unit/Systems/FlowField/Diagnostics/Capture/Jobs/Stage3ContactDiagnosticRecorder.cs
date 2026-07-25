@@ -18,8 +18,16 @@ public partial struct SolveXpbdUnitContactsJob
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             UnitCollisionPair pair = TimestepContactPairs[i];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
 
             if (pair.WasActivated != 0)
             {
@@ -28,9 +36,9 @@ public partial struct SolveXpbdUnitContactsJob
                     statistics.PredictiveActivatedCount++;
             }
 
-            float3 delta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            float3 delta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
             delta.y = 0;
-            float penetration = math.max(0f, bodyA.Radius + bodyB.Radius - math.length(delta));
+            float penetration = math.max(0f, bodyASnapshot.Radius + bodyBSnapshot.Radius - math.length(delta));
             if (penetration <= 0f)
                 continue;
 
@@ -62,13 +70,21 @@ public partial struct SolveXpbdUnitContactsJob
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             UnitCollisionPair pair = TimestepContactPairs[i];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-            float radiusSum = bodyA.Radius + bodyB.Radius;
-            float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
+            float3 currentDelta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
             currentDelta.y = 0;
 
-            float constraintValue = CalculateConstraintValue(pair, bodyA, bodyB, currentDelta, radiusSum);
+            float constraintValue = CalculateConstraintValue(pair, currentDelta, radiusSum);
 
             float violation = math.max(0f, -constraintValue);
             if (violation > 0f)
@@ -127,14 +143,22 @@ public partial struct SolveXpbdUnitContactsJob
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             UnitCollisionPair pair = TimestepContactPairs[i];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-            float radiusSum = bodyA.Radius + bodyB.Radius;
-            float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
+            float3 currentDelta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
             currentDelta.y = 0;
             float violation = math.max(
                 0f,
-                -CalculateConstraintValue(pair, bodyA, bodyB, currentDelta, radiusSum));
+                -CalculateConstraintValue(pair, currentDelta, radiusSum));
             if (violation <= 0f)
                 continue;
 
@@ -150,8 +174,6 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static float CalculateConstraintValue(
         UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
         float3 currentDelta,
         float radiusSum)
     {
@@ -170,39 +192,43 @@ public partial struct SolveXpbdUnitContactsJob
             return;
         }
 
-        FlowMovementFrameState selected = States[selectedBodyIndex];
+        CrowdBodySnapshot selectedSnapshot = Bodies[selectedBodyIndex];
+        CrowdNavigationState selectedNavigation = NavigationStates[selectedBodyIndex];
+        CrowdMotionIntent selectedIntent = MotionIntents[selectedBodyIndex];
+        CrowdMotionEvidence selectedEvidence = MotionEvidence[selectedBodyIndex];
+        CrowdBodyStepState selectedStep = StepStates[selectedBodyIndex];
         var selectedDiagnostic = new Stage3SelectedBodyDiagnostic
         {
             IsValid = 1,
             SubstepIndex = substepIndex,
-            Radius = selected.Radius,
+            Radius = selectedSnapshot.Radius,
             Skin = math.max(0f, PredictiveSkin),
-            StartPosition = selected.StartPosition,
-            UnconstrainedPredictedPosition = selected.UnconstrainedPredictedPosition,
-            SolvedPosition = selected.PredictedPosition,
-            ContactCorrection = selected.ContactPositionCorrection,
-            WallCorrection = selected.WallPositionCorrection,
-            VelocityBeforeContact = selected.VelocityBeforeContact,
-            VelocityAfterContact = selected.IntegratedVelocity,
-            TimestepStartPosition = selected.TimestepStartPosition,
-            TimestepPredictedPosition = selected.TimestepPredictedPosition,
-            TimestepEnvelopeMin = selected.TimestepEnvelopeMin,
-            TimestepEnvelopeMax = selected.TimestepEnvelopeMax,
-            TimestepEscaped = selected.TimestepEscaped,
-            TimestepContactCorrection = selected.TimestepContactCorrection,
-            TimestepWallCorrection = selected.TimestepWallCorrection
+            StartPosition = selectedStep.SubstepStartPosition,
+            UnconstrainedPredictedPosition = selectedStep.UnconstrainedPosition,
+            SolvedPosition = selectedStep.SolvedPosition,
+            ContactCorrection = selectedStep.ContactCorrection,
+            WallCorrection = selectedStep.WallCorrection,
+            VelocityBeforeContact = selectedStep.VelocityBeforeContact,
+            VelocityAfterContact = selectedStep.IntegratedVelocity,
+            TimestepStartPosition = selectedEvidence.TrajectoryStart,
+            TimestepPredictedPosition = selectedEvidence.BaselineEnd,
+            TimestepEnvelopeMin = selectedEvidence.ContactEnvelopeMin,
+            TimestepEnvelopeMax = selectedEvidence.ContactEnvelopeMax,
+            TimestepEscaped = selectedEvidence.EnvelopeEscaped,
+            TimestepContactCorrection = selectedEvidence.ContactCorrection,
+            TimestepWallCorrection = selectedEvidence.WallCorrection
         };
 
         if (EnablePersistentContactCache &&
             TryFindPersistentProxy(
-                selected.Entity,
+                selectedSnapshot.Entity,
                 out PersistentSweptProxy proxy) &&
             proxy.IsValid != 0)
         {
-            float coreExtent = math.max(0f, selected.Radius) +
+            float coreExtent = math.max(0f, selectedSnapshot.Radius) +
                                math.max(0f, PredictiveSkin);
-            float2 finalMin = selected.PredictedPosition.xz - coreExtent;
-            float2 finalMax = selected.PredictedPosition.xz + coreExtent;
+            float2 finalMin = selectedStep.SolvedPosition.xz - coreExtent;
+            float2 finalMax = selectedStep.SolvedPosition.xz + coreExtent;
             selectedDiagnostic.ShadowReferenceAvailable = 1;
             selectedDiagnostic.ShadowEscaped =
                 (byte)(AabbContains(proxy.GuardMin, proxy.GuardMax, finalMin, finalMax) ? 0 : 1);
@@ -218,12 +244,20 @@ public partial struct SolveXpbdUnitContactsJob
             if (pair.BodyA != selectedBodyIndex && pair.BodyB != selectedBodyIndex)
                 continue;
 
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-            float3 r0 = bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            float3 r0 = bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
             float3 relativeDisplacement =
-                (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-                (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+                (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
+                (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
             r0.y = 0;
             relativeDisplacement.y = 0;
             float relativeLengthSq = math.lengthsq(relativeDisplacement);
@@ -231,10 +265,10 @@ public partial struct SolveXpbdUnitContactsJob
                 ? math.clamp(-math.dot(r0, relativeDisplacement) / relativeLengthSq, 0f, 1f)
                 : 0f;
             float minDistance = math.length(r0 + closestTime * relativeDisplacement);
-            float radiusSum = bodyA.Radius + bodyB.Radius;
+            float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
             float startDistanceSq = math.lengthsq(r0);
             float3 endDelta =
-                bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
+                bodyBEvidence.BaselineEnd - bodyAEvidence.BaselineEnd;
             endDelta.y = 0;
             bool potentialPredictive =
                 startDistanceSq >= radiusSum * radiusSum &&
@@ -277,20 +311,28 @@ public partial struct SolveXpbdUnitContactsJob
             return;
 
         int otherBodyIndex = pair.BodyA == selectedBodyIndex ? pair.BodyB : pair.BodyA;
-        FlowMovementFrameState selected = States[selectedBodyIndex];
-        FlowMovementFrameState other = States[otherBodyIndex];
+        CrowdBodySnapshot selectedSnapshot = Bodies[selectedBodyIndex];
+        CrowdNavigationState selectedNavigation = NavigationStates[selectedBodyIndex];
+        CrowdMotionIntent selectedIntent = MotionIntents[selectedBodyIndex];
+        CrowdMotionEvidence selectedEvidence = MotionEvidence[selectedBodyIndex];
+        CrowdBodyStepState selectedStep = StepStates[selectedBodyIndex];
+        CrowdBodySnapshot otherSnapshot = Bodies[otherBodyIndex];
+        CrowdNavigationState otherNavigation = NavigationStates[otherBodyIndex];
+        CrowdMotionIntent otherIntent = MotionIntents[otherBodyIndex];
+        CrowdMotionEvidence otherEvidence = MotionEvidence[otherBodyIndex];
+        CrowdBodyStepState otherStep = StepStates[otherBodyIndex];
         float3 selectedClosest = math.lerp(
-            selected.TimestepStartPosition,
-            selected.TimestepPredictedPosition,
+            selectedEvidence.TrajectoryStart,
+            selectedEvidence.BaselineEnd,
             closestTime);
         float3 otherClosest = math.lerp(
-            other.TimestepStartPosition,
-            other.TimestepPredictedPosition,
+            otherEvidence.TrajectoryStart,
+            otherEvidence.BaselineEnd,
             closestTime);
 
         PairDiagnostics.Add(new Stage3ContactPairDiagnostic
         {
-            OtherEntity = other.Entity,
+            OtherEntity = otherSnapshot.Entity,
             Kind = kind,
             WasActivated = wasActivated,
             WasAddedByFallback = pair.WasAddedByFallback,
@@ -299,9 +341,9 @@ public partial struct SolveXpbdUnitContactsJob
             ClosestTime = closestTime,
             MinimumDistance = minimumDistance,
             RadiusSum = radiusSum,
-            OtherRadius = other.Radius,
-            OtherStartPosition = other.TimestepStartPosition,
-            OtherPredictedPosition = other.TimestepPredictedPosition,
+            OtherRadius = otherSnapshot.Radius,
+            OtherStartPosition = otherEvidence.TrajectoryStart,
+            OtherPredictedPosition = otherEvidence.BaselineEnd,
             SelectedClosestPosition = selectedClosest,
             OtherClosestPosition = otherClosest
         });
@@ -312,9 +354,9 @@ public partial struct SolveXpbdUnitContactsJob
         if (DiagnosticSelectedEntity == Entity.Null)
             return -1;
 
-        for (int i = 0; i < States.Length; i++)
+        for (int i = 0; i < Bodies.Length; i++)
         {
-            if (States[i].Entity == DiagnosticSelectedEntity)
+            if (Bodies[i].Entity == DiagnosticSelectedEntity)
                 return i;
         }
 

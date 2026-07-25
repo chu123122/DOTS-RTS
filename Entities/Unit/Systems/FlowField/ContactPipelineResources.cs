@@ -108,7 +108,12 @@ internal struct ContactPersistentState
 /// </summary>
 internal struct ContactFrameResources
 {
-    public NativeArray<FlowMovementFrameState> States;
+    public NativeArray<CrowdBodySnapshot> Bodies;
+    public NativeArray<CrowdNavigationState> NavigationStates;
+    public NativeArray<CrowdMotionIntent> MotionIntents;
+    public NativeArray<CrowdMotionEvidence> MotionEvidence;
+    public NativeArray<CrowdBodyStepState> StepStates;
+    public NativeArray<CrowdBodyResult> Results;
     public NativeArray<float2> CollisionFootprints;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
     public NativeList<UnitCollisionPair> CollisionPairs;
@@ -164,7 +169,12 @@ internal struct ContactFrameResources
         int one = math.max(unitCount, 1);
         return new ContactFrameResources
         {
-            States = new NativeArray<FlowMovementFrameState>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
+            Bodies = new NativeArray<CrowdBodySnapshot>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
+            NavigationStates = new NativeArray<CrowdNavigationState>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
+            MotionIntents = new NativeArray<CrowdMotionIntent>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
+            MotionEvidence = new NativeArray<CrowdMotionEvidence>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            StepStates = new NativeArray<CrowdBodyStepState>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            Results = new NativeArray<CrowdBodyResult>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
             CollisionFootprints = new NativeArray<float2>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
             SweptCellEntries = new NativeList<SweptDiscCellEntry>(math.max(unitCount * 4, 1), Allocator.TempJob),
             CollisionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob),
@@ -215,7 +225,12 @@ internal struct ContactFrameResources
     public JobHandle Dispose(JobHandle finalReader)
     {
         JobHandle combined = finalReader;
-        combined = Combine(combined, States.Dispose(finalReader));
+        combined = Combine(combined, Bodies.Dispose(finalReader));
+        combined = Combine(combined, NavigationStates.Dispose(finalReader));
+        combined = Combine(combined, MotionIntents.Dispose(finalReader));
+        combined = Combine(combined, MotionEvidence.Dispose(finalReader));
+        combined = Combine(combined, StepStates.Dispose(finalReader));
+        combined = Combine(combined, Results.Dispose(finalReader));
         combined = Combine(combined, CollisionFootprints.Dispose(finalReader));
         combined = Combine(combined, SweptCellEntries.Dispose(finalReader));
         combined = Combine(combined, CollisionPairs.Dispose(finalReader));

@@ -68,7 +68,11 @@ public partial struct SolveXpbdUnitContactsJob
 
         var evaluateJob = new EvaluatePersistentPairClassificationsP1P6Job
         {
-            States = States,
+            Bodies = Bodies,
+            NavigationStates = NavigationStates,
+            MotionIntents = MotionIntents,
+            MotionEvidence = MotionEvidence,
+            StepStates = StepStates,
             RawPairs = TimestepInteractionPairs.AsDeferredJobArray(),
             PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
             PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
@@ -115,7 +119,11 @@ public partial struct SolveXpbdUnitContactsJob
     [BurstCompile]
     private struct EvaluatePersistentPairClassificationsP1P6Job : IJobParallelForDefer
     {
-        [ReadOnly] public NativeArray<FlowMovementFrameState> States;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         [ReadOnly] public NativeArray<UnitCollisionPair> RawPairs;
         [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<PersistentPredictiveContact> PreviousContacts;
@@ -138,11 +146,19 @@ public partial struct SolveXpbdUnitContactsJob
         {
             PersistentClassificationPhaseState phase = PhaseState.Value;
             UnitCollisionPair rawPair = RawPairs[pairIndex];
-            FlowMovementFrameState bodyA = States[rawPair.BodyA];
-            FlowMovementFrameState bodyB = States[rawPair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[rawPair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[rawPair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[rawPair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[rawPair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[rawPair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[rawPair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[rawPair.BodyB];
             StableEntityPairKey key = StableEntityPairKey.Create(
-                bodyA.Entity,
-                bodyB.Entity);
+                bodyASnapshot.Entity,
+                bodyBSnapshot.Entity);
 
             bool hasProxyA = TryFindPersistentProxyP1P6(
                 PersistentProxies,
@@ -182,8 +198,12 @@ public partial struct SolveXpbdUnitContactsJob
                 result.Contact = ClassifyPersistentPairP1P6(
                     key,
                     rawPair,
-                    bodyA,
-                    bodyB,
+                    bodyASnapshot,
+                    bodyAEvidence,
+                    bodyAStep,
+                    bodyBSnapshot,
+                    bodyBEvidence,
+                    bodyBStep,
                     proxyA,
                     proxyB,
                     phase.Timestep,
@@ -285,8 +305,8 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ProxyValidationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - validationStart);
 
-        float dirtyRatio = States.Length > 0
-            ? (float)topologyDirtyCount / States.Length
+        float dirtyRatio = Bodies.Length > 0
+            ? (float)topologyDirtyCount / Bodies.Length
             : 1f;
         bool useFullRebuild = !cacheCanBePatched || entitySetDirty ||
                               dirtyRatio > IncrementalDirtyBodyRatioThreshold;
@@ -722,8 +742,12 @@ public partial struct SolveXpbdUnitContactsJob
     private static PersistentPredictiveContact ClassifyPersistentPairP1P6(
         StableEntityPairKey key,
         UnitCollisionPair rawPair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyA,
+        CrowdMotionEvidence evidenceA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdMotionEvidence evidenceB,
+        CrowdBodyStepState stepB,
         PersistentSweptProxy proxyA,
         PersistentSweptProxy proxyB,
         uint timestep,
@@ -741,10 +765,10 @@ public partial struct SolveXpbdUnitContactsJob
     {
         float radiusSum = bodyA.Radius + bodyB.Radius;
         float3 relativeStart =
-            bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
+            evidenceB.TrajectoryStart - evidenceA.TrajectoryStart;
         float3 relativeDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+            (evidenceB.BaselineEnd - evidenceB.TrajectoryStart) -
+            (evidenceA.BaselineEnd - evidenceA.TrajectoryStart);
         relativeStart.y = 0f;
         relativeDisplacement.y = 0f;
         float relativeLengthSq = math.lengthsq(relativeDisplacement);
@@ -762,7 +786,7 @@ public partial struct SolveXpbdUnitContactsJob
                                  math.max(0f, timestepContactMargin) * 2f;
         float startDistanceSq = math.lengthsq(relativeStart);
         float3 endDelta =
-            bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
+            evidenceB.BaselineEnd - evidenceA.BaselineEnd;
         endDelta.y = 0f;
         float endDistanceSq = math.lengthsq(endDelta);
         float radiusSumSq = radiusSum * radiusSum;
@@ -795,8 +819,8 @@ public partial struct SolveXpbdUnitContactsJob
                 : UnitContactMode.Regular;
         }
 
-        float3 stableNormal = bodyA.TimestepStartPosition -
-                              bodyB.TimestepStartPosition;
+        float3 stableNormal = evidenceA.TrajectoryStart -
+                              evidenceB.TrajectoryStart;
         stableNormal.y = 0f;
         stableNormal = math.normalizesafe(
             stableNormal,
@@ -836,7 +860,11 @@ public partial struct SolveXpbdUnitContactsJob
                 : (sbyte)0,
             SoftAvoidanceCandidate = (byte)(CouldEnterSoftRangeP1P6(
                 bodyA,
+                evidenceA,
+                stepA,
                 bodyB,
+                evidenceB,
+                stepB,
                 softAvoidanceShell,
                 softAvoidanceResponseRate,
                 softAvoidanceVelocitySolver,
@@ -852,8 +880,12 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static bool CouldEnterSoftRangeP1P6(
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyA,
+        CrowdMotionEvidence evidenceA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdMotionEvidence evidenceB,
+        CrowdBodyStepState stepB,
         float softShell,
         float responseRate,
         SoftAvoidanceVelocitySolverMode solverMode,
@@ -862,11 +894,11 @@ public partial struct SolveXpbdUnitContactsJob
         if (softShell <= 0f || responseRate <= 0f)
             return false;
         float maxDistance = bodyA.Radius + bodyB.Radius + math.max(0f, softShell);
-        float3 relativeStart = bodyB.TimestepStartPosition -
-                               bodyA.TimestepStartPosition;
+        float3 relativeStart = evidenceB.TrajectoryStart -
+                               evidenceA.TrajectoryStart;
         float3 relativeTimestepDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+            (evidenceB.BaselineEnd - evidenceB.TrajectoryStart) -
+            (evidenceA.BaselineEnd - evidenceA.TrajectoryStart);
         relativeStart.y = 0f;
         relativeTimestepDisplacement.y = 0f;
         if (CouldRelativePathApproachP1P6(
@@ -877,7 +909,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (solverMode != SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle)
             return false;
         float3 relativeHorizonDisplacement =
-            (bodyB.BasePredictedVelocity - bodyA.BasePredictedVelocity) *
+            (stepB.BaseVelocity - stepA.BaseVelocity) *
             math.max(0f, rvoTimeHorizon);
         relativeHorizonDisplacement.y = 0f;
         return CouldRelativePathApproachP1P6(

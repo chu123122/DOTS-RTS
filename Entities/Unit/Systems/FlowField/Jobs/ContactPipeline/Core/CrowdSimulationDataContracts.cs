@@ -5,8 +5,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
 /// Immutable body facts captured from ECS at the beginning of one crowd step.
-/// This type deliberately contains no navigation-cell, contact-cache, solver or
-/// diagnostics state.
+/// Navigation, interaction certification and solver state live in separate arrays.
 /// </summary>
 public struct CrowdBodySnapshot
 {
@@ -22,8 +21,7 @@ public struct CrowdBodySnapshot
 }
 
 /// <summary>
-/// Navigation-only result for one body. It exposes compact semantics required by
-/// later motion stages without retaining a complete FlowFieldCell.
+/// Navigation-only product. It carries only path semantics needed by movement intent.
 /// </summary>
 public struct CrowdNavigationState
 {
@@ -36,9 +34,8 @@ public struct CrowdNavigationState
 }
 
 /// <summary>
-/// Motion policy produced by navigation. PreferredVelocity is the target motion;
-/// SteeringVelocityError preserves the current controller semantics while the
-/// historical IndependentForce name is migrated.
+/// Navigation movement policy. SteeringVelocityError preserves the current controller
+/// math: the motion integrator clamps it by Body.MaxAcceleration before integration.
 /// </summary>
 public struct CrowdMotionIntent
 {
@@ -47,8 +44,8 @@ public struct CrowdMotionIntent
 }
 
 /// <summary>
-/// Authoritative evidence used by the interaction certifier for one horizon.
-/// It is not persistent cache state and must not be mutated by lower consumers.
+/// Timestep-scoped authoritative motion evidence consumed by the interaction certifier.
+/// This is not persistent candidate state and lower consumers may only report escapes.
 /// </summary>
 public struct CrowdMotionEvidence
 {
@@ -58,32 +55,40 @@ public struct CrowdMotionEvidence
     public float2 ContactEnvelopeMax;
     public float2 InteractionEnvelopeMin;
     public float2 InteractionEnvelopeMax;
+    public float3 ContactCorrection;
+    public float3 WallCorrection;
     public uint MotionVersion;
+    public byte EnvelopeEscaped;
 }
 
 /// <summary>
-/// Mutable body state owned by the current substep/solver execution.
-/// Predicted positions never belong to persistent world state.
+/// Mutable state owned by the current timestep/substep solver execution.
+/// Predicted positions and XPBD corrections never enter persistent World state.
 /// </summary>
 public struct CrowdBodyStepState
 {
-    public float3 PreviousSubstepPosition;
-    public float3 UnconstrainedPosition;
-    public float3 SolvedPosition;
-    public float3 VelocityBeforeContact;
+    public float3 SoftAvoidanceVelocity;
+    public float3 WallAvoidanceVelocity;
+    public int SoftAvoidanceNeighborCount;
+
+    public float3 BaseVelocity;
     public float3 IntegratedVelocity;
+    public float3 SubstepStartPosition;
+    public float3 UnconstrainedPosition;
+    public float3 VelocityBeforeContact;
+    public float3 SolvedPosition;
+    public float3 PreviousSubstepPosition;
     public float3 ContactCorrection;
     public float3 WallCorrection;
 }
 
 /// <summary>
-/// Final detached result consumed by ECS writeback and completed-step observers.
+/// Detached post-solve product consumed by ECS writeback and completed-step observers.
 /// </summary>
 public struct CrowdBodyResult
 {
     public float3 Position;
     public float3 Velocity;
     public quaternion Rotation;
-    public byte IsSettled;
 }
 }

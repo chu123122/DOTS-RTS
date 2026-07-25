@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Systems
 /// <summary>
 /// Crowd-simulation composition root for one ECS World. It owns stage ordering,
 /// resource lifetime and JobHandle dependencies; detailed solver ABI expansion is
-/// isolated in BaseFlowMovementComposition.
+/// while each stage receives only its explicit data products.
 /// </summary>
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
@@ -159,18 +159,22 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             gridComponent.GridOrigin,
             gridComponent.GridDimensions,
             gridComponent.CellRadius);
-        JobHandle intentHandle = new CalculateIndependentFlowForceJob
+        JobHandle intentHandle = new BuildCrowdMotionIntentJob
         {
             NavigationCells = gridComponent.Grid,
             NavigationGrid = gridGeometry,
             ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
             CollisionFootprints = frame.CollisionFootprints,
-            States = frame.States
+            Bodies = frame.Bodies,
+            NavigationStates = frame.NavigationStates,
+            MotionIntents = frame.MotionIntents
         }.ScheduleParallel(_movementQuery, footprintHandle);
 
-        JobHandle initializeHandle = new InitializeFlowMovementSolverStateJob
+        JobHandle initializeHandle = new InitializeCrowdStepStateJob
         {
-            States = frame.States
+            Bodies = frame.Bodies,
+            MotionEvidence = frame.MotionEvidence,
+            StepStates = frame.StepStates
         }.Schedule(unitCount, 64, intentHandle);
 
         ContactPipelineConfiguration configuration =
@@ -228,11 +232,19 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         World.GetExistingSystemManaged<FlowFieldBakeSystem>()
             ?.RegisterActiveGridReader(solveHandle);
 
-        JobHandle applyHandle = new ApplyFlowMovementJob
+        JobHandle resultHandle = new BuildCrowdBodyResultsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
-            States = frame.States
-        }.ScheduleParallel(_movementQuery, solveHandle);
+            Bodies = frame.Bodies,
+            NavigationStates = frame.NavigationStates,
+            StepStates = frame.StepStates,
+            Results = frame.Results
+        }.Schedule(unitCount, 64, solveHandle);
+
+        JobHandle applyHandle = new ApplyFlowMovementJob
+        {
+            Results = frame.Results
+        }.ScheduleParallel(_movementQuery, resultHandle);
 
         JobHandle runtimeDispose = frame.Dispose(applyHandle);
         JobHandle diagnosticsDispose = DisposeContactDiagnosticsFrameResources(

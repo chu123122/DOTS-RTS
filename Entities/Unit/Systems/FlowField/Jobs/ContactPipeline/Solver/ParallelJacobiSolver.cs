@@ -64,13 +64,17 @@ public partial struct SolveXpbdUnitContactsJob
         int substepIndex,
         float alpha,
         UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB)
+        CrowdBodySnapshot bodyA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdBodyStepState stepB)
     {
         ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
             ref pair,
             bodyA,
+            stepA,
             bodyB,
+            stepB,
             alpha,
             substepIndex);
 
@@ -150,7 +154,11 @@ public partial struct SolveXpbdUnitContactsJob
                             math.max(0.0000001f,
                                 math.pow(Configuration.DeltaTime / substepCount, 2f)),
                     SubstepIndex = substepIndex,
-                    States = States,
+                    Bodies = Bodies,
+                NavigationStates = NavigationStates,
+                MotionIntents = MotionIntents,
+                MotionEvidence = MotionEvidence,
+                StepStates = StepStates,
                     Pairs = TimestepContactPairs.AsDeferredJobArray(),
                     Corrections = JacobiPairCorrections.AsDeferredJobArray()
                 };
@@ -170,14 +178,18 @@ public partial struct SolveXpbdUnitContactsJob
 
                 var gatherBodiesJob = new GatherAndApplyParallelJacobiBodiesJob
                 {
-                    States = States,
+                    Bodies = Bodies,
+                NavigationStates = NavigationStates,
+                MotionIntents = MotionIntents,
+                MotionEvidence = MotionEvidence,
+                StepStates = StepStates,
                     Pairs = TimestepContactPairs.AsDeferredJobArray(),
                     Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                     IncidentOffsets = ActiveIncidentOffsets,
                     IncidentPairIndices = ActiveIncidentPairIndices.AsDeferredJobArray(),
                     CorrectedBodyFlags = CorrectedBodyFlags
                 };
-                handle = gatherBodiesJob.Schedule(States.Length, 64, handle);
+                handle = gatherBodiesJob.Schedule(Bodies.Length, 64, handle);
 
                 handle = new FinalizeParallelJacobiIterationJob
                 {
@@ -264,21 +276,35 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public float Alpha;
         public int SubstepIndex;
-        [ReadOnly] public NativeArray<FlowMovementFrameState> States;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<UnitCollisionPair> Pairs;
         public NativeArray<JacobiPairCorrection> Corrections;
 
         public void Execute(int pairIndex)
         {
             UnitCollisionPair pair = Pairs[pairIndex];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
             JacobiPairSolveResult result = EvaluateJacobiPair(
                 SubstepIndex,
                 Alpha,
                 pair,
-                bodyA,
-                bodyB);
+                bodyASnapshot,
+                bodyAStep,
+                bodyBSnapshot,
+                bodyBStep);
 
             Pairs[pairIndex] = result.Pair;
             Corrections[pairIndex] = result.Correction;
@@ -291,7 +317,11 @@ public partial struct SolveXpbdUnitContactsJob
     {
         public float Alpha;
         public int SubstepIndex;
-        [ReadOnly] public NativeArray<FlowMovementFrameState> States;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<UnitCollisionPair> Pairs;
         public NativeArray<JacobiPairCorrection> Corrections;
         public NativeArray<ParallelSimulationDebuggerPairCapture>
@@ -301,29 +331,41 @@ public partial struct SolveXpbdUnitContactsJob
         public void Execute(int pairIndex)
         {
             UnitCollisionPair pair = Pairs[pairIndex];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
             JacobiPairSolveResult result = EvaluateJacobiPair(
                 SubstepIndex,
                 Alpha,
                 pair,
-                bodyA,
-                bodyB);
+                bodyASnapshot,
+                bodyAStep,
+                bodyBSnapshot,
+                bodyBStep);
 
             Pairs[pairIndex] = result.Pair;
             Corrections[pairIndex] = result.Correction;
 
             ParallelSimulationDebuggerPairCapture capture = default;
-            if (bodyA.Entity == DiagnosticSelectedEntity ||
-                bodyB.Entity == DiagnosticSelectedEntity)
+            if (bodyASnapshot.Entity == DiagnosticSelectedEntity ||
+                bodyBSnapshot.Entity == DiagnosticSelectedEntity)
             {
                 capture.IsValid = 1;
                 capture.Sample =
                     SolveXpbdUnitContactsJob.BuildSimulationDebuggerPairSample(
                         SubstepIndex,
                         result.Pair,
-                        bodyA,
-                        bodyB,
+                        bodyASnapshot,
+                        bodyAStep,
+                        bodyBSnapshot,
+                        bodyBStep,
                         result.Evaluation.Normal,
                         result.Evaluation.ConstraintValue,
                         result.Evaluation.PairCorrection);
@@ -366,7 +408,11 @@ public partial struct SolveXpbdUnitContactsJob
     [BurstCompile]
     private struct GatherAndApplyParallelJacobiBodiesJob : IJobParallelFor
     {
-        public NativeArray<FlowMovementFrameState> States;
+        public NativeArray<CrowdBodySnapshot> Bodies;
+        public NativeArray<CrowdNavigationState> NavigationStates;
+        public NativeArray<CrowdMotionIntent> MotionIntents;
+        public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        public NativeArray<CrowdBodyStepState> StepStates;
         [ReadOnly] public NativeArray<UnitCollisionPair> Pairs;
         [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
@@ -399,13 +445,21 @@ public partial struct SolveXpbdUnitContactsJob
             if (correctionCount <= 0)
                 return;
 
-            FlowMovementFrameState body = States[bodyIndex];
+            CrowdBodySnapshot bodySnapshot = Bodies[bodyIndex];
+            CrowdNavigationState bodyNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent bodyIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence bodyEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState bodyStep = StepStates[bodyIndex];
             float3 correction = correctionSum / correctionCount;
-            body.PredictedPosition += correction;
-            body.ContactPositionCorrection += correction;
-            body.TimestepContactCorrection += correction;
-            body.PredictedPosition.y = body.CurrentPosition.y;
-            States[bodyIndex] = body;
+            bodyStep.SolvedPosition += correction;
+            bodyStep.ContactCorrection += correction;
+            bodyEvidence.ContactCorrection += correction;
+            bodyStep.SolvedPosition.y = bodySnapshot.Position.y;
+            Bodies[bodyIndex] = bodySnapshot;
+            NavigationStates[bodyIndex] = bodyNavigation;
+            MotionIntents[bodyIndex] = bodyIntent;
+            MotionEvidence[bodyIndex] = bodyEvidence;
+            StepStates[bodyIndex] = bodyStep;
             CorrectedBodyFlags[bodyIndex] = 1;
         }
     }

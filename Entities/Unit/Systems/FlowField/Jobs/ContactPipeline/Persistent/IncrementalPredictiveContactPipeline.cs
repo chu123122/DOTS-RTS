@@ -28,7 +28,7 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ProxyValidationNanoseconds += TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - validationStart);
 
-        float dirtyRatio = States.Length > 0 ? (float)topologyDirtyCount / States.Length : 1f;
+        float dirtyRatio = Bodies.Length > 0 ? (float)topologyDirtyCount / Bodies.Length : 1f;
         bool useFullRebuild = !cacheCanBePatched || entitySetDirty ||
                               dirtyRatio > IncrementalDirtyBodyRatioThreshold;
         if (useFullRebuild)
@@ -275,11 +275,19 @@ public partial struct SolveXpbdUnitContactsJob
              pairIndex++)
         {
             UnitCollisionPair rawPair = TimestepInteractionPairs[pairIndex];
-            FlowMovementFrameState bodyA = States[rawPair.BodyA];
-            FlowMovementFrameState bodyB = States[rawPair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[rawPair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[rawPair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[rawPair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[rawPair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[rawPair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[rawPair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[rawPair.BodyB];
             StableEntityPairKey key = StableEntityPairKey.Create(
-                bodyA.Entity,
-                bodyB.Entity);
+                bodyASnapshot.Entity,
+                bodyBSnapshot.Entity);
 
             bool hasProxyA = TryFindPersistentProxy(
                 key.EntityA,
@@ -312,8 +320,10 @@ public partial struct SolveXpbdUnitContactsJob
                 contact = ClassifyPersistentNeighborPair(
                     key,
                     rawPair,
-                    bodyA,
-                    bodyB,
+                    bodyASnapshot,
+                    bodyAEvidence,
+                    bodyBSnapshot,
+                    bodyBEvidence,
                     proxyA,
                     proxyB,
                     timestep,
@@ -389,20 +399,22 @@ public partial struct SolveXpbdUnitContactsJob
     private PersistentPredictiveContact ClassifyPersistentNeighborPair(
         StableEntityPairKey key,
         UnitCollisionPair rawPair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyASnapshot,
+        CrowdMotionEvidence bodyAEvidence,
+        CrowdBodySnapshot bodyBSnapshot,
+        CrowdMotionEvidence bodyBEvidence,
         PersistentSweptProxy proxyA,
         PersistentSweptProxy proxyB,
         uint timestep,
         uint classificationEpoch,
         int scheduleStartSubstep)
     {
-        float radiusSum = bodyA.Radius + bodyB.Radius;
+        float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
         float3 relativeStart =
-            bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
+            bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
         float3 relativeDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+            (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
+            (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
         relativeStart.y = 0f;
         relativeDisplacement.y = 0f;
 
@@ -421,7 +433,7 @@ public partial struct SolveXpbdUnitContactsJob
                                  math.max(0f, TimestepContactMargin) * 2f;
         float startDistanceSq = math.lengthsq(relativeStart);
         float3 endDelta =
-            bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
+            bodyBEvidence.BaselineEnd - bodyAEvidence.BaselineEnd;
         endDelta.y = 0f;
         float endDistanceSq = math.lengthsq(endDelta);
         float radiusSumSq = radiusSum * radiusSum;
@@ -456,8 +468,8 @@ public partial struct SolveXpbdUnitContactsJob
 
         // Keep A1 classification exactly equivalent to A0. Previous-frame
         // normals are not a correctness input and are therefore not blended.
-        float3 stableNormal = bodyA.TimestepStartPosition -
-                              bodyB.TimestepStartPosition;
+        float3 stableNormal = bodyAEvidence.TrajectoryStart -
+                              bodyBEvidence.TrajectoryStart;
         stableNormal.y = 0f;
         stableNormal = math.normalizesafe(
             stableNormal,
@@ -496,8 +508,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ? (sbyte)1
                 : (sbyte)0,
             SoftAvoidanceCandidate = (byte)(CouldEnterSoftAvoidanceRange(
-                bodyA,
-                bodyB) ? 1 : 0),
+                rawPair.BodyA,
+                rawPair.BodyB) ? 1 : 0),
             FirstPossibleSubstep = firstPossibleSubstep,
             NextCheckSubstep = firstPossibleSubstep,
             ClosestTime = closestTime,
@@ -601,14 +613,22 @@ public partial struct SolveXpbdUnitContactsJob
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = Pairs[pairIndex];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
-            StableEntityPairKey key = StableEntityPairKey.Create(bodyA.Entity, bodyB.Entity);
+            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            StableEntityPairKey key = StableEntityPairKey.Create(bodyASnapshot.Entity, bodyBSnapshot.Entity);
 
             PersistentContactLifecycle lifecycle;
-            float3 currentDelta = bodyA.TimestepStartPosition - bodyB.TimestepStartPosition;
+            float3 currentDelta = bodyAEvidence.TrajectoryStart - bodyBEvidence.TrajectoryStart;
             currentDelta.y = 0f;
-            float radiusSum = bodyA.Radius + bodyB.Radius;
+            float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
             if (math.lengthsq(currentDelta) <= radiusSum * radiusSum)
                 lifecycle = PersistentContactLifecycle.Actual;
             else if (pair.IsDormant != 0)
@@ -629,20 +649,20 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentSweptProxy proxyB = default;
             if (EnablePersistentContactCache)
             {
-                TryFindPersistentProxy(bodyA.Entity, out proxyA);
-                TryFindPersistentProxy(bodyB.Entity, out proxyB);
+                TryFindPersistentProxy(bodyASnapshot.Entity, out proxyA);
+                TryFindPersistentProxy(bodyBSnapshot.Entity, out proxyB);
             }
 
             ushort firstPossibleSubstep = 0;
             if (lifecycle == PersistentContactLifecycle.Dormant)
             {
-                if (!HasRelativeTimestepTrajectory(bodyA, bodyB))
+                if (!HasRelativeTimestepTrajectory(bodyAEvidence, bodyBEvidence))
                 {
                     firstPossibleSubstep = ushort.MaxValue;
                 }
                 else
                 {
-                    float closestTime = CalculatePairClosestTime(bodyA, bodyB);
+                    float closestTime = CalculatePairClosestTime(bodyAEvidence, bodyBEvidence);
                     int closestSubstepOffset = math.clamp(
                         (int)math.floor(closestTime * remainingSubstepCount),
                         0,
@@ -705,14 +725,14 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static float CalculatePairClosestTime(
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB)
+        CrowdMotionEvidence bodyAEvidence,
+        CrowdMotionEvidence bodyBEvidence)
     {
         float3 relativeStart =
-            bodyB.TimestepStartPosition - bodyA.TimestepStartPosition;
+            bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
         float3 relativeDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+            (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
+            (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
         relativeStart.y = 0f;
         relativeDisplacement.y = 0f;
         float relativeLengthSq = math.lengthsq(relativeDisplacement);
@@ -725,12 +745,12 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static bool HasRelativeTimestepTrajectory(
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB)
+        CrowdMotionEvidence bodyAEvidence,
+        CrowdMotionEvidence bodyBEvidence)
     {
         float3 relativeDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.TimestepStartPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.TimestepStartPosition);
+            (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
+            (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
         relativeDisplacement.y = 0f;
         return math.lengthsq(relativeDisplacement) > 0.0000001f;
     }
@@ -835,11 +855,19 @@ public partial struct SolveXpbdUnitContactsJob
 
         PersistentPredictiveContact contact =
             PersistentPredictiveContacts[contactIndex];
-        FlowMovementFrameState bodyA = States[pair.BodyA];
-        FlowMovementFrameState bodyB = States[pair.BodyB];
-        float3 delta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+        CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
+        CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
+        CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
+        CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
+        CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+        CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
+        CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
+        CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
+        CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
+        CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+        float3 delta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
         delta.y = 0f;
-        float radiusSum = bodyA.Radius + bodyB.Radius;
+        float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
         contact.Lifecycle = math.lengthsq(delta) <= radiusSum * radiusSum
             ? PersistentContactLifecycle.Actual
             : pair.ContactMode == UnitContactMode.Predictive
@@ -927,15 +955,23 @@ public partial struct SolveXpbdUnitContactsJob
     {
         int bodyAIndex = math.min(firstBodyIndex, secondBodyIndex);
         int bodyBIndex = math.max(firstBodyIndex, secondBodyIndex);
-        FlowMovementFrameState bodyA = States[bodyAIndex];
-        FlowMovementFrameState bodyB = States[bodyBIndex];
-        float radiusSum = bodyA.Radius + bodyB.Radius;
+        CrowdBodySnapshot bodyASnapshot = Bodies[bodyAIndex];
+        CrowdNavigationState bodyANavigation = NavigationStates[bodyAIndex];
+        CrowdMotionIntent bodyAIntent = MotionIntents[bodyAIndex];
+        CrowdMotionEvidence bodyAEvidence = MotionEvidence[bodyAIndex];
+        CrowdBodyStepState bodyAStep = StepStates[bodyAIndex];
+        CrowdBodySnapshot bodyBSnapshot = Bodies[bodyBIndex];
+        CrowdNavigationState bodyBNavigation = NavigationStates[bodyBIndex];
+        CrowdMotionIntent bodyBIntent = MotionIntents[bodyBIndex];
+        CrowdMotionEvidence bodyBEvidence = MotionEvidence[bodyBIndex];
+        CrowdBodyStepState bodyBStep = StepStates[bodyBIndex];
+        float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
         float candidateDistance = radiusSum + math.max(0f, PredictiveSkin);
 
-        float3 relativeStart = bodyB.PredictedPosition - bodyA.PredictedPosition;
+        float3 relativeStart = bodyBStep.SolvedPosition - bodyAStep.SolvedPosition;
         float3 relativeDisplacement =
-            (bodyB.TimestepPredictedPosition - bodyB.PredictedPosition) -
-            (bodyA.TimestepPredictedPosition - bodyA.PredictedPosition);
+            (bodyBEvidence.BaselineEnd - bodyBStep.SolvedPosition) -
+            (bodyAEvidence.BaselineEnd - bodyAStep.SolvedPosition);
         relativeStart.y = 0f;
         relativeDisplacement.y = 0f;
         float relativeLengthSq = math.lengthsq(relativeDisplacement);
@@ -955,7 +991,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         float startDistanceSq = math.lengthsq(relativeStart);
         float3 endDelta =
-            bodyB.TimestepPredictedPosition - bodyA.TimestepPredictedPosition;
+            bodyBEvidence.BaselineEnd - bodyAEvidence.BaselineEnd;
         endDelta.y = 0f;
         float endDistanceSq = math.lengthsq(endDelta);
         float radiusSumSq = radiusSum * radiusSum;
@@ -973,7 +1009,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ? UnitContactMode.Predictive
                 : UnitContactMode.Regular,
             PredictiveNormal = math.normalizesafe(
-                bodyA.PredictedPosition - bodyB.PredictedPosition,
+                bodyAStep.SolvedPosition - bodyBStep.SolvedPosition,
                 DeterministicFallbackNormal(bodyAIndex, bodyBIndex)),
             FirstActivatedSubstep = -1
         };
@@ -1032,9 +1068,9 @@ public partial struct SolveXpbdUnitContactsJob
     {
         IncrementalContactCacheState state = IncrementalCacheState.Value;
         return state.IsValid != 0 &&
-               state.BodyCount == States.Length &&
-               PersistentSweptProxies.Length == States.Length &&
-               PersistentProxyIndexByBody.Length == States.Length &&
+               state.BodyCount == Bodies.Length &&
+               PersistentSweptProxies.Length == Bodies.Length &&
+               PersistentProxyIndexByBody.Length == Bodies.Length &&
                state.GuardMargin == math.max(0f, GuardEnvelopeMargin) &&
                state.PredictiveSkin == math.max(0f, PredictiveSkin) &&
                state.TimestepContactMargin == math.max(0f, TimestepContactMargin) &&
@@ -1049,7 +1085,9 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static PersistentSweptProxy BuildPersistentProxyFromStateP1P6(
         int bodyIndex,
-        FlowMovementFrameState state,
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
         float guardMargin,
         float softAvoidanceShell,
         float softAvoidanceResponseRate,
@@ -1058,32 +1096,34 @@ public partial struct SolveXpbdUnitContactsJob
     {
         PersistentSweptProxy proxy = new PersistentSweptProxy
         {
-            Entity = state.Entity,
+            Entity = stateSnapshot.Entity,
             BodyIndex = bodyIndex,
-            IsValid = (byte)(state.IsInsideGrid ? 1 : 0),
-            Radius = math.max(0f, state.Radius)
+            IsValid = (byte)((stateSnapshot.IsInsideSimulationDomain != 0) ? 1 : 0),
+            Radius = math.max(0f, stateSnapshot.Radius)
         };
-        if (!state.IsInsideGrid)
+        if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             return proxy;
-        proxy.TightMin = state.TimestepInteractionEnvelopeMin;
-        proxy.TightMax = state.TimestepInteractionEnvelopeMax;
+        proxy.TightMin = stateEvidence.InteractionEnvelopeMin;
+        proxy.TightMax = stateEvidence.InteractionEnvelopeMax;
         proxy.GuardMin = proxy.TightMin - math.max(0f, guardMargin);
         proxy.GuardMax = proxy.TightMax + math.max(0f, guardMargin);
-        proxy.TrajectoryStart = state.TimestepStartPosition.xz;
-        proxy.TrajectoryEnd = state.TimestepPredictedPosition.xz;
+        proxy.TrajectoryStart = stateEvidence.TrajectoryStart.xz;
+        proxy.TrajectoryEnd = stateEvidence.BaselineEnd.xz;
         proxy.AvoidanceHorizonEnd =
             softSolverMode == SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle &&
             softAvoidanceShell > 0f && softAvoidanceResponseRate > 0f
-                ? state.TimestepStartPosition.xz +
-                  state.BasePredictedVelocity.xz * math.max(0f, rvoTimeHorizon)
-                : state.TimestepPredictedPosition.xz;
+                ? stateEvidence.TrajectoryStart.xz +
+                  stateStep.BaseVelocity.xz * math.max(0f, rvoTimeHorizon)
+                : stateEvidence.BaselineEnd.xz;
         proxy.MotionVersion = 1u;
         return proxy;
     }
 
     private static IncrementalBodyDirtyFlags ClassifyAndUpdatePersistentProxyForBodyP1P6(
         int bodyIndex,
-        FlowMovementFrameState state,
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
         NativeArray<PersistentSweptProxy> persistentProxies,
         NativeArray<int> proxyIndexByBody,
         IncrementalContactCacheState cacheState,
@@ -1106,13 +1146,14 @@ public partial struct SolveXpbdUnitContactsJob
                    IncrementalBodyDirtyFlags.Motion;
 
         PersistentSweptProxy previous = persistentProxies[proxyIndex];
-        if (previous.Entity != state.Entity)
+        if (previous.Entity != stateSnapshot.Entity)
             return IncrementalBodyDirtyFlags.EntitySet |
                    IncrementalBodyDirtyFlags.Topology |
                    IncrementalBodyDirtyFlags.Motion;
 
         PersistentSweptProxy current = BuildPersistentProxyFromStateP1P6(
-            bodyIndex, state, guardMargin, softAvoidanceShell,
+            bodyIndex, stateSnapshot, stateEvidence, stateStep,
+            guardMargin, softAvoidanceShell,
             softAvoidanceResponseRate, softSolverMode, rvoTimeHorizon);
         AssignMotionVersion(ref current, previous);
         bool topologyDirty = previous.IsValid != current.IsValid ||
@@ -1139,10 +1180,11 @@ public partial struct SolveXpbdUnitContactsJob
         ClearIncrementalDirtyBodySet();
         if (!IsPersistentCacheStructurallyReusableP1P6())
             return;
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
             IncrementalBodyDirtyFlags flags = ClassifyAndUpdatePersistentProxyForBodyP1P6(
-                bodyIndex, States[bodyIndex], PersistentSweptProxies.AsArray(),
+                bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
+                StepStates[bodyIndex], PersistentSweptProxies.AsArray(),
                 PersistentProxyIndexByBody.AsArray(), IncrementalCacheState.Value,
                 GuardEnvelopeMargin, SoftAvoidanceShell, SoftAvoidanceResponseRate,
                 SoftAvoidanceVelocitySolver, RvoTimeHorizon);
@@ -1162,10 +1204,11 @@ public partial struct SolveXpbdUnitContactsJob
         {
             IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
             int bodyIndex = dirty.BodyIndex;
-            if ((uint)bodyIndex >= (uint)States.Length)
+            if ((uint)bodyIndex >= (uint)Bodies.Length)
                 return false;
             IncrementalBodyDirtyFlags refreshed = ClassifyAndUpdatePersistentProxyForBodyP1P6(
-                bodyIndex, States[bodyIndex], PersistentSweptProxies.AsArray(),
+                bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
+                StepStates[bodyIndex], PersistentSweptProxies.AsArray(),
                 PersistentProxyIndexByBody.AsArray(), IncrementalCacheState.Value,
                 GuardEnvelopeMargin, SoftAvoidanceShell, SoftAvoidanceResponseRate,
                 SoftAvoidanceVelocitySolver, RvoTimeHorizon);
@@ -1213,7 +1256,7 @@ public partial struct SolveXpbdUnitContactsJob
         IncrementalContactCacheState state = IncrementalCacheState.Value;
         state.Timestep++;
         state.LastUpdateWasFullRebuild = 0;
-        state.BodyCount = States.Length;
+        state.BodyCount = Bodies.Length;
         state.NeighborPairCount = PersistentNeighborPairs.Length;
         IncrementalCacheState.Value = state;
         incrementalStatistics.Timestep = state.Timestep;
@@ -1222,8 +1265,8 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void RebuildPersistentProxyIndexByBodyP1P6()
     {
-        PersistentProxyIndexByBody.ResizeUninitialized(States.Length);
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        PersistentProxyIndexByBody.ResizeUninitialized(Bodies.Length);
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
             PersistentProxyIndexByBody[bodyIndex] = -1;
         for (int proxyIndex = 0; proxyIndex < PersistentSweptProxies.Length; proxyIndex++)
         {
@@ -1328,14 +1371,18 @@ public partial struct SolveXpbdUnitContactsJob
                  IncrementalBodyDirtyFlags.Topology) == 0)
                 continue;
 
-            FlowMovementFrameState dirtyState = States[dirty.BodyIndex];
+            CrowdBodySnapshot dirtyStateSnapshot = Bodies[dirty.BodyIndex];
+            CrowdNavigationState dirtyStateNavigation = NavigationStates[dirty.BodyIndex];
+            CrowdMotionIntent dirtyStateIntent = MotionIntents[dirty.BodyIndex];
+            CrowdMotionEvidence dirtyStateEvidence = MotionEvidence[dirty.BodyIndex];
+            CrowdBodyStepState dirtyStateStep = StepStates[dirty.BodyIndex];
             if (!TryFindPersistentProxy(
-                    dirtyState.Entity,
+                    dirtyStateSnapshot.Entity,
                     out PersistentSweptProxy dirtyProxy) ||
                 dirtyProxy.IsValid == 0)
                 continue;
 
-            int dirtyProxyIndex = FindPersistentProxyIndex(dirtyState.Entity);
+            int dirtyProxyIndex = FindPersistentProxyIndex(dirtyStateSnapshot.Entity);
             if (spatialMembershipReady && dirtyProxyIndex >= 0 &&
                 TryAppendPersistentSpatialNeighborsP1P6(
                     dirtyProxyIndex,
@@ -1377,7 +1424,7 @@ public partial struct SolveXpbdUnitContactsJob
         state.LastUpdateWasFullRebuild = 0;
         state.Timestep = nextTimestep;
         state.TopologyEpoch = nextTopologyEpoch;
-        state.BodyCount = States.Length;
+        state.BodyCount = Bodies.Length;
         state.NeighborPairCount = PersistentNeighborPairs.Length;
         IncrementalCacheState.Value = state;
 
@@ -1414,7 +1461,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ProfilerUnsafeUtility.Timestamp - validationStart);
             return false;
         }
-        float dirtyRatio = States.Length > 0 ? (float)escapedBodyCount / States.Length : 1f;
+        float dirtyRatio = Bodies.Length > 0 ? (float)escapedBodyCount / Bodies.Length : 1f;
         if (dirtyRatio > IncrementalDirtyBodyRatioThreshold ||
             IncrementalCacheState.Value.IsValid == 0)
         {
@@ -1461,9 +1508,17 @@ public partial struct SolveXpbdUnitContactsJob
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
             int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            FlowMovementFrameState state = States[bodyIndex];
-            state.TimestepEscaped = 0;
-            States[bodyIndex] = state;
+            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            stateEvidence.EnvelopeEscaped = 0;
+            Bodies[bodyIndex] = stateSnapshot;
+            NavigationStates[bodyIndex] = stateNavigation;
+            MotionIntents[bodyIndex] = stateIntent;
+            MotionEvidence[bodyIndex] = stateEvidence;
+            StepStates[bodyIndex] = stateStep;
         }
         IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
         cacheState.LastUpdateWasFullRebuild = 0;
@@ -1490,7 +1545,7 @@ public partial struct SolveXpbdUnitContactsJob
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
             int dirtyBodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            Entity entity = States[dirtyBodyIndex].Entity;
+            Entity entity = Bodies[dirtyBodyIndex].Entity;
             NativeParallelMultiHashMapIterator<Entity> iterator;
             if (!PersistentIncidentPairLookup.TryGetFirstValue(
                     entity, out int persistentPairIndex, out iterator))
@@ -1547,11 +1602,19 @@ public partial struct SolveXpbdUnitContactsJob
         for (int pairIndex = 0; pairIndex < rawPairCount; pairIndex++)
         {
             UnitCollisionPair rawPair = Pairs[pairIndex];
-            FlowMovementFrameState bodyA = States[rawPair.BodyA];
-            FlowMovementFrameState bodyB = States[rawPair.BodyB];
+            CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
+            CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
+            CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
+            CrowdMotionEvidence bodyAEvidence = MotionEvidence[rawPair.BodyA];
+            CrowdBodyStepState bodyAStep = StepStates[rawPair.BodyA];
+            CrowdBodySnapshot bodyBSnapshot = Bodies[rawPair.BodyB];
+            CrowdNavigationState bodyBNavigation = NavigationStates[rawPair.BodyB];
+            CrowdMotionIntent bodyBIntent = MotionIntents[rawPair.BodyB];
+            CrowdMotionEvidence bodyBEvidence = MotionEvidence[rawPair.BodyB];
+            CrowdBodyStepState bodyBStep = StepStates[rawPair.BodyB];
             StableEntityPairKey key = StableEntityPairKey.Create(
-                bodyA.Entity,
-                bodyB.Entity);
+                bodyASnapshot.Entity,
+                bodyBSnapshot.Entity);
             TryFindPersistentProxy(
                 key.EntityA,
                 out PersistentSweptProxy proxyA);
@@ -1561,8 +1624,10 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentPredictiveContact contact = ClassifyPersistentNeighborPair(
                 key,
                 rawPair,
-                bodyA,
-                bodyB,
+                bodyASnapshot,
+                bodyAEvidence,
+                bodyBSnapshot,
+                bodyBEvidence,
                 proxyA,
                 proxyB,
                 timestep,
@@ -1741,10 +1806,11 @@ public partial struct SolveXpbdUnitContactsJob
         CurrentIncrementalProxies.Clear();
         float guardMargin = math.max(0f, GuardEnvelopeMargin);
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
             CurrentIncrementalProxies.Add(BuildPersistentProxyFromStateP1P6(
-                bodyIndex, States[bodyIndex], guardMargin, SoftAvoidanceShell,
+                bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
+                StepStates[bodyIndex], guardMargin, SoftAvoidanceShell,
                 SoftAvoidanceResponseRate, SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon));
         }
@@ -1753,22 +1819,26 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void CalculateIncrementalTightSweptBounds(
-        FlowMovementFrameState state,
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
         out float2 tightMin,
         out float2 tightMax)
     {
         float contactPadding = math.max(0f, PredictiveSkin) +
                                math.max(0f, TimestepContactMargin) * 2f;
         float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
-        float extent = math.max(0f, state.Radius) +
+        float extent = math.max(0f, stateSnapshot.Radius) +
                        math.max(contactPadding, avoidancePadding);
-        CalculateNeighborPathBounds(state, out float2 pathMin, out float2 pathMax);
+        CalculateNeighborPathBounds(stateEvidence, stateStep, out float2 pathMin, out float2 pathMax);
         tightMin = pathMin - extent;
         tightMax = pathMax + extent;
     }
 
     private void CalculateIncrementalValidationBounds(
-        FlowMovementFrameState state,
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
         out float2 validationMin,
         out float2 validationMax)
     {
@@ -1779,21 +1849,23 @@ public partial struct SolveXpbdUnitContactsJob
         float contactPadding = math.max(0f, PredictiveSkin) +
                                math.max(0f, TimestepContactMargin);
         float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
-        float extent = math.max(0f, state.Radius) +
+        float extent = math.max(0f, stateSnapshot.Radius) +
                        math.max(contactPadding, avoidancePadding);
-        CalculateNeighborPathBounds(state, out float2 pathMin, out float2 pathMax);
+        CalculateNeighborPathBounds(stateEvidence, stateStep, out float2 pathMin, out float2 pathMax);
         validationMin = pathMin - extent;
         validationMax = pathMax + extent;
     }
 
-    private float2 CalculateAvoidanceHorizonEnd(FlowMovementFrameState state)
+    private float2 CalculateAvoidanceHorizonEnd(
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep)
     {
         if (SoftAvoidanceVelocitySolver !=
                 SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
             SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)
-            return state.TimestepPredictedPosition.xz;
-        return state.TimestepStartPosition.xz +
-               state.BasePredictedVelocity.xz * math.max(0f, RvoTimeHorizon);
+            return stateEvidence.BaselineEnd.xz;
+        return stateEvidence.TrajectoryStart.xz +
+               stateStep.BaseVelocity.xz * math.max(0f, RvoTimeHorizon);
     }
 
     private static void AssignMotionVersion(
@@ -1887,17 +1959,25 @@ public partial struct SolveXpbdUnitContactsJob
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
             UnitCollisionPair bodyPair = Pairs[pairIndex];
-            FlowMovementFrameState stateA = States[bodyPair.BodyA];
-            FlowMovementFrameState stateB = States[bodyPair.BodyB];
-            if (!TryFindIncrementalProxy(stateA.Entity, out PersistentSweptProxy proxyA) ||
-                !TryFindIncrementalProxy(stateB.Entity, out PersistentSweptProxy proxyB) ||
+            CrowdBodySnapshot stateASnapshot = Bodies[bodyPair.BodyA];
+            CrowdNavigationState stateANavigation = NavigationStates[bodyPair.BodyA];
+            CrowdMotionIntent stateAIntent = MotionIntents[bodyPair.BodyA];
+            CrowdMotionEvidence stateAEvidence = MotionEvidence[bodyPair.BodyA];
+            CrowdBodyStepState stateAStep = StepStates[bodyPair.BodyA];
+            CrowdBodySnapshot stateBSnapshot = Bodies[bodyPair.BodyB];
+            CrowdNavigationState stateBNavigation = NavigationStates[bodyPair.BodyB];
+            CrowdMotionIntent stateBIntent = MotionIntents[bodyPair.BodyB];
+            CrowdMotionEvidence stateBEvidence = MotionEvidence[bodyPair.BodyB];
+            CrowdBodyStepState stateBStep = StepStates[bodyPair.BodyB];
+            if (!TryFindIncrementalProxy(stateASnapshot.Entity, out PersistentSweptProxy proxyA) ||
+                !TryFindIncrementalProxy(stateBSnapshot.Entity, out PersistentSweptProxy proxyB) ||
                 proxyA.IsValid == 0 || proxyB.IsValid == 0 ||
                 !AabbOverlaps(proxyA.GuardMin, proxyA.GuardMax, proxyB.GuardMin, proxyB.GuardMax))
                 continue;
 
             PersistentNeighborPairs.Add(new PersistentNeighborPair
             {
-                Key = StableEntityPairKey.Create(stateA.Entity, stateB.Entity),
+                Key = StableEntityPairKey.Create(stateASnapshot.Entity, stateBSnapshot.Entity),
                 TopologyEpoch = nextTopologyEpoch,
                 LastValidatedTimestep = IncrementalCacheState.Value.Timestep + 1u
             });
@@ -1909,7 +1989,7 @@ public partial struct SolveXpbdUnitContactsJob
         state.LastUpdateWasFullRebuild = 1;
         state.Timestep++;
         state.TopologyEpoch = nextTopologyEpoch;
-        state.BodyCount = States.Length;
+        state.BodyCount = Bodies.Length;
         state.NeighborPairCount = PersistentNeighborPairs.Length;
         state.GuardMargin = math.max(0f, GuardEnvelopeMargin);
         state.PredictiveSkin = math.max(0f, PredictiveSkin);

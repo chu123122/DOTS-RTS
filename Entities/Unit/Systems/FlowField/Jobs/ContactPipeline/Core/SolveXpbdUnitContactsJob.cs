@@ -132,7 +132,12 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     private static PredictiveDiscContactStatistics LoadContactStatistics() => default;
     private static void StoreContactStatistics(PredictiveDiscContactStatistics value) { }
 #endif
-    public NativeArray<FlowMovementFrameState> States;
+    public NativeArray<CrowdBodySnapshot> Bodies;
+    public NativeArray<CrowdNavigationState> NavigationStates;
+    public NativeArray<CrowdMotionIntent> MotionIntents;
+    public NativeArray<CrowdMotionEvidence> MotionEvidence;
+    public NativeArray<CrowdBodyStepState> StepStates;
+    public NativeArray<CrowdBodyResult> Results;
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;

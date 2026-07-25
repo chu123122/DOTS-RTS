@@ -28,8 +28,10 @@ public static class XpbdContactConstraintMath
 {
     public static ContactConstraintEvaluation Evaluate(
         ref UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdBodyStepState stepB,
         float alpha,
         int substepIndex)
     {
@@ -37,7 +39,7 @@ public static class XpbdContactConstraintMath
         if (denominator <= 0f)
             return default;
 
-        float3 currentDelta = bodyA.PredictedPosition - bodyB.PredictedPosition;
+        float3 currentDelta = stepA.SolvedPosition - stepB.SolvedPosition;
         currentDelta.y = 0f;
         float radiusSum = bodyA.Radius + bodyB.Radius;
         float3 normal;
@@ -160,12 +162,19 @@ public partial struct SolveXpbdUnitContactsJob
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
+            CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
+            CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
+            CrowdMotionEvidence evidenceA = MotionEvidence[pair.BodyA];
+            CrowdMotionEvidence evidenceB = MotionEvidence[pair.BodyB];
+            CrowdBodyStepState stepA = StepStates[pair.BodyA];
+            CrowdBodyStepState stepB = StepStates[pair.BodyB];
+
             ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
                 ref pair,
                 bodyA,
+                stepA,
                 bodyB,
+                stepB,
                 alpha,
                 substepIndex);
             statistics.TimestepContactSetUniqueActivatedPairCount +=
@@ -176,7 +185,9 @@ public partial struct SolveXpbdUnitContactsJob
                 substepIndex,
                 pair,
                 bodyA,
+                stepA,
                 bodyB,
+                stepB,
                 evaluation.Normal,
                 evaluation.ConstraintValue,
                 evaluation.PairCorrection);
@@ -197,10 +208,12 @@ public partial struct SolveXpbdUnitContactsJob
                                  (bodyA.InverseMass * evaluation.AppliedLambda);
             float3 correctionB = -evaluation.Normal *
                                  (bodyB.InverseMass * evaluation.AppliedLambda);
-            ApplyContactCorrection(ref bodyA, correctionA);
-            ApplyContactCorrection(ref bodyB, correctionB);
-            States[pair.BodyA] = bodyA;
-            States[pair.BodyB] = bodyB;
+            ApplyContactCorrection(bodyA, ref evidenceA, ref stepA, correctionA);
+            ApplyContactCorrection(bodyB, ref evidenceB, ref stepB, correctionB);
+            MotionEvidence[pair.BodyA] = evidenceA;
+            StepStates[pair.BodyA] = stepA;
+            MotionEvidence[pair.BodyB] = evidenceB;
+            StepStates[pair.BodyB] = stepB;
 
             if (trackCorrectedBodies)
             {
@@ -232,18 +245,19 @@ public partial struct SolveXpbdUnitContactsJob
         incrementalStatistics.ActiveConstraintEvaluationCount +=
             TimestepContactPairs.Length;
 
-        // All pairs read the same predicted-position state and write only their
-        // own contribution slot. The body gather below is the same data shape
-        // used by the parallel Jacobi path.
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
             UnitCollisionPair pair = TimestepContactPairs[pairIndex];
-            FlowMovementFrameState bodyA = States[pair.BodyA];
-            FlowMovementFrameState bodyB = States[pair.BodyB];
+            CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
+            CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
+            CrowdBodyStepState stepA = StepStates[pair.BodyA];
+            CrowdBodyStepState stepB = StepStates[pair.BodyB];
             ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
                 ref pair,
                 bodyA,
+                stepA,
                 bodyB,
+                stepB,
                 alpha,
                 substepIndex);
             statistics.TimestepContactSetUniqueActivatedPairCount +=
@@ -254,7 +268,9 @@ public partial struct SolveXpbdUnitContactsJob
                 substepIndex,
                 pair,
                 bodyA,
+                stepA,
                 bodyB,
+                stepB,
                 evaluation.Normal,
                 evaluation.ConstraintValue,
                 evaluation.PairCorrection);
@@ -287,9 +303,7 @@ public partial struct SolveXpbdUnitContactsJob
             JacobiPairCorrections[pairIndex] = correction;
         }
 
-        // Each body owns one disjoint output slot and gathers only the pair
-        // contributions listed in its CSR incident range. No atomics are needed.
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
             float3 correctionSum = float3.zero;
             int correctionCount = 0;
@@ -315,11 +329,16 @@ public partial struct SolveXpbdUnitContactsJob
             if (correctionCount <= 0)
                 continue;
 
-            // Constraint averaging prevents a high-degree body from applying
-            // all simultaneous corrections at full strength in one Jacobi step.
-            FlowMovementFrameState body = States[bodyIndex];
-            ApplyContactCorrection(ref body, correctionSum / correctionCount);
-            States[bodyIndex] = body;
+            CrowdBodySnapshot body = Bodies[bodyIndex];
+            CrowdMotionEvidence evidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState step = StepStates[bodyIndex];
+            ApplyContactCorrection(
+                body,
+                ref evidence,
+                ref step,
+                correctionSum / correctionCount);
+            MotionEvidence[bodyIndex] = evidence;
+            StepStates[bodyIndex] = step;
             if (trackCorrectedBodies)
                 MarkCorrectedBody(bodyIndex);
         }
@@ -338,13 +357,15 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static void ApplyContactCorrection(
-        ref FlowMovementFrameState body,
+        CrowdBodySnapshot body,
+        ref CrowdMotionEvidence evidence,
+        ref CrowdBodyStepState step,
         float3 correction)
     {
-        body.PredictedPosition += correction;
-        body.ContactPositionCorrection += correction;
-        body.TimestepContactCorrection += correction;
-        body.PredictedPosition.y = body.CurrentPosition.y;
+        step.SolvedPosition += correction;
+        step.ContactCorrection += correction;
+        evidence.ContactCorrection += correction;
+        step.SolvedPosition.y = body.Position.y;
     }
 }
 }
