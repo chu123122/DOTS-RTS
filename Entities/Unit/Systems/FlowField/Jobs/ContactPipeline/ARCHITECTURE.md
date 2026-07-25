@@ -129,29 +129,27 @@ Jacobi implementation.
 
 ## Data contracts
 
-`retired shared frame state` is being migrated without changing the solver math. It
-already physically composes:
+Body data is stored as independent timestep products rather than a shared frame
+blackboard:
 
 ```text
 CrowdBodySnapshot
 CrowdNavigationState
 CrowdMotionIntent
+CrowdMotionEvidence
+CrowdBodyStepState
+CrowdBodyResult
 ```
 
-Timestep/substep vector fields remain temporarily flat because existing Burst jobs
-pass several fields by `ref`/`out`. New code must use the explicit contracts and
-must not add another unrelated field to the compatibility blackboard.
-
-`UnitCollisionPair` storage is split by lifetime:
+Pair discovery and constraint solving also use different physical products:
 
 ```text
-ContactConstraintDefinition   immutable-by-convention solver definition
-ContactConstraintRuntime      substep/iteration lambda and activation
-ContactConstraintHistory      timestep utilization/provenance
+BodyPair             endpoint-only interaction/soft/oracle relationship
+ContactConstraint    solver definition, lambda, activation and timestep history
 ```
 
-Compatibility properties preserve current call sites while narrower solver ABI
-migration proceeds.
+There is no forwarding pair wrapper. Converting a certified `BodyPair` view into
+solver constraints is an explicit assembly operation at the classification boundary.
 
 ## Environment views
 

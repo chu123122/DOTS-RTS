@@ -37,6 +37,7 @@ public abstract partial class BaseFlowMovementSystem
             PreviousTimestepContactPairs = frame.PreviousTimestepContactPairs,
             TimestepInteractionPairs = frame.TimestepInteractionPairs,
             SoftAvoidancePairs = frame.SoftAvoidancePairs,
+            ClassificationBodyPairs = frame.ClassificationBodyPairs,
             PredictiveContactSchedule = frame.PredictiveContactSchedule,
             PredictiveContactScheduleScratch = frame.PredictiveContactScheduleScratch,
             PredictiveContactScheduleCursor = frame.PredictiveContactScheduleCursor,

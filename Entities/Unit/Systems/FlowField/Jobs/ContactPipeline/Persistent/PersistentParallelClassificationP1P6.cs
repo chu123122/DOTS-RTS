@@ -10,7 +10,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public struct PersistentPairClassificationResult
 {
-    public UnitCollisionPair RawPair;
+    public BodyPair RawPair;
     public PersistentPredictiveContact Contact;
     public byte WasReclassified;
 }
@@ -73,7 +73,7 @@ public partial struct SolveXpbdUnitContactsJob
             MotionIntents = MotionIntents,
             MotionEvidence = MotionEvidence,
             StepStates = StepStates,
-            RawPairs = TimestepInteractionPairs.AsDeferredJobArray(),
+            RawPairs = ClassificationBodyPairs.AsDeferredJobArray(),
             PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
             PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
             DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
@@ -124,7 +124,7 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<UnitCollisionPair> RawPairs;
+        [ReadOnly] public NativeArray<BodyPair> RawPairs;
         [ReadOnly] public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<PersistentPredictiveContact> PreviousContacts;
         [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
@@ -145,7 +145,7 @@ public partial struct SolveXpbdUnitContactsJob
         public void Execute(int pairIndex)
         {
             PersistentClassificationPhaseState phase = PhaseState.Value;
-            UnitCollisionPair rawPair = RawPairs[pairIndex];
+            BodyPair rawPair = RawPairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
@@ -273,8 +273,10 @@ public partial struct SolveXpbdUnitContactsJob
 #endif
             phase.Timestep = IncrementalCacheState.Value.Timestep;
             phase.ClassificationEpoch = CalculateClassificationEpoch();
+            ClassificationBodyPairs.Clear();
+            ClassificationBodyPairs.AddRange(TimestepInteractionPairs.AsArray());
             PersistentClassificationResults.ResizeUninitialized(
-                TimestepInteractionPairs.Length);
+                ClassificationBodyPairs.Length);
             phase.NeedsCommit = 1;
         }
         else
@@ -426,7 +428,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             PersistentPairClassificationResult result =
                 PersistentClassificationResults[pairIndex];
-            UnitCollisionPair rawPair = result.RawPair;
+            BodyPair rawPair = result.RawPair;
             PersistentPredictiveContact contact = result.Contact;
             PredictiveContactScratch.Add(contact);
             if (result.WasReclassified != 0)
@@ -443,7 +445,7 @@ public partial struct SolveXpbdUnitContactsJob
             AccumulatePersistentClassificationStatistics(contact, ref statistics);
             if (contact.SoftAvoidanceCandidate != 0)
             {
-                SoftAvoidancePairs.Add(new UnitCollisionPair
+                SoftAvoidancePairs.Add(new BodyPair
                 {
                     BodyA = rawPair.BodyA,
                     BodyB = rawPair.BodyB
@@ -462,7 +464,7 @@ public partial struct SolveXpbdUnitContactsJob
                 });
                 continue;
             }
-            Pairs.Add(BuildUnitCollisionPairFromPersistentContact(
+            Pairs.Add(BuildContactConstraintFromPersistentContact(
                 rawPair.BodyA,
                 rawPair.BodyB,
                 contact));
@@ -476,9 +478,9 @@ public partial struct SolveXpbdUnitContactsJob
                 new PredictiveContactScheduleEntryComparer());
         PredictiveContactScheduleCursor.Value = 0;
         if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+            Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (SoftAvoidancePairs.Length > 1)
-            SoftAvoidancePairs.AsArray().Sort(new UnitCollisionPairComparer());
+            SoftAvoidancePairs.AsArray().Sort(new BodyPairComparer());
 
         PersistentPredictiveContacts.Clear();
         PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
@@ -741,7 +743,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static PersistentPredictiveContact ClassifyPersistentPairP1P6(
         StableEntityPairKey key,
-        UnitCollisionPair rawPair,
+        BodyPair rawPair,
         CrowdBodySnapshot bodyA,
         CrowdMotionEvidence evidenceA,
         CrowdBodyStepState stepA,
@@ -792,7 +794,7 @@ public partial struct SolveXpbdUnitContactsJob
         float radiusSumSq = radiusSum * radiusSum;
 
         PersistentContactLifecycle lifecycle;
-        UnitContactMode contactMode = UnitContactMode.Regular;
+        ContactConstraintMode contactMode = ContactConstraintMode.Regular;
         if (minDistanceSq > retainedDistance * retainedDistance ||
             (startDistanceSq > radiusSumSq && !enablePredictivePairGeneration))
         {
@@ -815,8 +817,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ? PersistentContactLifecycle.Predictive
                 : PersistentContactLifecycle.Approaching;
             contactMode = lifecycle == PersistentContactLifecycle.Predictive
-                ? UnitContactMode.Predictive
-                : UnitContactMode.Regular;
+                ? ContactConstraintMode.Predictive
+                : ContactConstraintMode.Regular;
         }
 
         float3 stableNormal = evidenceA.TrajectoryStart -
@@ -855,7 +857,7 @@ public partial struct SolveXpbdUnitContactsJob
             StableNormal = stableNormal,
             Lifecycle = lifecycle,
             ContactMode = contactMode,
-            FixedSide = contactMode == UnitContactMode.Predictive
+            FixedSide = contactMode == ContactConstraintMode.Predictive
                 ? (sbyte)1
                 : (sbyte)0,
             SoftAvoidanceCandidate = (byte)(CouldEnterSoftRangeP1P6(

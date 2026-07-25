@@ -55,7 +55,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private struct JacobiPairSolveResult
     {
-        public UnitCollisionPair Pair;
+        public ContactConstraint Pair;
         public JacobiPairCorrection Correction;
         public ContactConstraintEvaluation Evaluation;
     }
@@ -63,7 +63,7 @@ public partial struct SolveXpbdUnitContactsJob
     private static JacobiPairSolveResult EvaluateJacobiPair(
         int substepIndex,
         float alpha,
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
         CrowdBodySnapshot bodyB,
@@ -281,12 +281,12 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
-        public NativeArray<UnitCollisionPair> Pairs;
+        public NativeArray<ContactConstraint> Pairs;
         public NativeArray<JacobiPairCorrection> Corrections;
 
         public void Execute(int pairIndex)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -322,7 +322,7 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
-        public NativeArray<UnitCollisionPair> Pairs;
+        public NativeArray<ContactConstraint> Pairs;
         public NativeArray<JacobiPairCorrection> Corrections;
         public NativeArray<ParallelSimulationDebuggerPairCapture>
             DiagnosticPairCandidates;
@@ -330,7 +330,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         public void Execute(int pairIndex)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -413,7 +413,7 @@ public partial struct SolveXpbdUnitContactsJob
         public NativeArray<CrowdMotionIntent> MotionIntents;
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<UnitCollisionPair> Pairs;
+        [ReadOnly] public NativeArray<ContactConstraint> Pairs;
         [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
         [ReadOnly] public NativeArray<int> IncidentPairIndices;
@@ -428,7 +428,7 @@ public partial struct SolveXpbdUnitContactsJob
             for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
             {
                 int pairIndex = IncidentPairIndices[incidentIndex];
-                UnitCollisionPair pair = Pairs[pairIndex];
+                ContactConstraint pair = Pairs[pairIndex];
                 JacobiPairCorrection contribution = Corrections[pairIndex];
                 if (pair.BodyA == bodyIndex && contribution.ActiveA != 0)
                 {

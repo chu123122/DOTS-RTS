@@ -49,7 +49,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void CaptureSimulationDebuggerPair(
         int substepIndex,
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
         CrowdBodySnapshot bodyB,
@@ -77,7 +77,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static SimulationDebuggerPairSample BuildSimulationDebuggerPairSample(
         int substepIndex,
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
         CrowdBodySnapshot bodyB,
@@ -97,7 +97,7 @@ public partial struct SolveXpbdUnitContactsJob
             FirstActivatedSubstep = active ? substepIndex : -1,
             LastActivatedSubstep = active ? substepIndex : -1,
             StartSeparation = CalculateStartSeparation(pair, bodyA, stepA, bodyB, stepB),
-            Kind = pair.ContactMode == UnitContactMode.Predictive
+            Kind = pair.ContactMode == ContactConstraintMode.Predictive
                 ? SimulationDebuggerPairKind.PredictiveContact
                 : SimulationDebuggerPairKind.ActualContact,
             PositionA = stepA.SolvedPosition,
@@ -236,7 +236,7 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static float CalculateStartSeparation(
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
         CrowdBodySnapshot bodyB,
@@ -245,7 +245,7 @@ public partial struct SolveXpbdUnitContactsJob
         float3 delta = stepA.SubstepStartPosition - stepB.SubstepStartPosition;
         delta.y = 0f;
         float radiusSum = bodyA.Radius + bodyB.Radius;
-        if (pair.ContactMode == UnitContactMode.Predictive)
+        if (pair.ContactMode == ContactConstraintMode.Predictive)
         {
             float3 normal = math.normalizesafe(
                 delta,

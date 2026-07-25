@@ -89,10 +89,10 @@ public partial struct SolveXpbdUnitContactsJob
              pairIndex < TimestepInteractionPairs.Length;
              pairIndex++)
         {
-            UnitCollisionPair pair = TimestepInteractionPairs[pairIndex];
+            BodyPair pair = TimestepInteractionPairs[pairIndex];
             if (!CouldEnterSoftAvoidanceRange(pair.BodyA, pair.BodyB))
                 continue;
-            SoftAvoidancePairs.Add(new UnitCollisionPair
+            SoftAvoidancePairs.Add(new BodyPair
             {
                 BodyA = pair.BodyA,
                 BodyB = pair.BodyB
@@ -192,14 +192,14 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private int AccumulateUnitAvoidanceVelocities(
-        NativeArray<UnitCollisionPair> candidates,
+        NativeArray<BodyPair> candidates,
         float softShell,
         float substepDeltaTime)
     {
         int activatedPairCount = 0;
         for (int pairIndex = 0; pairIndex < candidates.Length; pairIndex++)
         {
-            UnitCollisionPair pair = candidates[pairIndex];
+            BodyPair pair = candidates[pairIndex];
             CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
             CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
             CrowdBodyStepState stepA = StepStates[pair.BodyA];

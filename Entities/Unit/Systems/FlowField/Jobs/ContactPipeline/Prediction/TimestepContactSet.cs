@@ -278,7 +278,7 @@ public partial struct SolveXpbdUnitContactsJob
         int scheduleStartSubstep)
     {
         Pairs.Clear();
-        Pairs.AddRange(TimestepInteractionPairs.AsArray());
+        AppendBodyPairsAsConstraints(TimestepInteractionPairs.AsArray(), Pairs);
         int classificationCandidateCount = Pairs.Length;
         statistics.CandidatePairCount += classificationCandidateCount;
         incrementalStatistics.ReclassifiedPairEvaluationCount +=
@@ -313,7 +313,7 @@ public partial struct SolveXpbdUnitContactsJob
             incrementalStatistics.CurrentDormantPairCount;
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             if (!fallback)
                 continue;
 
@@ -323,7 +323,7 @@ public partial struct SolveXpbdUnitContactsJob
                 pair.BodyB);
             if (previousIndex >= 0)
             {
-                UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
+                ContactConstraint previous = PreviousTimestepContactPairs[previousIndex];
                 pair.WasActivatedThisTimestep = previous.WasActivatedThisTimestep;
                 pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;
@@ -350,7 +350,7 @@ public partial struct SolveXpbdUnitContactsJob
     {
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             pair.Lambda = 0f;
             pair.WasActivated = 0;
             TimestepContactPairs[pairIndex] = pair;
@@ -358,7 +358,7 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static int FindPairIndex(
-        Unity.Collections.NativeList<UnitCollisionPair> pairs,
+        Unity.Collections.NativeList<BodyPair> pairs,
         int bodyA,
         int bodyB)
     {
@@ -367,7 +367,29 @@ public partial struct SolveXpbdUnitContactsJob
         while (low <= high)
         {
             int middle = (low + high) >> 1;
-            UnitCollisionPair candidate = pairs[middle];
+            BodyPair candidate = pairs[middle];
+            if (candidate.BodyA == bodyA && candidate.BodyB == bodyB)
+                return middle;
+            if (candidate.BodyA < bodyA ||
+                (candidate.BodyA == bodyA && candidate.BodyB < bodyB))
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return -1;
+    }
+
+    private static int FindPairIndex(
+        Unity.Collections.NativeList<ContactConstraint> pairs,
+        int bodyA,
+        int bodyB)
+    {
+        int low = 0;
+        int high = pairs.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            ContactConstraint candidate = pairs[middle];
             if (candidate.BodyA == bodyA && candidate.BodyB == bodyB)
                 return middle;
             if (candidate.BodyA < bodyA ||
@@ -402,19 +424,19 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             AccumulateHeatPair(pair.BodyA, pair);
             AccumulateHeatPair(pair.BodyB, pair);
         }
     }
 
-    private void AccumulateHeatPair(int bodyIndex, UnitCollisionPair pair)
+    private void AccumulateHeatPair(int bodyIndex, ContactConstraint pair)
     {
         Stage3ContactHeatSample sample = HeatSamples[bodyIndex];
         sample.ContactPairDegree++;
         if (pair.WasActivatedThisTimestep != 0)
             sample.ActivePairDegree++;
-        if (pair.ContactMode == UnitContactMode.Predictive)
+        if (pair.ContactMode == ContactConstraintMode.Predictive)
             sample.PredictivePairDegree++;
         if (pair.WasAddedByFallback != 0)
             sample.HasFallbackPair = 1;

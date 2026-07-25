@@ -59,7 +59,7 @@ public partial struct SolveXpbdUnitContactsJob
         SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
         EmitCellPairs();
         SortAndDeduplicatePairs();
-        TimestepInteractionPairs.AddRange(Pairs.AsArray());
+        CopyConstraintsToBodyPairs(Pairs.AsArray(), TimestepInteractionPairs);
     }
 
     private void EmitCellPairs()
@@ -82,7 +82,7 @@ public partial struct SolveXpbdUnitContactsJob
                     if (firstBody == secondBody)
                         continue;
 
-                    Pairs.Add(new UnitCollisionPair
+                    Pairs.Add(new ContactConstraint
                     {
                         BodyA = math.min(firstBody, secondBody),
                         BodyB = math.max(firstBody, secondBody)
@@ -99,13 +99,13 @@ public partial struct SolveXpbdUnitContactsJob
         if (Pairs.Length <= 1)
             return;
 
-        Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+        Pairs.AsArray().Sort(new ContactConstraintComparer());
         int writeIndex = 1;
-        UnitCollisionPair previous = Pairs[0];
+        ContactConstraint previous = Pairs[0];
 
         for (int readIndex = 1; readIndex < Pairs.Length; readIndex++)
         {
-            UnitCollisionPair current = Pairs[readIndex];
+            ContactConstraint current = Pairs[readIndex];
             if (current.BodyA == previous.BodyA && current.BodyB == previous.BodyB)
                 continue;
 
@@ -124,7 +124,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int readIndex = 0; readIndex < Pairs.Length; readIndex++)
         {
-            UnitCollisionPair pair = Pairs[readIndex];
+            ContactConstraint pair = Pairs[readIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -204,8 +204,8 @@ public partial struct SolveXpbdUnitContactsJob
             pair.FirstActivatedSubstep = -1;
             pair.ActivatedSubstepCount = 0;
             pair.ContactMode = shouldPreventSideExchange && EnablePredictiveContacts
-                ? UnitContactMode.Predictive
-                : UnitContactMode.Regular;
+                ? ContactConstraintMode.Predictive
+                : ContactConstraintMode.Regular;
             float3 predictiveNormal = bodyAEvidence.TrajectoryStart - bodyBEvidence.TrajectoryStart;
             predictiveNormal.y = 0f;
             pair.PredictiveNormal = math.normalizesafe(
@@ -216,7 +216,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (isDormant)
                 statistics.TimestepContactSetDormantPairCount++;
 
-            if (pair.ContactMode == UnitContactMode.Predictive)
+            if (pair.ContactMode == ContactConstraintMode.Predictive)
                 statistics.PredictivePairCount++;
         }
 

@@ -56,17 +56,18 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
     // Broad Phase 与软避让共用 Pairs 作为瞬时 scratch；权威接触必须独立保存。
-    public NativeList<UnitCollisionPair> Pairs;
-    public NativeList<UnitCollisionPair> TimestepContactPairs;
+    public NativeList<ContactConstraint> Pairs;
+    public NativeList<ContactConstraint> TimestepContactPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
     // Snapshot of the previous finalized timestep view, used only to preserve
     // activation/fallback history while rebuilding the current view.
-    public NativeList<UnitCollisionPair> PreviousTimestepContactPairs;
+    public NativeList<ContactConstraint> PreviousTimestepContactPairs;
     // 中层跨子步 InteractionSet。跨帧缓存与全量 Sweep 只能作为它的两种来源；
     // Soft Avoidance 和 XPBD 不得直接读取任何跨帧持久容器。
-    public NativeList<UnitCollisionPair> TimestepInteractionPairs;
+    public NativeList<BodyPair> TimestepInteractionPairs;
     // B 层 InteractionSet 的 Soft/RVO 紧凑派生视图。
-    public NativeList<UnitCollisionPair> SoftAvoidancePairs;
+    public NativeList<BodyPair> SoftAvoidancePairs;
+    public NativeList<BodyPair> ClassificationBodyPairs;
     public NativeArray<byte> CorrectedBodyFlags;
     public NativeList<int> CorrectedBodyIndices;
     public NativeArray<int> ActiveIncidentOffsets;
@@ -87,9 +88,9 @@ public partial struct SolveXpbdUnitContactsJob : IJob
     public NativeList<PersistentNeighborPair> IncrementalNeighborPairScratch;
     // 仅在诊断校验中使用：保存当前帧的增量管线接触对，避免与求解 scratch 混用。
 #if RTS_CONTACT_DIAGNOSTICS
-    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
+    public NativeList<BodyPair> IncrementalOracleContactPairs;
 #else
-    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs { get => default; set { } }
+    public NativeList<BodyPair> IncrementalOracleContactPairs { get => default; set { } }
 #endif
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
     public NativeList<PredictiveContactScheduleEntry> PredictiveContactScheduleScratch;

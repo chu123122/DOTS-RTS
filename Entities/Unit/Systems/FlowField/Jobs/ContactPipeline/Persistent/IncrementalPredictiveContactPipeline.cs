@@ -130,7 +130,7 @@ public partial struct SolveXpbdUnitContactsJob
                     key,
                     out PersistentPredictiveContact contact))
                 return false;
-            Pairs.Add(BuildUnitCollisionPairFromPersistentContact(
+            Pairs.Add(BuildContactConstraintFromPersistentContact(
                 bodyA,
                 bodyB,
                 contact));
@@ -143,7 +143,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
                 !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
                 return false;
-            SoftAvoidancePairs.Add(new UnitCollisionPair
+            SoftAvoidancePairs.Add(new BodyPair
             {
                 BodyA = math.min(bodyA, bodyB),
                 BodyB = math.max(bodyA, bodyB)
@@ -153,9 +153,9 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentDormantContactSchedule.AsArray());
         PredictiveContactScheduleCursor.Value = 0;
         if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+            Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (SoftAvoidancePairs.Length > 1)
-            SoftAvoidancePairs.AsArray().Sort(new UnitCollisionPairComparer());
+            SoftAvoidancePairs.AsArray().Sort(new BodyPairComparer());
 
         int sweptCount = cacheState.DormantContactCount +
                          cacheState.ApproachingContactCount +
@@ -274,7 +274,7 @@ public partial struct SolveXpbdUnitContactsJob
              pairIndex < TimestepInteractionPairs.Length;
              pairIndex++)
         {
-            UnitCollisionPair rawPair = TimestepInteractionPairs[pairIndex];
+            BodyPair rawPair = TimestepInteractionPairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
@@ -339,7 +339,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics);
             if (contact.SoftAvoidanceCandidate != 0)
             {
-                SoftAvoidancePairs.Add(new UnitCollisionPair
+                SoftAvoidancePairs.Add(new BodyPair
                 {
                     BodyA = rawPair.BodyA,
                     BodyB = rawPair.BodyB
@@ -360,7 +360,7 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
             }
 
-            Pairs.Add(BuildUnitCollisionPairFromPersistentContact(
+            Pairs.Add(BuildContactConstraintFromPersistentContact(
                 rawPair.BodyA,
                 rawPair.BodyB,
                 contact));
@@ -374,9 +374,9 @@ public partial struct SolveXpbdUnitContactsJob
                 new PredictiveContactScheduleEntryComparer());
         PredictiveContactScheduleCursor.Value = 0;
         if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+            Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (SoftAvoidancePairs.Length > 1)
-            SoftAvoidancePairs.AsArray().Sort(new UnitCollisionPairComparer());
+            SoftAvoidancePairs.AsArray().Sort(new BodyPairComparer());
 
         PersistentPredictiveContacts.Clear();
         PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
@@ -398,7 +398,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private PersistentPredictiveContact ClassifyPersistentNeighborPair(
         StableEntityPairKey key,
-        UnitCollisionPair rawPair,
+        ContactConstraint rawPair,
         CrowdBodySnapshot bodyASnapshot,
         CrowdMotionEvidence bodyAEvidence,
         CrowdBodySnapshot bodyBSnapshot,
@@ -439,7 +439,7 @@ public partial struct SolveXpbdUnitContactsJob
         float radiusSumSq = radiusSum * radiusSum;
 
         PersistentContactLifecycle lifecycle;
-        UnitContactMode contactMode = UnitContactMode.Regular;
+        ContactConstraintMode contactMode = ContactConstraintMode.Regular;
         if (minDistanceSq > retainedDistance * retainedDistance ||
             (startDistanceSq > radiusSumSq && !EnablePredictivePairGeneration))
         {
@@ -462,8 +462,8 @@ public partial struct SolveXpbdUnitContactsJob
                 ? PersistentContactLifecycle.Predictive
                 : PersistentContactLifecycle.Approaching;
             contactMode = lifecycle == PersistentContactLifecycle.Predictive
-                ? UnitContactMode.Predictive
-                : UnitContactMode.Regular;
+                ? ContactConstraintMode.Predictive
+                : ContactConstraintMode.Regular;
         }
 
         // Keep A1 classification exactly equivalent to A0. Previous-frame
@@ -504,7 +504,7 @@ public partial struct SolveXpbdUnitContactsJob
             StableNormal = stableNormal,
             Lifecycle = lifecycle,
             ContactMode = contactMode,
-            FixedSide = contactMode == UnitContactMode.Predictive
+            FixedSide = contactMode == ContactConstraintMode.Predictive
                 ? (sbyte)1
                 : (sbyte)0,
             SoftAvoidanceCandidate = (byte)(CouldEnterSoftAvoidanceRange(
@@ -520,12 +520,12 @@ public partial struct SolveXpbdUnitContactsJob
         };
     }
 
-    private static UnitCollisionPair BuildUnitCollisionPairFromPersistentContact(
+    private static ContactConstraint BuildContactConstraintFromPersistentContact(
         int firstBodyIndex,
         int secondBodyIndex,
         PersistentPredictiveContact contact)
     {
-        return new UnitCollisionPair
+        return new ContactConstraint
         {
             BodyA = math.min(firstBodyIndex, secondBodyIndex),
             BodyB = math.max(firstBodyIndex, secondBodyIndex),
@@ -612,7 +612,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -633,7 +633,7 @@ public partial struct SolveXpbdUnitContactsJob
                 lifecycle = PersistentContactLifecycle.Actual;
             else if (pair.IsDormant != 0)
                 lifecycle = PersistentContactLifecycle.Dormant;
-            else if (pair.ContactMode == UnitContactMode.Predictive)
+            else if (pair.ContactMode == ContactConstraintMode.Predictive)
                 lifecycle = PersistentContactLifecycle.Predictive;
             else
                 lifecycle = PersistentContactLifecycle.Approaching;
@@ -641,7 +641,7 @@ public partial struct SolveXpbdUnitContactsJob
             // 调度与稳定法线属于中层 InteractionSet 的派生结果。
             // 不读取上一帧接触状态，保证 A0B1 与 A1B1 只有来源成本不同。
             float3 stableNormal = pair.PredictiveNormal;
-            sbyte fixedSide = pair.ContactMode == UnitContactMode.Predictive
+            sbyte fixedSide = pair.ContactMode == ContactConstraintMode.Predictive
                 ? (sbyte)1
                 : (sbyte)0;
 
@@ -713,7 +713,7 @@ public partial struct SolveXpbdUnitContactsJob
         int activeWriteIndex = 0;
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             if (pair.IsDormant != 0)
                 continue;
             Pairs[activeWriteIndex++] = pair;
@@ -783,7 +783,7 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
             }
 
-            if (TryBuildCurrentScheduledPair(bodyA, bodyB, out UnitCollisionPair pair))
+            if (TryBuildCurrentScheduledPair(bodyA, bodyB, out ContactConstraint pair))
             {
                 if (FindPairIndex(TimestepContactPairs, pair.BodyA, pair.BodyB) < 0)
                 {
@@ -836,7 +836,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         PredictiveContactScheduleCursor.Value = cursor;
         if (addedPair)
-            TimestepContactPairs.AsArray().Sort(new UnitCollisionPairComparer());
+            TimestepContactPairs.AsArray().Sort(new ContactConstraintComparer());
         UpdateActiveConstraintGauges(
             ref incrementalStatistics,
             TimestepContactPairs.Length);
@@ -846,7 +846,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void UpdatePersistentContactAfterScheduledCheck(
         StableEntityPairKey key,
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         ushort nextCheckSubstep)
     {
         int contactIndex = FindPersistentPredictiveContactIndex(key);
@@ -870,7 +870,7 @@ public partial struct SolveXpbdUnitContactsJob
         float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
         contact.Lifecycle = math.lengthsq(delta) <= radiusSum * radiusSum
             ? PersistentContactLifecycle.Actual
-            : pair.ContactMode == UnitContactMode.Predictive
+            : pair.ContactMode == ContactConstraintMode.Predictive
                 ? PersistentContactLifecycle.Predictive
                 : PersistentContactLifecycle.Approaching;
         contact.ContactMode = pair.ContactMode;
@@ -951,7 +951,7 @@ public partial struct SolveXpbdUnitContactsJob
     private bool TryBuildCurrentScheduledPair(
         int firstBodyIndex,
         int secondBodyIndex,
-        out UnitCollisionPair pair)
+        out ContactConstraint pair)
     {
         int bodyAIndex = math.min(firstBodyIndex, secondBodyIndex);
         int bodyBIndex = math.max(firstBodyIndex, secondBodyIndex);
@@ -1001,13 +1001,13 @@ public partial struct SolveXpbdUnitContactsJob
             endDistanceSq >= radiusSumSq &&
             minDistanceSq <= radiusSumSq;
 
-        pair = new UnitCollisionPair
+        pair = new ContactConstraint
         {
             BodyA = bodyAIndex,
             BodyB = bodyBIndex,
             ContactMode = preventSideExchange && EnablePredictiveContacts
-                ? UnitContactMode.Predictive
-                : UnitContactMode.Regular,
+                ? ContactConstraintMode.Predictive
+                : ContactConstraintMode.Regular,
             PredictiveNormal = math.normalizesafe(
                 bodyAStep.SolvedPosition - bodyBStep.SolvedPosition,
                 DeterministicFallbackNormal(bodyAIndex, bodyBIndex)),
@@ -1559,7 +1559,7 @@ public partial struct SolveXpbdUnitContactsJob
                 if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
                     !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
                     return false;
-                Pairs.Add(new UnitCollisionPair
+                Pairs.Add(new ContactConstraint
                 {
                     BodyA = math.min(bodyA, bodyB),
                     BodyB = math.max(bodyA, bodyB)
@@ -1569,7 +1569,7 @@ public partial struct SolveXpbdUnitContactsJob
                 out persistentPairIndex, ref iterator));
         }
 
-        SortAndDeduplicateBodyPairs(Pairs);
+        SortAndDeduplicateConstraints(Pairs);
         return true;
     }
 
@@ -1601,7 +1601,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < rawPairCount; pairIndex++)
         {
-            UnitCollisionPair rawPair = Pairs[pairIndex];
+            ContactConstraint rawPair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[rawPair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[rawPair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[rawPair.BodyA];
@@ -1654,7 +1654,7 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
             }
 
-            Pairs[activeWriteIndex++] = BuildUnitCollisionPairFromPersistentContact(
+            Pairs[activeWriteIndex++] = BuildContactConstraintFromPersistentContact(
                 rawPair.BodyA,
                 rawPair.BodyB,
                 contact);
@@ -1662,7 +1662,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         Pairs.ResizeUninitialized(activeWriteIndex);
         if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+            Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (PredictiveContactScratch.Length > 1)
             PredictiveContactScratch.AsArray().Sort(
                 new PersistentPredictiveContactComparer());
@@ -1696,7 +1696,7 @@ public partial struct SolveXpbdUnitContactsJob
              previousIndex < PreviousTimestepContactPairs.Length;
              previousIndex++)
         {
-            UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
+            ContactConstraint previous = PreviousTimestepContactPairs[previousIndex];
             if (IsDirtyBodyIndex(previous.BodyA) ||
                 IsDirtyBodyIndex(previous.BodyB))
                 continue;
@@ -1705,14 +1705,14 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             int previousIndex = FindPairIndex(
                 PreviousTimestepContactPairs,
                 pair.BodyA,
                 pair.BodyB);
             if (previousIndex >= 0)
             {
-                UnitCollisionPair previous = PreviousTimestepContactPairs[previousIndex];
+                ContactConstraint previous = PreviousTimestepContactPairs[previousIndex];
                 pair.WasActivatedThisTimestep = previous.WasActivatedThisTimestep;
                 pair.WasCorrectedThisTimestep = previous.WasCorrectedThisTimestep;
                 pair.FirstActivatedSubstep = previous.FirstActivatedSubstep;
@@ -1726,7 +1726,7 @@ public partial struct SolveXpbdUnitContactsJob
             }
             TimestepContactPairs.Add(pair);
         }
-        SortAndDeduplicateBodyPairs(TimestepContactPairs);
+        SortAndDeduplicateConstraints(TimestepContactPairs);
 
         RefreshCurrentContactStateGauges(
             ref incrementalStatistics,
@@ -1757,14 +1757,14 @@ public partial struct SolveXpbdUnitContactsJob
             if (!TryFindCurrentBodyIndex(contact.Key.EntityA, out int bodyA) ||
                 !TryFindCurrentBodyIndex(contact.Key.EntityB, out int bodyB))
                 continue;
-            SoftAvoidancePairs.Add(new UnitCollisionPair
+            SoftAvoidancePairs.Add(new BodyPair
             {
                 BodyA = math.min(bodyA, bodyB),
                 BodyB = math.max(bodyA, bodyB)
             });
         }
         if (SoftAvoidancePairs.Length > 1)
-            SoftAvoidancePairs.AsArray().Sort(new UnitCollisionPairComparer());
+            SoftAvoidancePairs.AsArray().Sort(new BodyPairComparer());
     }
 
     private void RemoveDirtyPredictiveContactSchedules()
@@ -1943,7 +1943,7 @@ public partial struct SolveXpbdUnitContactsJob
                     int bodyB = SweptCellEntries[second].BodyIndex;
                     if (bodyA == bodyB)
                         continue;
-                    Pairs.Add(new UnitCollisionPair
+                    Pairs.Add(new ContactConstraint
                     {
                         BodyA = math.min(bodyA, bodyB),
                         BodyB = math.max(bodyA, bodyB)
@@ -1954,11 +1954,11 @@ public partial struct SolveXpbdUnitContactsJob
             cellStart = cellEnd;
         }
 
-        SortAndDeduplicateBodyPairs(Pairs);
+        SortAndDeduplicateConstraints(Pairs);
         uint nextTopologyEpoch = IncrementalCacheState.Value.TopologyEpoch + 1u;
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            UnitCollisionPair bodyPair = Pairs[pairIndex];
+            ContactConstraint bodyPair = Pairs[pairIndex];
             CrowdBodySnapshot stateASnapshot = Bodies[bodyPair.BodyA];
             CrowdNavigationState stateANavigation = NavigationStates[bodyPair.BodyA];
             CrowdMotionIntent stateAIntent = MotionIntents[bodyPair.BodyA];
@@ -2024,7 +2024,7 @@ public partial struct SolveXpbdUnitContactsJob
                 !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
                 return false;
 
-            TimestepInteractionPairs.Add(new UnitCollisionPair
+            TimestepInteractionPairs.Add(new BodyPair
             {
                 BodyA = math.min(bodyA, bodyB),
                 BodyB = math.max(bodyA, bodyB)
@@ -2042,7 +2042,7 @@ public partial struct SolveXpbdUnitContactsJob
         Pairs.Clear();
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
-        Pairs.AddRange(TimestepInteractionPairs.AsArray());
+        AppendBodyPairsAsConstraints(TimestepInteractionPairs.AsArray(), Pairs);
         return true;
     }
 

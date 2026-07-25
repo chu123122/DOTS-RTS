@@ -132,7 +132,7 @@ public struct PersistentPredictiveContact
     public StableEntityPairKey Key;
     public float3 StableNormal;
     public PersistentContactLifecycle Lifecycle;
-    public UnitContactMode ContactMode;
+    public ContactConstraintMode ContactMode;
     public sbyte FixedSide;
     public byte SoftAvoidanceCandidate;
     public ushort FirstPossibleSubstep;

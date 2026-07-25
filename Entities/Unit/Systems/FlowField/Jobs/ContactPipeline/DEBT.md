@@ -15,7 +15,7 @@
 - Body, navigation and motion-intent data are physically composed from explicit
   contracts inside the compatibility frame state; complete `FlowFieldCell` values
   are no longer retained there.
-- Contact definition, runtime state and timestep history are physically separated.
+- Pure `BodyPair` interaction views are physically separated from direct-storage `ContactConstraint` solver records.
 - Serial and P1-P6 navigation/soft-wall/hard-wall code use separate navigation and
   obstacle semantics over the current shared grid storage.
 - Architecture contracts are protected by a dedicated static CI workflow, including
