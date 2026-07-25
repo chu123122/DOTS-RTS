@@ -74,8 +74,8 @@ internal enum StagedContactPipelinePhase : byte
 /// </summary>
 public partial struct CrowdContactPipelineScheduler
 {
-    private const int ParallelBodyBatchSize = 64;
-    private const int SoftPairBatchSize = 64;
+    internal const int ParallelBodyBatchSize = 64;
+    internal const int SoftPairBatchSize = 64;
 
 
 
@@ -108,10 +108,10 @@ public partial struct CrowdContactPipelineScheduler
         if (substepDeltaTime <= 0f)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            ConstraintSolverJob finalizePipeline = ConstraintSolver;
-            finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
-            finalizePipeline.RuntimeState = runtimeState;
-            return finalizePipeline.Schedule(handle);
+            ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
+            finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizeEmptyPipeline.RuntimeState = runtimeState;
+            return finalizeEmptyPipeline.Schedule(handle);
 #else
             return handle;
 #endif
@@ -302,7 +302,7 @@ public partial struct CrowdContactPipelineScheduler
             prepareRepair.SubstepIndex = substepIndex;
             handle = prepareRepair.Schedule(handle);
 
-            handle = new EvaluatePersistentPairClassificationsP1P6Job
+            handle = new InteractionCertificationJob.EvaluatePersistentPairClassificationsP1P6Job
             {
                 Bodies = Bodies,
                 NavigationStates = NavigationStates,
@@ -1062,7 +1062,7 @@ public partial struct CrowdContactPipelineScheduler
 
 
     [BurstCompile]
-    private struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelFor
+    private struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelForDefer
     {
         public NativeArray<CrowdBodySnapshot> Bodies;
         public NativeArray<CrowdNavigationState> NavigationStates;
@@ -1665,7 +1665,9 @@ public partial struct CrowdContactPipelineScheduler
                             continue;
                         float3 normal = distance > 0.00001f
                             ? delta / distance
-                            : ContactPipelineMath.DeterministicPairNormal(bodyIndex, checkIndex);
+                            : ContactPipelineMath.DeterministicPairNormal(
+                                bodyIndex,
+                                obstacleGeometry.FlatIndex(checkCell));
                         float3 correction = normal * ((hardDistance - distance) * 0.5f);
                         stateStep.SolvedPosition += correction;
                         stateStep.SolvedPosition.y = stateSnapshot.Position.y;

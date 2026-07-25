@@ -64,7 +64,7 @@ public partial struct SoftAvoidanceJob
         SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
 #if RTS_CONTACT_DIAGNOSTICS
         blockStatistics.ResizeUninitialized(
-            (SoftAvoidancePairs.Length + SoftPairBatchSize - 1) / SoftPairBatchSize);
+            (SoftAvoidancePairs.Length + CrowdContactPipelineScheduler.SoftPairBatchSize - 1) / CrowdContactPipelineScheduler.SoftPairBatchSize);
 #if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
 #endif

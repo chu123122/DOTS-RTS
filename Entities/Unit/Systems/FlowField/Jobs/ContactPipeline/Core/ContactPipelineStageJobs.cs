@@ -159,6 +159,8 @@ public partial struct InteractionCertificationJob : IJob
     private bool EnableTimestepContactSetCache => Configuration.EnableTimestepContactSetCache;
     private float GuardEnvelopeMargin => Configuration.GuardEnvelopeMargin;
     private float TimestepContactMargin => Configuration.TimestepContactMargin;
+    private FlowGridGeometry EnvironmentGeometry =>
+        new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
     private ContactPositionSolverMode ContactPositionSolver => Configuration.ContactPositionSolver;
 

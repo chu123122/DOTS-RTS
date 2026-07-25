@@ -44,7 +44,15 @@ public partial struct BuildCrowdMotionIntentJob : IJobEntity
             MoveSpeed = speed.Value,
             MaxAcceleration = settings.MaxForce,
             InverseMass = math.max(0f, contactBody.InverseMass),
-            Radius = math.cmax(CollisionFootprints[entityIndex]) * 0.5f
+            Radius = math.cmax(CollisionFootprints[entityIndex]) * 0.5f,
+            Collider = new ClothColliderHandle
+            {
+                Kind = ClothColliderKind.Sphere,
+                // Stable per-session identity: Entity.Index is the canonical
+                // body identity until the Proxy Builder overwrites it with
+                // the authoritative Unity Collider InstanceID.
+                ColliderId = entity.Index
+            }
         };
         CrowdNavigationState navigation = default;
         CrowdMotionIntent intent = default;

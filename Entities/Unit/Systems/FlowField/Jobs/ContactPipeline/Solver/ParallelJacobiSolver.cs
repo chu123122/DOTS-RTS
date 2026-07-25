@@ -52,7 +52,7 @@ public struct JacobiBlockTelemetry
 /// </summary>
 public partial struct CrowdContactPipelineScheduler
 {
-    private const int JacobiPairBatchSize = 64;
+    internal const int JacobiPairBatchSize = 64;
 
     private struct JacobiPairSolveResult
     {
