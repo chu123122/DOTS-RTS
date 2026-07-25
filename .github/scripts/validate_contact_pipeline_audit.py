@@ -6,7 +6,14 @@ solver = flow / "Jobs/ContactPipeline/Solver/ParallelJacobiSolver.cs"
 p1p6 = flow / "Jobs/ContactPipeline/Solver/ParallelContactPipelineP1P6.cs"
 persistent = flow / "Jobs/ContactPipeline/Persistent/PersistentParallelClassificationP1P6.cs"
 base = flow / "BaseFlowMovementSystem.cs"
-resources = flow / "ContactPipelineResources.cs"
+resource_paths = (
+    flow / "InteractionCandidateStore.cs",
+    flow / "CrowdStepBodyResources.cs",
+    flow / "InteractionCertificationFrameResources.cs",
+    flow / "SoftAvoidanceFrameResources.cs",
+    flow / "ConstraintSolverFrameResources.cs",
+    flow / "ContactPipelineExecutionResources.cs",
+)
 reset = flow / "Diagnostics/Capture/Jobs/ContactDiagnosticsCaptureLifecycle.cs"
 snapshot = flow / "Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs"
 publishing = flow / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs"
@@ -25,7 +32,7 @@ verification = flow / "Diagnostics/VERIFICATION_MATRIX.md"
 verification_meta = flow / "Diagnostics/VERIFICATION_MATRIX.md.meta"
 
 required_paths = (
-    solver, p1p6, persistent, base, resources, reset, snapshot, publishing,
+    solver, p1p6, persistent, base, *resource_paths, reset, snapshot, publishing,
     spatial_readback, pipeline_snapshot, runtime, experiment, contracts, panel,
     recorder, oracle, authoring, grid, timestep, verification, verification_meta)
 
@@ -159,11 +166,23 @@ if "guid:" not in verification_meta.read_text(encoding="utf-8"):
 
 # P2 maintenance boundaries: resource ownership, explicit stages and terminology.
 base_text = base.read_text(encoding="utf-8")
-resources_text = resources.read_text(encoding="utf-8")
-for required in ("struct ContactPersistentState", "struct ContactFrameResources",
-                 "ContactFrameResources Create(", "JobHandle Dispose("):
+resources_text = "\n".join(path.read_text(encoding="utf-8") for path in resource_paths)
+for required in (
+        "struct InteractionCandidateStore",
+        "struct CrowdStepBodyResources",
+        "struct InteractionCertificationFrameResources",
+        "struct SoftAvoidanceFrameResources",
+        "struct ConstraintSolverFrameResources",
+        "struct ContactPipelineExecutionResources"):
     if required not in resources_text:
-        raise SystemExit(f"Contact resource lifetime owner missing: {required}")
+        raise SystemExit(f"Focused contact resource owner missing: {required}")
+for retired in (flow / "ContactPipelineResources.cs", flow / "ContactPipelineResources.cs.meta",
+                flow / "BaseFlowMovementComposition.cs", flow / "BaseFlowMovementComposition.cs.meta"):
+    if retired.exists():
+        raise SystemExit(f"Retired aggregate resource/composition path still exists: {retired}")
+for forbidden in ("ContactPersistentState", "ContactFrameResources", "ComposeContactPipelineScheduler("):
+    if forbidden in base_text + resources_text:
+        raise SystemExit(f"Retired aggregate resource/composition symbol returned: {forbidden}")
 if re.search(r"new Native(?:Array|List|Reference|Parallel)", base_text):
     raise SystemExit("BaseFlowMovementSystem again allocates contact Native resources directly")
 if "DirtyBodyBlockOffsets" not in resources_text or "DirtyBodyBlockOffsets" not in p1p6_text:

@@ -101,10 +101,9 @@ Jacobi implementation.
 ## Layer ownership
 
 - **ECS adapter / composition root** captures same-step configuration and identity,
-  schedules stages, owns World-scoped resources and wires `JobHandle` dependencies.
-  Stage construction currently lives in `BaseFlowMovementComposition`, while
-  `BaseFlowMovementSystem.OnUpdate` only selects serial/P1-P6 scheduling and wires
-  the returned `JobHandle`.
+  schedules stages and wires `JobHandle` dependencies. World-lifetime candidate
+  storage and each frame-lifetime resource family are separate owners; each owner
+  constructs only the stage job whose capability it represents.
 - **Navigation** reads `FlowNavigationView` and produces preferred velocity and
   steering intent. It does not interpret contact or wall policy.
 - **Motion prediction** produces trajectory/envelope evidence and substep positions.
@@ -236,8 +235,11 @@ lambda math, CSR construction or heatmap aggregation.
 a scheduled job and carries no algorithm implementation. `InteractionCertificationJob`,
 `SoftAvoidanceJob`, `MotionIntegrationJob` and `ConstraintSolverJob` are scheduled
 directly, so Collections Safety sees their actual NativeContainer capabilities.
-`BaseFlowMovementComposition` remains only as the construction site for those focused
-stages and is removed in the next resource/composition cutover.
+There is no aggregate composition adapter. `InteractionCandidateStore`,
+`CrowdStepBodyResources`, `InteractionCertificationFrameResources`,
+`SoftAvoidanceFrameResources`, `ConstraintSolverFrameResources` and
+`ContactPipelineExecutionResources` create and dispose their own lifetime-specific
+containers and bind only their focused job.
 
 ## CI boundary
 

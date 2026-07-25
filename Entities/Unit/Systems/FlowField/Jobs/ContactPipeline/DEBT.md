@@ -10,8 +10,8 @@
   reissue certificates through the certifier path.
 - The staged P1-P6 path shares the same compact-view commit/signing boundary and
   routes solver-correction escapes through the common certificate guard.
-- `BaseFlowMovementSystem` is a small composition root; focused stage construction
-  is currently isolated in `BaseFlowMovementComposition`.
+- `BaseFlowMovementSystem` is the World composition root. Stage construction is
+  distributed across focused lifetime owners rather than an ABI adapter.
 - The shared frame-state compatibility record has been deleted. Body snapshot,
   navigation, intent, motion evidence, substep state and result are independent arrays.
 - Pure `BodyPair` interaction views are physically separated from direct-storage `ContactConstraint` solver records.
@@ -20,14 +20,12 @@
 - The all-capability `SolveXpbdUnitContactsJob` and `CrowdEnvironmentAccess` partial
   have been deleted. Certification, motion, soft avoidance and constraint solving are
   scheduled as focused jobs; the scheduler itself is never scheduled.
+- The aggregate `BaseFlowMovementComposition` and `ContactPipelineResources` files
+  have been deleted. Persistent candidates, body products, certification products,
+  soft scratch, solver scratch and execution state have independent owners.
 - Architecture contracts are protected by a dedicated static CI workflow.
 
 ## Remaining capability-boundary debt
-
-- `BaseFlowMovementComposition` and `ContactPipelineResources` are now the remaining
-  construction/resource ownership files scheduled for the next hard cutover. They
-  must be replaced by focused persistent, certification, soft, motion and solver
-  resource owners rather than renamed aggregate bags.
 - P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
   Native containers to remain direct job fields. Their interpretation is now routed
   through `GridObstacleView`; a future backend split may change storage without
