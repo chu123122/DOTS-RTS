@@ -1,6 +1,11 @@
 name: Diagnose final ownership
 
 on:
+  pull_request:
+    branches:
+      - Simulation
+    paths:
+      - '.github/workflows/diagnose-final-ownership.yml'
   push:
     branches:
       - codex/simulation-integration
