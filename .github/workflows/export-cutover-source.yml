@@ -1,0 +1,30 @@
+name: Export cutover source
+
+on:
+  push:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/workflows/export-cutover-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 1
+      - name: Pack source
+        run: |
+          git rev-parse HEAD > CUTOVER_SOURCE_HEAD.txt
+          tar --exclude='.git' -czf /tmp/dots-rts-cutover-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dots-rts-cutover-source
+          path: /tmp/dots-rts-cutover-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
