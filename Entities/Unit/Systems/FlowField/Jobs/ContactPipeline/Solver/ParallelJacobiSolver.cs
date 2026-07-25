@@ -18,7 +18,7 @@ public struct ParallelJacobiExecutionState
     public long SolverStartTimestamp;
     public long IterationStartTimestamp;
 #else
-    public float PenetrationSum { get => default; set { } }
+    public float PenetrationSum;
     public long SolverStartTimestamp { get => default; set { } }
     public long IterationStartTimestamp { get => default; set { } }
 #endif

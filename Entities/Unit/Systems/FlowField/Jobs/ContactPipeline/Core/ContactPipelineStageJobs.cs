@@ -135,13 +135,13 @@ public partial struct InteractionCertificationJob : IJob
     public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
     public NativeArray<Stage3ContactHeatSample> HeatSamples;
 #else
-    public Entity DiagnosticSelectedEntity { get => Entity.Null; set { } }
-    public NativeList<BodyPair> IncrementalOracleContactPairs { get => default; set { } }
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
-    public NativeReference<PredictiveDiscContactStatistics> Statistics { get => default; set { } }
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics { get => default; set { } }
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics { get => default; set { } }
-    public NativeArray<Stage3ContactHeatSample> HeatSamples { get => default; set { } }
+    public Entity DiagnosticSelectedEntity;
+    public NativeList<BodyPair> IncrementalOracleContactPairs;
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
+    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
+    public NativeArray<Stage3ContactHeatSample> HeatSamples;
 #endif
 
     private float DeltaTime => Configuration.DeltaTime;
@@ -281,7 +281,7 @@ public partial struct MotionIntegrationJob : IJob
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #else
-    public NativeReference<PredictiveDiscContactStatistics> Statistics { get => default; set { } }
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #endif
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
@@ -344,8 +344,8 @@ public partial struct SoftAvoidanceJob : IJob
     public NativeArray<int> EscapeCountsByBlock;
     public int EscapeBlockCount;
 #else
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
-    public NativeReference<PredictiveDiscContactStatistics> Statistics { get => default; set { } }
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #endif
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
     private float SoftAvoidanceShell => Configuration.SoftAvoidanceShell;
@@ -485,20 +485,20 @@ public partial struct ConstraintSolverJob : IJob
     public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
     public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
 #else
-    public Entity DiagnosticSelectedEntity { get => Entity.Null; set { } }
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
-    public NativeReference<PredictiveDiscContactStatistics> Statistics { get => default; set { } }
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics { get => default; set { } }
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics { get => default; set { } }
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic { get => default; set { } }
-    public NativeArray<Stage3ContactHeatSample> HeatSamples { get => default; set { } }
-    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask { get => default; set { } }
-    public int SimulationDebuggerMaximumPairs { get => 0; set { } }
-    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs { get => default; set { } }
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates { get => default; set { } }
-    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch { get => default; set { } }
-    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit { get => default; set { } }
-    public NativeReference<byte> SimulationDebuggerSelectedUnitValid { get => default; set { } }
+    public Entity DiagnosticSelectedEntity;
+    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
+    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
+    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
+    public NativeArray<Stage3ContactHeatSample> HeatSamples;
+    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
+    public int SimulationDebuggerMaximumPairs;
+    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
+    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
+    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
+    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
+    public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
 #endif
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;

@@ -72,6 +72,7 @@ public partial struct SoftAvoidanceJob
         runtimeState.Value = runtime;
     }
 
+#if RTS_CONTACT_DIAGNOSTICS
     private void FinalizeP1P6SoftAvoidance(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         NativeList<JacobiBlockTelemetry> blocks,
@@ -102,6 +103,7 @@ public partial struct SoftAvoidanceJob
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
     }
+#endif
 
 
 

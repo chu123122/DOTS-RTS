@@ -102,7 +102,12 @@ public struct ContactPipelineConfiguration
             RvoTimeHorizon = flowSettings.RvoTimeHorizon,
             EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
             EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
-            EnableDiagnostics = solverSettings.EnableDiagnostics,
+            EnableDiagnostics =
+#if RTS_CONTACT_DIAGNOSTICS
+                solverSettings.EnableDiagnostics,
+#else
+                false,
+#endif
             EnablePersistentContactCache = enablePersistentContactCache,
             EnableTimestepContactSetCache = enableTimestepContactSetCache,
             // Compatibility translation: the serialized FatAabb margin now means
