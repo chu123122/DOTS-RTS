@@ -9,7 +9,7 @@ namespace RTS.Unit.FlowField.Jobs
 /// leave the current certificate scope. This layer never decides cache validity;
 /// all failures converge on the interaction certifier's repair/rebuild path.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
     private void ClampSoftOutputToInteractionEnvelope(
         float substepDeltaTime,
@@ -104,7 +104,7 @@ public partial struct SolveXpbdUnitContactsJob
         float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
         float extent = math.max(0f, stateSnapshot.Radius) +
                        math.max(contactPadding, avoidancePadding);
-        return AabbContains(
+        return ContactPipelineShared.AabbContains(
             stateEvidence.InteractionEnvelopeMin,
             stateEvidence.InteractionEnvelopeMax,
             predictedEnd.xz - extent,
@@ -130,7 +130,7 @@ public partial struct SolveXpbdUnitContactsJob
             float extent = math.max(0f, stateSnapshot.Radius) + skin;
             float2 currentMin = stateStep.SolvedPosition.xz - extent;
             float2 currentMax = stateStep.SolvedPosition.xz + extent;
-            if (AabbContains(
+            if (ContactPipelineShared.AabbContains(
                     stateEvidence.ContactEnvelopeMin,
                     stateEvidence.ContactEnvelopeMax,
                     currentMin,
@@ -184,7 +184,7 @@ public partial struct SolveXpbdUnitContactsJob
                            math.max(0f, PredictiveSkin);
             float2 currentMin = stateStep.SolvedPosition.xz - extent;
             float2 currentMax = stateStep.SolvedPosition.xz + extent;
-            if (AabbContains(
+            if (ContactPipelineShared.AabbContains(
                     stateEvidence.ContactEnvelopeMin,
                     stateEvidence.ContactEnvelopeMax,
                     currentMin,
@@ -225,7 +225,7 @@ public partial struct SolveXpbdUnitContactsJob
                 stateStep,
                 out float2 currentMin,
                 out float2 currentMax);
-            if (AabbContains(
+            if (ContactPipelineShared.AabbContains(
                     stateEvidence.InteractionEnvelopeMin,
                     stateEvidence.InteractionEnvelopeMax,
                     currentMin,

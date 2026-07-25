@@ -5,68 +5,9 @@ using RTS.Unit.FlowField;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-/// <summary>
-/// Shared frame-local utilities used by the authoritative contact pipeline.
-/// These helpers have no ownership of persistent topology or legacy Fat AABB state.
-/// </summary>
-public partial struct SolveXpbdUnitContactsJob
+internal static class ContactPipelineShared
 {
-    private void PrepareCurrentBodyLookup()
-    {
-        CurrentBodyIndexByEntity.Clear();
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-            CurrentBodyIndexByEntity.TryAdd(Bodies[bodyIndex].Entity, bodyIndex);
-    }
-
-    private bool TryFindCurrentBodyIndex(Entity entity, out int bodyIndex)
-    {
-        return CurrentBodyIndexByEntity.TryGetValue(entity, out bodyIndex) &&
-               bodyIndex >= 0 && bodyIndex < Bodies.Length;
-    }
-
-    private void CalculateNeighborPathBounds(
-        CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
-        out float2 pathMin,
-        out float2 pathMax)
-    {
-        pathMin = math.min(
-            evidence.TrajectoryStart.xz,
-            math.min(
-                evidence.BaselineEnd.xz,
-                math.min(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
-        pathMax = math.max(
-            evidence.TrajectoryStart.xz,
-            math.max(
-                evidence.BaselineEnd.xz,
-                math.max(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
-        if (SoftAvoidanceVelocitySolver !=
-                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
-            SoftAvoidanceShell <= 0f || SoftAvoidanceResponseRate <= 0f)
-            return;
-
-        float2 horizonEnd = step.SolvedPosition.xz +
-                            step.BaseVelocity.xz * math.max(0f, RvoTimeHorizon);
-        pathMin = math.min(pathMin, horizonEnd);
-        pathMax = math.max(pathMax, horizonEnd);
-    }
-
-    private void ResetCorrectedBodyTracking()
-    {
-        for (int i = 0; i < CorrectedBodyIndices.Length; i++)
-            CorrectedBodyFlags[CorrectedBodyIndices[i]] = 0;
-        CorrectedBodyIndices.Clear();
-    }
-
-    private void MarkCorrectedBody(int bodyIndex)
-    {
-        if (CorrectedBodyFlags[bodyIndex] != 0)
-            return;
-        CorrectedBodyFlags[bodyIndex] = 1;
-        CorrectedBodyIndices.Add(bodyIndex);
-    }
-
-    private static void SortAndDeduplicateBodyPairs(NativeList<BodyPair> pairs)
+    internal static void SortAndDeduplicateBodyPairs(NativeList<BodyPair> pairs)
     {
         if (pairs.Length <= 1)
             return;
@@ -84,7 +25,7 @@ public partial struct SolveXpbdUnitContactsJob
         pairs.ResizeUninitialized(writeIndex);
     }
 
-    private static void SortAndDeduplicateConstraints(
+    internal static void SortAndDeduplicateConstraints(
         NativeList<ContactConstraint> constraints)
     {
         if (constraints.Length <= 1)
@@ -103,7 +44,7 @@ public partial struct SolveXpbdUnitContactsJob
         constraints.ResizeUninitialized(writeIndex);
     }
 
-    private static void CopyConstraintsToBodyPairs(
+    internal static void CopyConstraintsToBodyPairs(
         NativeArray<ContactConstraint> source,
         NativeList<BodyPair> destination)
     {
@@ -114,7 +55,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    private static void AppendBodyPairsAsConstraints(
+    internal static void AppendBodyPairsAsConstraints(
         NativeArray<BodyPair> source,
         NativeList<ContactConstraint> destination)
     {
@@ -129,7 +70,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    private static bool TryFindProxy(
+    internal static bool TryFindProxy(
         NativeList<ShadowFatBodyProxy> proxies,
         Entity entity,
         out ShadowFatBodyProxy proxy)
@@ -155,7 +96,7 @@ public partial struct SolveXpbdUnitContactsJob
         return false;
     }
 
-    private static bool AabbContains(
+    internal static bool AabbContains(
         float2 outerMin,
         float2 outerMax,
         float2 innerMin,
@@ -166,7 +107,7 @@ public partial struct SolveXpbdUnitContactsJob
                math.all(innerMax <= outerMax + tolerance);
     }
 
-    private static bool AabbOverlaps(
+    internal static bool AabbOverlaps(
         float2 minA,
         float2 maxA,
         float2 minB,

@@ -22,7 +22,7 @@ internal struct ContactViewBuildResult
     public int InteractionPairCount;
 }
 
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
     private void PrepareTimestepContactPrediction(float duration, bool fromSolvedPosition)
     {
@@ -45,7 +45,9 @@ public partial struct SolveXpbdUnitContactsJob
                 : stateSnapshot.Position;
             float3 velocity = fromSolvedPosition
                 ? stateStep.BaseVelocity
-                : CalculateBaseVelocityForSubstep(
+                : ContactPipelineMath.CalculateBaseVelocityForSubstep(
+                    Grid,
+                    EnvironmentGeometry,
                     stateSnapshot, stateNavigation, stateIntent, stateStep, duration);
             if ((stateNavigation.IsSettled != 0))
                 velocity *= math.pow(0.8f, duration * 60f);
@@ -120,7 +122,7 @@ public partial struct SolveXpbdUnitContactsJob
         long startTimestamp = ProfilerUnsafeUtility.Timestamp;
         BuildSweptInteractionPairs(ref statistics);
         BuildSoftAvoidancePairViewFromInteractions(ref incrementalStatistics);
-        long elapsed = TimestampToNanoseconds(
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
         incrementalStatistics.FullSweepSourceNanoseconds += elapsed;
         incrementalStatistics.CurrentInteractionPairCount =
@@ -149,7 +151,7 @@ public partial struct SolveXpbdUnitContactsJob
             false);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
-        statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
+        statistics.TimestepContactSetBuildNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
     }
 
@@ -194,7 +196,7 @@ public partial struct SolveXpbdUnitContactsJob
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
 
-        long elapsed = TimestampToNanoseconds(
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
         if (fallback)
@@ -229,7 +231,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             long fullSweepStart = ProfilerUnsafeUtility.Timestamp;
             BuildSweptInteractionPairs(ref statistics);
-            incrementalStatistics.FullSweepSourceNanoseconds += TimestampToNanoseconds(
+            incrementalStatistics.FullSweepSourceNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - fullSweepStart);
         }
 
@@ -278,7 +280,7 @@ public partial struct SolveXpbdUnitContactsJob
         int scheduleStartSubstep)
     {
         Pairs.Clear();
-        AppendBodyPairsAsConstraints(TimestepInteractionPairs.AsArray(), Pairs);
+        ContactPipelineShared.AppendBodyPairsAsConstraints(TimestepInteractionPairs.AsArray(), Pairs);
         int classificationCandidateCount = Pairs.Length;
         statistics.CandidatePairCount += classificationCandidateCount;
         incrementalStatistics.ReclassifiedPairEvaluationCount +=
@@ -287,14 +289,14 @@ public partial struct SolveXpbdUnitContactsJob
             classificationCandidateCount;
         long classificationStart = ProfilerUnsafeUtility.Timestamp;
         FilterAndClassifyPairs(ref statistics, math.max(0f, PredictiveSkin));
-        incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
+        incrementalStatistics.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - classificationStart);
 
         long scheduleStart = ProfilerUnsafeUtility.Timestamp;
         BuildTimestepPredictiveSchedule(
             ref incrementalStatistics,
             scheduleStartSubstep);
-        incrementalStatistics.ContactActivationNanoseconds += TimestampToNanoseconds(
+        incrementalStatistics.ContactActivationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - scheduleStart);
     }
 
@@ -401,46 +403,7 @@ public partial struct SolveXpbdUnitContactsJob
         return -1;
     }
 
-    private void BuildContactHeatSamples()
-    {
-        if (!EnableDiagnostics)
-            return;
 
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-        {
-            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
-            HeatSamples[bodyIndex] = new Stage3ContactHeatSample
-            {
-                Entity = stateSnapshot.Entity,
-                Position = stateStep.SolvedPosition,
-                ContactCorrection = math.length(stateEvidence.ContactCorrection),
-                Escaped = stateEvidence.EnvelopeEscaped
-            };
-        }
 
-        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = TimestepContactPairs[pairIndex];
-            AccumulateHeatPair(pair.BodyA, pair);
-            AccumulateHeatPair(pair.BodyB, pair);
-        }
-    }
-
-    private void AccumulateHeatPair(int bodyIndex, ContactConstraint pair)
-    {
-        Stage3ContactHeatSample sample = HeatSamples[bodyIndex];
-        sample.ContactPairDegree++;
-        if (pair.WasActivatedThisTimestep != 0)
-            sample.ActivePairDegree++;
-        if (pair.ContactMode == ContactConstraintMode.Predictive)
-            sample.PredictivePairDegree++;
-        if (pair.WasAddedByFallback != 0)
-            sample.HasFallbackPair = 1;
-        HeatSamples[bodyIndex] = sample;
-    }
 }
 }

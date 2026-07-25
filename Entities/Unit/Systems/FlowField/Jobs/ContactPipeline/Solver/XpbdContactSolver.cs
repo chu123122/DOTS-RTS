@@ -54,7 +54,7 @@ public static class XpbdContactConstraintMath
                     normal = -normal;
                 normal = math.normalizesafe(
                     normal,
-                    SolveXpbdUnitContactsJob.DeterministicFallbackNormal(
+                    ContactPipelineMath.DeterministicFallbackNormal(
                         pair.BodyA,
                         pair.BodyB));
                 pair.PredictiveNormal = normal;
@@ -67,7 +67,7 @@ public static class XpbdContactConstraintMath
             float distance = math.length(currentDelta);
             normal = distance > 0.00001f
                 ? currentDelta / distance
-                : SolveXpbdUnitContactsJob.DeterministicFallbackNormal(
+                : ContactPipelineMath.DeterministicFallbackNormal(
                     pair.BodyA,
                     pair.BodyB);
             constraintValue = distance - radiusSum;
@@ -107,7 +107,7 @@ public static class XpbdContactConstraintMath
 /// Gauss-Seidel writes each pair immediately; Jacobi evaluates from one
 /// position snapshot and applies averaged per-body corrections afterwards.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct ConstraintSolverJob
 {
     private void SolveConfiguredContactIteration(
         float substepDeltaTime,

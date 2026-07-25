@@ -2,7 +2,7 @@ using Unity.Entities;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public partial struct SolveXpbdUnitContactsJob
+public partial struct ConstraintSolverJob
 {
     /// <summary>
     /// Resets Native capture outputs only when diagnostics are compiled.

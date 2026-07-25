@@ -2,10 +2,10 @@ from pathlib import Path
 import re
 
 flow = Path('Entities/Unit/Systems/FlowField')
+pipe = flow / 'Jobs/ContactPipeline'
 base = (flow / 'BaseFlowMovementSystem.cs').read_text(encoding='utf-8')
 settings = Path('Entities/Unit/Components/FlowField/GridComponent.cs').read_text(encoding='utf-8')
 helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs').read_text(encoding='utf-8')
-solver = (flow / 'Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
 snapshot = (flow / 'Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
 resources = (flow / 'ContactPipelineResources.cs').read_text(encoding='utf-8')
@@ -33,7 +33,6 @@ def preprocess_diagnostics(source: str, enabled: bool) -> str:
     return '\n'.join(output)
 
 base_gameplay = preprocess_diagnostics(base, False)
-
 forbidden_allocations = (
     'new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob)',
     'new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob)',
@@ -48,19 +47,27 @@ if 'contactSolverSettings.EnableTimestepContactSetCache' not in base:
     raise SystemExit('Per-world timestep-cache setting is not used')
 if 'EnableTimestepContactSetCache' not in settings:
     raise SystemExit('Per-world timestep-cache setting is missing from ECS settings')
-if 'ContactPipelineRuntimeOptions' in base or (flow / 'Jobs/ContactPipeline/Core/ContactPipelineRuntimeOptions.cs').exists():
+if 'ContactPipelineRuntimeOptions' in base or (pipe / 'Core/ContactPipelineRuntimeOptions.cs').exists():
     raise SystemExit('Static contact-pipeline option authority returned')
 if '#if RTS_CONTACT_DIAGNOSTICS' not in helper:
     raise SystemExit('Diagnostics scheduling context lost compile boundary')
-if '_contactTelemetry.Value' not in solver or '_incrementalTelemetry.Value' not in solver:
-    raise SystemExit('Telemetry accessors missing private diagnostic backing storage')
+
 production = '\n'.join(
     path.read_text(encoding='utf-8')
-    for path in (flow / 'Jobs/ContactPipeline').rglob('*.cs'))
-if re.search(r'(?m)^\s*Statistics\.Value', production):
-    raise SystemExit('Direct contact telemetry ABI returned')
-if 'IncrementalStatistics.Value' in production:
-    raise SystemExit('Direct incremental telemetry ABI returned')
+    for path in pipe.rglob('*.cs'))
+release_production = preprocess_diagnostics(production, False)
+for token in ('Statistics.Value', 'IncrementalStatistics.Value'):
+    if token in release_production:
+        raise SystemExit('Diagnostics telemetry access survives gameplay preprocessing: ' + token)
+for required in (
+    'public partial struct InteractionCertificationJob : IJob',
+    'public partial struct SoftAvoidanceJob : IJob',
+    'public partial struct ConstraintSolverJob : IJob'):
+    if required not in production:
+        raise SystemExit('Focused diagnostics stage boundary missing: ' + required)
+if 'SolveXpbdUnitContactsJob' in production:
+    raise SystemExit('Retired solver telemetry ABI returned')
+
 if 'PublishedSimulationDiagnosticsRuntime' not in runtime or 'PublishedSimulationDiagnosticsRuntime' not in snapshot:
     raise SystemExit('Unified current-frame snapshot handoff missing')
 if 'class SimulationDiagnosticsRingBuffer' in snapshot:
@@ -77,12 +84,11 @@ if missing:
 
 release_parallel = preprocess_diagnostics('\n'.join(
     path.read_text(encoding='utf-8')
-    for path in (flow / 'Jobs/ContactPipeline/Solver').rglob('*.cs')), False)
+    for path in (pipe / 'Solver').rglob('*.cs')), False)
 for token in ('ParallelJacobiIterationTelemetry', 'JacobiBlockTelemetry',
               'ReduceParallelJacobiBlocksJob', 'ReduceP1P6VelocityBodyBlocksJob'):
     if token in release_parallel:
         raise SystemExit('Gameplay telemetry scheduling returned: ' + token)
-
 
 release_resources = preprocess_diagnostics(resources, False)
 if 'PersistentClassificationTelemetryState' in release_resources:

@@ -102,8 +102,9 @@ Jacobi implementation.
 
 - **ECS adapter / composition root** captures same-step configuration and identity,
   schedules stages, owns World-scoped resources and wires `JobHandle` dependencies.
-  Detailed solver ABI expansion lives in `BaseFlowMovementComposition`, not in
-  `BaseFlowMovementSystem.OnUpdate`.
+  Stage construction currently lives in `BaseFlowMovementComposition`, while
+  `BaseFlowMovementSystem.OnUpdate` only selects serial/P1-P6 scheduling and wires
+  the returned `JobHandle`.
 - **Navigation** reads `FlowNavigationView` and produces preferred velocity and
   steering intent. It does not interpret contact or wall policy.
 - **Motion prediction** produces trajectory/envelope evidence and substep positions.
@@ -231,8 +232,12 @@ It knows stage order, resource lifetime, configuration snapshots and JobHandle
 edges. It must not know pair classification, guard proof, repair policy, XPBD
 lambda math, CSR construction or heatmap aggregation.
 
-`BaseFlowMovementComposition` is a temporary ABI adapter. New stage contracts
-should shrink that adapter until candidate state is visible only to the certifier.
+`CrowdContactPipelineScheduler` is managed scheduling composition only; it is not
+a scheduled job and carries no algorithm implementation. `InteractionCertificationJob`,
+`SoftAvoidanceJob`, `MotionIntegrationJob` and `ConstraintSolverJob` are scheduled
+directly, so Collections Safety sees their actual NativeContainer capabilities.
+`BaseFlowMovementComposition` remains only as the construction site for those focused
+stages and is removed in the next resource/composition cutover.
 
 ## CI boundary
 
@@ -242,7 +247,8 @@ migration:
 - explicit body/certificate/pair-lifetime contracts must exist;
 - scheduled step identity cannot be derived from cache generation;
 - compact views must be signed at their common commit boundary;
-- the composition root cannot expand the solver ABI directly;
+- the retired all-capability solver type and environment-access partial cannot return;
+- the scheduling composition cannot become another `IJob`;
 - SoftAvoidance, Motion and Wall stages cannot reach persistent candidate fields;
 - serial environment stages cannot interpret navigation cost directly;
 - Oracle cannot control gameplay cache.

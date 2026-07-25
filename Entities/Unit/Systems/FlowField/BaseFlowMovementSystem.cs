@@ -186,7 +186,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 contactSolverSettings,
                 effectivePersistentContactCache,
                 effectiveTimestepContactSetCache);
-        SolveXpbdUnitContactsJob solver = ComposeContactSolverJob(
+        CrowdContactPipelineScheduler solver = ComposeContactPipelineScheduler(
             configuration,
             gridComponent,
             frame,
@@ -212,7 +212,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         }
         else
         {
-            solveHandle = solver.Schedule(initializeHandle);
+            solveHandle = solver.ScheduleSerial(initializeHandle);
         }
 
         ContactDiagnosticsPublishHandles diagnosticsPublish =

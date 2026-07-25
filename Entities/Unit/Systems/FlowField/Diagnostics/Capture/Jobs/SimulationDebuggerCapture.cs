@@ -11,25 +11,9 @@ public struct ParallelSimulationDebuggerPairCapture
     public byte IsValid;
 }
 
-public partial struct SolveXpbdUnitContactsJob
+public partial struct ConstraintSolverJob
 {
-#if RTS_CONTACT_DIAGNOSTICS
-    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
-    public int SimulationDebuggerMaximumPairs;
-    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
-    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
-    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
-    public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
-#else
-    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask { get => SimulationDebuggerCaptureMask.None; set { } }
-    public int SimulationDebuggerMaximumPairs { get => 0; set { } }
-    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs { get => default; set { } }
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates { get => default; set { } }
-    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch { get => default; set { } }
-    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit { get => default; set { } }
-    public NativeReference<byte> SimulationDebuggerSelectedUnitValid { get => default; set { } }
-#endif
+
 
     private bool CaptureSelectedSimulationDebuggerData =>
         EnableDiagnostics && DiagnosticSelectedEntity != Entity.Null &&
@@ -75,7 +59,7 @@ public partial struct SolveXpbdUnitContactsJob
             pairCorrection));
     }
 
-    private static SimulationDebuggerPairSample BuildSimulationDebuggerPairSample(
+    internal static SimulationDebuggerPairSample BuildSimulationDebuggerPairSample(
         int substepIndex,
         ContactConstraint pair,
         CrowdBodySnapshot bodyA,
@@ -207,18 +191,11 @@ public partial struct SolveXpbdUnitContactsJob
             ActiveContactCount = activeContacts
         };
 
-        if (EnablePersistentContactCache &&
-            TryFindPersistentProxy(
-                stateSnapshot.Entity,
-                out PersistentSweptProxy persistentProxy) &&
-            persistentProxy.IsValid != 0)
-        {
-            sample.SweptMin = persistentProxy.TightMin;
-            sample.SweptMax = persistentProxy.TightMax;
-            sample.FatMin = persistentProxy.GuardMin;
-            sample.FatMax = persistentProxy.GuardMax;
-            sample.HasFatBounds = 1;
-        }
+        sample.SweptMin = stateEvidence.ContactEnvelopeMin;
+        sample.SweptMax = stateEvidence.ContactEnvelopeMax;
+        sample.FatMin = stateEvidence.InteractionEnvelopeMin;
+        sample.FatMax = stateEvidence.InteractionEnvelopeMax;
+        sample.HasFatBounds = 1;
 
         SimulationDebuggerSelectedUnit.Value = sample;
         SimulationDebuggerSelectedUnitValid.Value = 1;
@@ -249,7 +226,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             float3 normal = math.normalizesafe(
                 delta,
-                DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                ContactPipelineMath.DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
             return math.dot(delta, normal) - radiusSum;
         }
         return math.length(delta) - radiusSum;

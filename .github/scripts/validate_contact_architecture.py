@@ -7,6 +7,9 @@ PIPE = ROOT / "Jobs/ContactPipeline"
 paths = {
     "base": ROOT / "BaseFlowMovementSystem.cs",
     "composition": ROOT / "BaseFlowMovementComposition.cs",
+    "stage_jobs": PIPE / "Core/ContactPipelineStageJobs.cs",
+    "scheduler": PIPE / "Core/CrowdContactPipelineScheduler.cs",
+    "lifecycle": PIPE / "Core/ContactPipelineLifecycleJob.cs",
     "resources": ROOT / "ContactPipelineResources.cs",
     "intent": ROOT / "Jobs/BuildCrowdMotionIntentJob.cs",
     "result": ROOT / "Jobs/BuildCrowdBodyResultsJob.cs",
@@ -78,17 +81,37 @@ for required in (
         raise SystemExit(f"Timestep certificate resource missing: {required}")
 
 for required in (
-    "ComposeContactSolverJob(",
+    "ComposeContactPipelineScheduler(",
     "ContactPipelineConfiguration.Create(",
     "NextSimulationStepId(",
     "FlowGridGeometry",
 ):
-    if required not in text["base"]:
+    if required not in text["base"] + text["composition"]:
         raise SystemExit(f"Composition root contract missing: {required}")
-if "new SolveXpbdUnitContactsJob" in text["base"]:
-    raise SystemExit("BaseFlowMovementSystem again expands the solver ABI directly")
-if "new SolveXpbdUnitContactsJob" not in text["composition"]:
-    raise SystemExit("Dedicated solver ABI composition boundary is missing")
+for required in (
+    "InteractionCertificationJob",
+    "MotionIntegrationJob",
+    "SoftAvoidanceJob",
+    "ConstraintSolverJob",
+):
+    if required not in text["stage_jobs"]:
+        raise SystemExit(f"Focused stage job missing: {required}")
+if "public partial struct CrowdContactPipelineScheduler" not in text["scheduler"]:
+    raise SystemExit("Pipeline scheduling composition is missing")
+if ": IJob" in text["scheduler"]:
+    raise SystemExit("Scheduling composition became another scheduled mega-job")
+for forbidden in ("SolveXpbdUnitContactsJob", "ComposeContactSolverJob("):
+    for cs_path in ROOT.rglob("*.cs"):
+        if forbidden in cs_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Retired solver compatibility symbol remains in {cs_path}: {forbidden}")
+for retired in (
+    PIPE / "Core/SolveXpbdUnitContactsJob.cs",
+    PIPE / "Core/SolveXpbdUnitContactsJob.cs.meta",
+    PIPE / "Core/CrowdEnvironmentAccess.cs",
+    PIPE / "Core/CrowdEnvironmentAccess.cs.meta",
+):
+    if retired.exists():
+        raise SystemExit(f"Retired solver compatibility path still exists: {retired}")
 
 for required in ("WorldId", "SimulationStepId", "CalculateCertificationFingerprint"):
     if required not in text["configuration"]:
@@ -195,7 +218,11 @@ for required in (
         raise SystemExit(f"Certificate violation evidence missing: {required}")
 if "RevokeInteractionCertificate(" not in text["guard"]:
     raise SystemExit("Envelope validation does not revoke its expired certificate")
-if "ValidateSolverCorrectionContactEnvelope(" not in text["parallel"]:
+certification_source = "\n".join(
+    path.read_text(encoding="utf-8")
+    for folder in (PIPE / "BroadPhase", PIPE / "Persistent", PIPE / "Prediction")
+    for path in folder.rglob("*.cs"))
+if "ValidateSolverCorrectionContactEnvelope(" not in certification_source:
     raise SystemExit("P1-P6 solver correction bypasses the certificate guard")
 
 persistent_tokens = (
@@ -208,6 +235,26 @@ for stage in ("soft", "motion", "wall"):
     for token in persistent_tokens:
         if token in text[stage]:
             raise SystemExit(f"Lower consumer {stage} reaches candidate cache: {token}")
+
+stage_sources = {
+    "certification": "\n".join(
+        path.read_text(encoding="utf-8")
+        for folder in (PIPE / "BroadPhase", PIPE / "Persistent", PIPE / "Prediction")
+        for path in folder.rglob("*.cs")),
+    "soft_stage": "\n".join(path.read_text(encoding="utf-8") for path in (PIPE / "SoftAvoidance").rglob("*.cs")),
+    "motion_stage": "\n".join(path.read_text(encoding="utf-8") for path in (PIPE / "Motion").rglob("*.cs")),
+    "solver_stage": "\n".join(
+        source for path in (PIPE / "Solver").rglob("*.cs")
+        if "partial struct ConstraintSolverJob" in (source := path.read_text(encoding="utf-8"))),
+}
+for lower in ("soft_stage", "motion_stage", "solver_stage"):
+    for token in persistent_tokens:
+        if token in stage_sources[lower]:
+            raise SystemExit(f"Focused lower stage {lower} reaches candidate cache: {token}")
+if "public InteractionCertificationJob Certification;" not in text["scheduler"]:
+    raise SystemExit("Scheduler does not compose the certifier explicitly")
+if "public ConstraintSolverJob ConstraintSolver;" not in text["scheduler"]:
+    raise SystemExit("Scheduler does not compose the solver explicitly")
 
 if "IncrementalCacheState" in text["oracle"] or ".IsValid = 0" in text["oracle"]:
     raise SystemExit("Diagnostics oracle controls gameplay candidate state")
