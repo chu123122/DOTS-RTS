@@ -15,7 +15,7 @@ public struct JacobiPairCorrection
     public byte NewlyCorrected;
 }
 
-public struct ContactConstraintEvaluation
+internal struct ContactConstraintEvaluation
 {
     public float3 Normal;
     public float ConstraintValue;
