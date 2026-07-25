@@ -24,6 +24,20 @@ jobs:
         with:
           ref: codex/simulation-integration
           fetch-depth: 50
+      - name: Inspect chunks
+        run: |
+          {
+            for file in .github/cutover/phase-1/chunk-*.b64; do
+              wc -c "$file"
+              sha256sum "$file"
+            done
+          } > /tmp/chunk-stats.txt
+          cat /tmp/chunk-stats.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase-1-chunk-stats
+          path: /tmp/chunk-stats.txt
+          retention-days: 1
       - name: Reconstruct verified patch
         shell: bash
         run: |
