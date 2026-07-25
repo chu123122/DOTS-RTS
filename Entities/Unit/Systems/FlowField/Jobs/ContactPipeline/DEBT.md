@@ -19,6 +19,8 @@ remains in the production tree.
 - The shared frame-state compatibility record has been deleted. Body snapshot,
   navigation, intent, motion evidence, substep state and result are independent arrays.
 - Pure `BodyPair` interaction views are physically separated from direct-storage `ContactConstraint` solver records.
+- `ContactConstraint` is the only public solver constraint contract; evaluation records
+  and their math helper are solver-internal implementation details.
 - Serial and P1-P6 navigation/soft-wall/hard-wall code use separate navigation and
   obstacle semantics over the current shared grid storage.
 - The all-capability `SolveXpbdUnitContactsJob` and `CrowdEnvironmentAccess` partial
