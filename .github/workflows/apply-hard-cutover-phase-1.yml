@@ -24,65 +24,37 @@ jobs:
         with:
           ref: codex/simulation-integration
           fetch-depth: 50
-      - name: Reconstruct and inspect patch
-        id: inspect
+      - name: Reconstruct verified patch
         shell: bash
         run: |
-          set +e
-          cat .github/cutover/phase-1/chunk-*.b64 > /tmp/phase-1.b64
-          base64 -d /tmp/phase-1.b64 > /tmp/phase-1.patch.gz 2> /tmp/base64-error.log
-          base64_status=$?
-          gzip -t /tmp/phase-1.patch.gz 2> /tmp/gzip-error.log
-          gzip_status=$?
-          if [ "$gzip_status" -eq 0 ]; then
-            gzip -dc /tmp/phase-1.patch.gz > /tmp/phase-1.patch
-            sha256sum /tmp/phase-1.patch > /tmp/phase-1.patch.sha256
-            git apply --check --3way /tmp/phase-1.patch > /tmp/git-apply.log 2>&1
-            apply_status=$?
-          else
-            apply_status=99
-          fi
-          {
-            echo "base64_status=$base64_status"
-            echo "gzip_status=$gzip_status"
-            echo "apply_status=$apply_status"
-            wc -c /tmp/phase-1.b64 /tmp/phase-1.patch.gz /tmp/phase-1.patch 2>/dev/null || true
-            cat /tmp/phase-1.patch.sha256 2>/dev/null || true
-            cat /tmp/base64-error.log 2>/dev/null || true
-            cat /tmp/gzip-error.log 2>/dev/null || true
-            cat /tmp/git-apply.log 2>/dev/null || true
-          } | tee /tmp/phase-1-diagnostic.txt
-          echo "apply_status=$apply_status" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: phase-1-apply-diagnostic
-          path: /tmp/phase-1-diagnostic.txt
-          retention-days: 1
+          rm -f /tmp/phase-1.b64
+          for index in 00 01 02 03 04 05 06; do
+            head -c 7000 ".github/cutover/phase-1/chunk-${index}.b64" >> /tmp/phase-1.b64
+          done
+          head -c 112 .github/cutover/phase-1/chunk-07.b64 >> /tmp/phase-1.b64
+          echo '7d7c9c532b0bb3a3163d40e80e9c80bb02a2f320d42a584179cee4cfcc6aa029  /tmp/phase-1.b64' | sha256sum --check
+          base64 -d /tmp/phase-1.b64 > /tmp/phase-1.patch.gz
+          gzip -t /tmp/phase-1.patch.gz
+          gzip -dc /tmp/phase-1.patch.gz > /tmp/phase-1.patch
+          echo 'ef25d5f9b1526de07294c2d6f70059963162aef284869e7ca5dbfd6c7c5966c7  /tmp/phase-1.patch' | sha256sum --check
+          git apply --check --3way /tmp/phase-1.patch
       - name: Apply phase patch
-        if: steps.inspect.outputs.apply_status == '0'
         run: git apply --index --3way /tmp/phase-1.patch
       - name: Remove transfer scaffolding
-        if: steps.inspect.outputs.apply_status == '0'
         run: |
           rm -rf .github/cutover/phase-1
           rm -f .github/workflows/apply-hard-cutover-phase-1.yml
           rm -f .github/workflows/export-cutover-source.yml
           git add -A
       - name: Validate source contracts
-        if: steps.inspect.outputs.apply_status == '0'
         run: |
           python3 .github/scripts/validate_contact_pipeline_audit.py
           python3 .github/scripts/validate_contact_diagnostics.py
           python3 .github/scripts/validate_contact_architecture.py
           git diff --cached --check
       - name: Commit hard cutover
-        if: steps.inspect.outputs.apply_status == '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "hard cutover crowd body data"
           git push origin HEAD:codex/simulation-integration
-      - name: Fail when patch is invalid
-        if: steps.inspect.outputs.apply_status != '0'
-        run: exit 1
