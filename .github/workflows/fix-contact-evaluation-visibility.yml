@@ -1,0 +1,61 @@
+name: Finalize contact evaluation visibility
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+    paths:
+      - '.github/workflows/fix-contact-evaluation-visibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 50
+      - name: Narrow solver-local evaluation type
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/XpbdContactSolver.cs')
+          text = path.read_text(encoding='utf-8')
+          old = 'public struct ContactConstraintEvaluation'
+          new = 'internal struct ContactConstraintEvaluation'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one public evaluation type, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          rm -f .github/workflows/export-cutover-source.yml
+          rm -f .github/workflows/fix-contact-evaluation-visibility.yml
+          git add -A
+      - name: Validate final source contracts
+        run: |
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          python3 - <<'PY'
+          from pathlib import Path
+          flow = Path('Entities/Unit/Systems/FlowField')
+          pipeline = flow / 'Jobs/ContactPipeline'
+          paths = [
+              path for path in flow.rglob('*.cs')
+              if 'public struct ContactConstraint' in path.read_text(encoding='utf-8')
+          ]
+          expected = [pipeline / 'Core/ContactConstraint.cs']
+          if paths != expected:
+              raise SystemExit(f'ContactConstraint public ownership mismatch: {paths}')
+          PY
+          git diff --cached --check
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "narrow solver evaluation visibility"
+          git push origin HEAD:codex/simulation-integration
