@@ -23,3 +23,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate candidate-certifier-consumer boundaries
         run: python3 .github/scripts/validate_contact_architecture.py
+      - name: Pack cutover source
+        run: |
+          git rev-parse HEAD > CUTOVER_SOURCE_HEAD.txt
+          tar --exclude='.git' -czf /tmp/dots-rts-cutover-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dots-rts-cutover-source
+          path: /tmp/dots-rts-cutover-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
