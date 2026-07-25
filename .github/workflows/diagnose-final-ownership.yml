@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: codex/simulation-integration
       - name: Capture ownership report
         run: |
           python - <<'PY' > /tmp/ownership-report.txt
           from pathlib import Path
+          import subprocess
+          print('HEAD:', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
           flow = Path('Entities/Unit/Systems/FlowField')
           pipeline = flow / 'Jobs/ContactPipeline'
           ownership = {
