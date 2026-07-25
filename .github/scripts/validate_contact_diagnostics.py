@@ -57,6 +57,7 @@ for token in ("PersistentClassificationTelemetryState", "Stage3ContactHeatSample
 
 spatial = read(FLOW / "Diagnostics/Capture/SimulationDebuggerSpatialReadback.cs")
 publishing = read(FLOW / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs")
+lifecycle = read(FLOW / "Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs")
 if "internal static class SimulationDebuggerSpatialReadback" not in spatial:
     fail("Spatial readback still extends the simulation system owner")
 for token in ("EntityManager entityManager", "NativeList<PersistentSweptProxy> proxies"):
@@ -66,6 +67,13 @@ if "SimulationDebuggerSpatialReadback.Capture(" not in publishing:
     fail("Snapshot publication bypasses explicit spatial readback")
 if "_candidateStore" in spatial:
     fail("Spatial readback reaches through the candidate-store owner")
+if "SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection" in lifecycle:
+    fail("Legacy diagnostic selection still assumes singleton ownership")
+diagnostics_entity_creation = lifecycle.split(
+    "_incrementalDiagnosticsEntity = EntityManager.CreateEntity(", 1)[1].split(
+        ");", 1)[0]
+if "Stage3ContactDiagnosticSelection" in diagnostics_entity_creation:
+    fail("Per-system publication entity still owns the World selection control")
 
 for path in (FLOW / "Diagnostics/Presentation", FLOW / "Diagnostics/Recording",
              FLOW / "Diagnostics/Experiments"):

@@ -127,7 +127,9 @@ Jacobi implementation. `ValidateConsumerViewsSerial` and
   invalidate or rebuild gameplay state.
 - **Control plane** supplies next-step debugger/experiment commands at the
   composition boundary. It is separate from observation even where legacy files
-  remain under the Diagnostics directory.
+  remain under the Diagnostics directory. Per-World `SimulationDebuggerRuntime`
+  owns unit selection; `Stage3ContactDiagnosticSelection` is a compatibility
+  input only and is never attached to a per-system publication entity.
 
 ## Data contracts
 

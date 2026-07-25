@@ -45,6 +45,7 @@ public abstract partial class BaseFlowMovementSystem
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
     private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
     private Entity _incrementalDiagnosticsEntity;
+    private EntityQuery _legacyDiagnosticSelectionQuery;
 #else
     private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs { get => default; set { } }
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit { get => default; set { } }
@@ -58,15 +59,13 @@ public abstract partial class BaseFlowMovementSystem
         _simulationDebuggerSelectedPairs = new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
         _simulationDebuggerSelectedUnit = new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
         _simulationDebuggerSelectedUnitValid = new NativeReference<byte>(Allocator.Persistent);
+        _legacyDiagnosticSelectionQuery = GetEntityQuery(
+            ComponentType.ReadOnly<Stage3ContactDiagnosticSelection>());
         _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
             typeof(IncrementalContactPipelineSnapshot),
             typeof(PredictiveDiscContactStatistics),
             typeof(ShadowNeighborCacheStatistics),
-            typeof(Stage3ContactDiagnosticSelection),
             typeof(Stage3SelectedBodyDiagnostic));
-        EntityManager.SetComponentData(
-            _incrementalDiagnosticsEntity,
-            new Stage3ContactDiagnosticSelection { SelectedEntity = Entity.Null });
         EntityManager.AddBuffer<Stage3ContactIterationDiagnostic>(
             _incrementalDiagnosticsEntity);
         EntityManager.AddBuffer<Stage3ContactPairDiagnostic>(
@@ -90,11 +89,30 @@ public abstract partial class BaseFlowMovementSystem
     {
 #if RTS_CONTACT_DIAGNOSTICS
         Entity selected = SimulationDebuggerRuntime.SelectedEntityFor(worldId);
-        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection selection) && selection.SelectedEntity != Entity.Null)
+        int legacySelectionCount =
+            _legacyDiagnosticSelectionQuery.CalculateEntityCount();
+        if (legacySelectionCount == 0)
+            return selected;
+
+        using NativeArray<Stage3ContactDiagnosticSelection> legacySelections =
+            _legacyDiagnosticSelectionQuery
+                .ToComponentDataArray<Stage3ContactDiagnosticSelection>(
+                    Allocator.Temp);
+        Entity legacySelected = Entity.Null;
+        for (int i = 0; i < legacySelections.Length; i++)
         {
-            selected = selection.SelectedEntity;
-            SimulationDebuggerRuntime.SetSelectedEntityFor(worldId, selected);
+            Entity candidate = legacySelections[i].SelectedEntity;
+            if (candidate == Entity.Null)
+                continue;
+            if (legacySelected != Entity.Null && candidate != legacySelected)
+                return selected;
+            legacySelected = candidate;
         }
+        if (legacySelected == Entity.Null)
+            return selected;
+
+        selected = legacySelected;
+        SimulationDebuggerRuntime.SetSelectedEntityFor(worldId, selected);
         return selected;
 #else
         return Entity.Null;

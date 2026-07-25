@@ -141,8 +141,9 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
     {
         SimulationDebuggerRuntime.SelectedEntity = selected;
 
-        // Keep compatibility with the original Stage 3 diagnostic selection path.
-        // The runtime bridge remains sufficient when the singleton is not present.
+        // Keep compatibility with legacy ECS selection inputs. Runtime state is
+        // authoritative; mirroring every legacy component avoids introducing
+        // an arbitrary "first singleton" when old scenes contain duplicates.
         World world = World.DefaultGameObjectInjectionWorld;
         if (world != null && world.IsCreated)
         {
@@ -157,12 +158,15 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
                         query.ToEntityArray(Allocator.Temp);
                     try
                     {
-                        Entity selectionEntity = selectionEntities[0];
-                        Stage3ContactDiagnosticSelection value =
-                            entityManager.GetComponentData<Stage3ContactDiagnosticSelection>(
-                                selectionEntity);
-                        value.SelectedEntity = selected;
-                        entityManager.SetComponentData(selectionEntity, value);
+                        for (int i = 0; i < selectionEntities.Length; i++)
+                        {
+                            Entity selectionEntity = selectionEntities[i];
+                            Stage3ContactDiagnosticSelection value =
+                                entityManager.GetComponentData<Stage3ContactDiagnosticSelection>(
+                                    selectionEntity);
+                            value.SelectedEntity = selected;
+                            entityManager.SetComponentData(selectionEntity, value);
+                        }
                     }
                     finally
                     {
