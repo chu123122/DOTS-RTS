@@ -69,39 +69,4 @@ internal static class ActiveConstraintIncidentIndexBuilder
         indexState.Value = state;
     }
 }
-
-public partial struct InteractionCertificationJob
-{
-    private void EnsureActiveConstraintIncidentIndexP1P6()
-    {
-        ActiveConstraintIncidentIndexBuilder.Ensure(
-            ContactPositionSolver,
-            Bodies.Length,
-            TimestepContactPairs,
-            ActiveIncidentIndexState,
-            ActiveIncidentOffsets,
-            ActiveIncidentWriteCursors,
-            ActiveIncidentPairIndices);
-    }
-}
-
-public partial struct ConstraintSolverJob
-{
-    private void EnsureActiveConstraintIncidentIndexP1P6()
-    {
-        ActiveConstraintIncidentIndexBuilder.Ensure(
-            ContactPositionSolver,
-            Bodies.Length,
-            TimestepContactPairs,
-            ActiveIncidentIndexState,
-            ActiveIncidentOffsets,
-            ActiveIncidentWriteCursors,
-            ActiveIncidentPairIndices);
-    }
-
-    private void RebuildActiveConstraintIncidentIndexIfNeeded()
-    {
-        EnsureActiveConstraintIncidentIndexP1P6();
-    }
-}
 }
