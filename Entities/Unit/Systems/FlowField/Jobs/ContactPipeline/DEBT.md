@@ -32,6 +32,8 @@ remains in the production tree.
 - The `Jobs/Compatibility` type graveyard has been deleted. Its Adaptive Fat-AABB
   records had no production or serialization references and were not migrated.
 - Architecture contracts are protected by a dedicated static CI workflow.
+- Permanent Jacobi checks follow the focused solver, P1-P6 scheduler, solver-resource
+  and constraint-stage owners rather than the deleted all-capability solver layout.
 
 ## Remaining capability-boundary debt
 - P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
