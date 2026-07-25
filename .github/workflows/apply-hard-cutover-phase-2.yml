@@ -1,0 +1,67 @@
+name: Apply hard cutover phase 2
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+    paths:
+      - '.github/cutover/phase-2/**'
+      - '.github/workflows/apply-hard-cutover-phase-2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: hard-cutover-phase-2
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 50
+      - name: Verify and reconstruct phase patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(wc -c < .github/cutover/phase-2/chunk-00.b64)" -eq 5000
+          test "$(wc -c < .github/cutover/phase-2/chunk-01.b64)" -eq 5000
+          test "$(wc -c < .github/cutover/phase-2/chunk-02.b64)" -eq 5000
+          test "$(wc -c < .github/cutover/phase-2/chunk-03.b64)" -eq 3936
+          echo '42dd8157c464fe01e03c01a18d434c1de644623e3d51949fa6883e50bcde11c1  .github/cutover/phase-2/chunk-00.b64' | sha256sum --check
+          echo '61089adf9666b38fe8220baa22b595ed8280ea305a346bec48e3e105c70eb61a  .github/cutover/phase-2/chunk-01.b64' | sha256sum --check
+          echo 'ebad56921807abd6c466b68610063ffc392bce547239c055b515e10d4ddeaae8  .github/cutover/phase-2/chunk-02.b64' | sha256sum --check
+          echo '2a65589327eb18b0103915dc5a53c72e9c040069f41cef8912351d1aa9fd69c0  .github/cutover/phase-2/chunk-03.b64' | sha256sum --check
+          cat .github/cutover/phase-2/chunk-*.b64 > /tmp/phase-2.b64
+          echo 'e5ddd56345fa4c84d7c28d18dcdc7c2aaf93c943cd8892e9c79d7c981199f985  /tmp/phase-2.b64' | sha256sum --check
+          base64 -d /tmp/phase-2.b64 > /tmp/phase-2.patch.gz
+          gzip -t /tmp/phase-2.patch.gz
+          gzip -dc /tmp/phase-2.patch.gz > /tmp/phase-2.patch
+          echo '2dd918704f359a731e24146517c4104e27301cc50266966e82dadcc4f08be0db  /tmp/phase-2.patch' | sha256sum --check
+          git apply --check --3way /tmp/phase-2.patch
+      - name: Apply phase patch
+        run: git apply --index --3way /tmp/phase-2.patch
+      - name: Remove transfer scaffolding
+        run: |
+          rm -rf .github/cutover/phase-2
+          rm -f .github/workflows/apply-hard-cutover-phase-2.yml
+          git add -A
+      - name: Validate terminal pair cutover
+        run: |
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+          ! grep -R --include='*.cs' -E 'UnitCollisionPair|UnitCollisionPairComparer|UnitContactMode' Entities/Unit/Systems/FlowField
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/ContactPairTypes.cs
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/ContactPairTypes.cs.meta
+      - name: Commit hard cutover
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "hard cutover body pairs and contact constraints"
+          git push origin HEAD:codex/simulation-integration
