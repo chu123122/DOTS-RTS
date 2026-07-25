@@ -18,9 +18,9 @@ public partial struct SolveXpbdUnitContactsJob
     private uint CalculateBodySetFingerprint()
     {
         uint fingerprint = 2166136261u;
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            Entity entity = States[bodyIndex].Entity;
+            Entity entity = Bodies[bodyIndex].Entity;
             fingerprint = math.hash(new uint3(
                 fingerprint,
                 unchecked((uint)entity.Index),
@@ -105,7 +105,7 @@ public partial struct SolveXpbdUnitContactsJob
             HorizonDuration = DeltaTime *
                               (endSubstepExclusive - startSubstep) /
                               substepCount,
-            BodyCount = States.Length
+            BodyCount = Bodies.Length
         };
     }
 

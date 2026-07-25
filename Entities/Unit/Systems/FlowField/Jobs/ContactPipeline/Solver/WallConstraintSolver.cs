@@ -23,14 +23,18 @@ public partial struct SolveXpbdUnitContactsJob
         if (!Grid.IsCreated)
             return;
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid || state.InverseMass <= 0f)
+            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            if (!(stateSnapshot.IsInsideSimulationDomain != 0) || stateSnapshot.InverseMass <= 0f)
                 continue;
 
             int2 currentCell = EnvironmentGeometry.WorldToCell(
-                state.PredictedPosition);
+                stateStep.SolvedPosition);
 
             for (int x = -1; x <= 1; x++)
             {
@@ -42,12 +46,12 @@ public partial struct SolveXpbdUnitContactsJob
 
                     float3 wallPosition = ObstacleCellCenter(
                         checkCell,
-                        state.PredictedPosition.y);
-                    float3 delta = state.PredictedPosition - wallPosition;
+                        stateStep.SolvedPosition.y);
+                    float3 delta = stateStep.SolvedPosition - wallPosition;
                     delta.y = 0f;
                     float distance = math.length(delta);
                     float hardDistance =
-                        CellRadius + math.max(0f, state.Radius);
+                        CellRadius + math.max(0f, stateSnapshot.Radius);
                     if (distance >= hardDistance)
                         continue;
 
@@ -58,10 +62,10 @@ public partial struct SolveXpbdUnitContactsJob
                             EnvironmentGeometry.FlatIndex(checkCell));
                     float3 correction =
                         normal * ((hardDistance - distance) * 0.5f);
-                    state.PredictedPosition += correction;
-                    state.PredictedPosition.y = state.CurrentPosition.y;
-                    state.WallPositionCorrection += correction;
-                    state.TimestepWallCorrection += correction;
+                    stateStep.SolvedPosition += correction;
+                    stateStep.SolvedPosition.y = stateSnapshot.Position.y;
+                    stateStep.WallCorrection += correction;
+                    stateEvidence.WallCorrection += correction;
 
                     float correctionLength = math.length(correction);
                     totalPositionCorrection += correctionLength;
@@ -73,7 +77,11 @@ public partial struct SolveXpbdUnitContactsJob
                 }
             }
 
-            States[bodyIndex] = state;
+            Bodies[bodyIndex] = stateSnapshot;
+            NavigationStates[bodyIndex] = stateNavigation;
+            MotionIntents[bodyIndex] = stateIntent;
+            MotionEvidence[bodyIndex] = stateEvidence;
+            StepStates[bodyIndex] = stateStep;
         }
     }
 }

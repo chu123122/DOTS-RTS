@@ -50,8 +50,10 @@ public partial struct SolveXpbdUnitContactsJob
     private void CaptureSimulationDebuggerPair(
         int substepIndex,
         UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdBodyStepState stepB,
         float3 normal,
         float constraintValue,
         float pairCorrection)
@@ -65,7 +67,9 @@ public partial struct SolveXpbdUnitContactsJob
             substepIndex,
             pair,
             bodyA,
+            stepA,
             bodyB,
+            stepB,
             normal,
             constraintValue,
             pairCorrection));
@@ -74,8 +78,10 @@ public partial struct SolveXpbdUnitContactsJob
     private static SimulationDebuggerPairSample BuildSimulationDebuggerPairSample(
         int substepIndex,
         UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB,
+        CrowdBodySnapshot bodyA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdBodyStepState stepB,
         float3 normal,
         float constraintValue,
         float pairCorrection)
@@ -90,12 +96,12 @@ public partial struct SolveXpbdUnitContactsJob
             GeneratedSubstep = substepIndex,
             FirstActivatedSubstep = active ? substepIndex : -1,
             LastActivatedSubstep = active ? substepIndex : -1,
-            StartSeparation = CalculateStartSeparation(pair, bodyA, bodyB),
+            StartSeparation = CalculateStartSeparation(pair, bodyA, stepA, bodyB, stepB),
             Kind = pair.ContactMode == UnitContactMode.Predictive
                 ? SimulationDebuggerPairKind.PredictiveContact
                 : SimulationDebuggerPairKind.ActualContact,
-            PositionA = bodyA.PredictedPosition,
-            PositionB = bodyB.PredictedPosition,
+            PositionA = stepA.SolvedPosition,
+            PositionB = stepB.SolvedPosition,
             ReferenceNormal = normal,
             CurrentSeparation = constraintValue,
             Lambda = pair.Lambda,
@@ -155,9 +161,9 @@ public partial struct SolveXpbdUnitContactsJob
             return;
 
         int bodyIndex = -1;
-        for (int i = 0; i < States.Length; i++)
+        for (int i = 0; i < Bodies.Length; i++)
         {
-            if (States[i].Entity == DiagnosticSelectedEntity)
+            if (Bodies[i].Entity == DiagnosticSelectedEntity)
             {
                 bodyIndex = i;
                 break;
@@ -166,7 +172,11 @@ public partial struct SolveXpbdUnitContactsJob
         if (bodyIndex < 0)
             return;
 
-        FlowMovementFrameState state = States[bodyIndex];
+        CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+        CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+        CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+        CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+        CrowdBodyStepState stateStep = StepStates[bodyIndex];
         int cachedContacts = 0;
         int activeContacts = 0;
         for (int i = 0; i < SimulationDebuggerSelectedPairs.Length; i++)
@@ -181,17 +191,17 @@ public partial struct SolveXpbdUnitContactsJob
 
         var sample = new SimulationDebuggerUnitSample
         {
-            Entity = state.Entity,
+            Entity = stateSnapshot.Entity,
             BodyIndex = bodyIndex,
-            CurrentPosition = state.CurrentPosition,
-            TimestepStartPosition = state.CurrentPosition,
-            UnconstrainedPosition = state.UnconstrainedPredictedPosition,
-            FinalPosition = state.PredictedPosition,
-            CurrentVelocity = state.CurrentVelocity,
-            SoftAvoidanceVelocity = state.SoftAvoidanceVelocity,
-            ContactCorrection = math.length(state.ContactPositionCorrection.xz),
-            WallCorrection = math.length(state.WallPositionCorrection.xz),
-            SoftNeighborCount = state.SoftAvoidanceNeighborCount,
+            CurrentPosition = stateSnapshot.Position,
+            TimestepStartPosition = stateEvidence.TrajectoryStart,
+            UnconstrainedPosition = stateStep.UnconstrainedPosition,
+            FinalPosition = stateStep.SolvedPosition,
+            CurrentVelocity = stateSnapshot.Velocity,
+            SoftAvoidanceVelocity = stateStep.SoftAvoidanceVelocity,
+            ContactCorrection = math.length(stateStep.ContactCorrection.xz),
+            WallCorrection = math.length(stateStep.WallCorrection.xz),
+            SoftNeighborCount = stateStep.SoftAvoidanceNeighborCount,
             CapturedPairCount = cachedContacts,
             CachedContactCount = cachedContacts,
             ActiveContactCount = activeContacts
@@ -199,7 +209,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         if (EnablePersistentContactCache &&
             TryFindPersistentProxy(
-                state.Entity,
+                stateSnapshot.Entity,
                 out PersistentSweptProxy persistentProxy) &&
             persistentProxy.IsValid != 0)
         {
@@ -227,10 +237,12 @@ public partial struct SolveXpbdUnitContactsJob
 
     private static float CalculateStartSeparation(
         UnitCollisionPair pair,
-        FlowMovementFrameState bodyA,
-        FlowMovementFrameState bodyB)
+        CrowdBodySnapshot bodyA,
+        CrowdBodyStepState stepA,
+        CrowdBodySnapshot bodyB,
+        CrowdBodyStepState stepB)
     {
-        float3 delta = bodyA.StartPosition - bodyB.StartPosition;
+        float3 delta = stepA.SubstepStartPosition - stepB.SubstepStartPosition;
         delta.y = 0f;
         float radiusSum = bodyA.Radius + bodyB.Radius;
         if (pair.ContactMode == UnitContactMode.Predictive)

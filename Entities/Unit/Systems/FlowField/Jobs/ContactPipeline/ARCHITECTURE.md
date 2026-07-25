@@ -129,7 +129,7 @@ Jacobi implementation.
 
 ## Data contracts
 
-`FlowMovementFrameState` is being migrated without changing the solver math. It
+`retired shared frame state` is being migrated without changing the solver math. It
 already physically composes:
 
 ```text

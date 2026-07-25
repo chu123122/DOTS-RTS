@@ -10,84 +10,94 @@ public partial struct SolveXpbdUnitContactsJob
 {
     private void PredictUnconstrainedPositions(float substepDeltaTime)
     {
-        for (int i = 0; i < States.Length; i++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[i];
-            if (!state.IsInsideGrid)
+            CrowdBodySnapshot body = Bodies[bodyIndex];
+            if (body.IsInsideSimulationDomain == 0)
                 continue;
 
-            // StartPosition saves the trusted separation relation for this substep.
-            state.StartPosition = state.PredictedPosition;
-            state.PreviousSubstepPosition = state.StartPosition;
-            state.ContactPositionCorrection = float3.zero;
-            state.WallPositionCorrection = float3.zero;
+            CrowdNavigationState navigation = NavigationStates[bodyIndex];
+            CrowdBodyStepState step = StepStates[bodyIndex];
 
-            float3 velocity = state.BasePredictedVelocity;
+            step.SubstepStartPosition = step.SolvedPosition;
+            step.PreviousSubstepPosition = step.SubstepStartPosition;
+            step.ContactCorrection = float3.zero;
+            step.WallCorrection = float3.zero;
+
+            float3 velocity = step.BaseVelocity;
             float responseRate = math.max(0f, SoftAvoidanceResponseRate);
-            if (state.IsSettled)
+            if (navigation.IsSettled != 0)
                 responseRate *= math.max(0f, SettledSoftAvoidanceMultiplier);
             velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
                 velocity,
-                state.SoftAvoidanceVelocity,
+                step.SoftAvoidanceVelocity,
                 responseRate,
                 substepDeltaTime,
-                state.MoveSpeed);
-            if (state.IsSettled)
+                body.MoveSpeed);
+            if (navigation.IsSettled != 0)
                 velocity *= math.pow(0.8f, substepDeltaTime * 60f);
 
-            if (math.lengthsq(velocity) > state.MoveSpeed * state.MoveSpeed)
-                velocity = math.normalizesafe(velocity) * state.MoveSpeed;
+            if (math.lengthsq(velocity) > body.MoveSpeed * body.MoveSpeed)
+                velocity = math.normalizesafe(velocity) * body.MoveSpeed;
 
-            state.PredictedPosition = state.StartPosition + velocity * substepDeltaTime;
-            state.PredictedPosition.y = state.CurrentPosition.y;
-            state.UnconstrainedPredictedPosition = state.PredictedPosition;
-            state.VelocityBeforeContact = velocity;
-            state.IntegratedVelocity = velocity;
-            States[i] = state;
+            step.SolvedPosition = step.SubstepStartPosition + velocity * substepDeltaTime;
+            step.SolvedPosition.y = body.Position.y;
+            step.UnconstrainedPosition = step.SolvedPosition;
+            step.VelocityBeforeContact = velocity;
+            step.IntegratedVelocity = velocity;
+            StepStates[bodyIndex] = step;
         }
     }
 
     private void PrepareBaseVelocitiesForSubstep(float substepDeltaTime)
     {
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid)
+            CrowdBodySnapshot body = Bodies[bodyIndex];
+            if (body.IsInsideSimulationDomain == 0)
                 continue;
 
-            state.BasePredictedVelocity = CalculateBaseVelocityForSubstep(
-                state,
+            CrowdNavigationState navigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent intent = MotionIntents[bodyIndex];
+            CrowdBodyStepState step = StepStates[bodyIndex];
+            step.BaseVelocity = CalculateBaseVelocityForSubstep(
+                body,
+                navigation,
+                intent,
+                step,
                 substepDeltaTime);
-            States[bodyIndex] = state;
+            StepStates[bodyIndex] = step;
         }
     }
 
     private float3 CalculateBaseVelocityForSubstep(
-        FlowMovementFrameState state,
+        CrowdBodySnapshot body,
+        CrowdNavigationState navigation,
+        CrowdMotionIntent intent,
+        CrowdBodyStepState step,
         float substepDeltaTime)
     {
-        float3 steeringVelocityError = state.IndependentForce;
-        if (IsObstacleCell(state.CellPosition) &&
+        float3 steeringVelocityError = intent.SteeringVelocityError;
+        if (IsObstacleCell(navigation.Cell) &&
             math.lengthsq(steeringVelocityError) < 0.1f)
         {
-            float3 cellCenter = ObstacleCellCenter(
-                state.CellPosition,
-                state.CurrentPosition.y);
-            float3 escapeDirection = state.PredictedPosition - cellCenter;
-            escapeDirection.y = 0;
+            float3 cellCenter = ObstacleCellCenter(navigation.Cell, body.Position.y);
+            float3 escapeDirection = step.SolvedPosition - cellCenter;
+            escapeDirection.y = 0f;
             escapeDirection = math.normalizesafe(
                 escapeDirection,
-                new float3(1, 0, 0));
-            steeringVelocityError += escapeDirection * state.MoveSpeed * 5f;
+                new float3(1f, 0f, 0f));
+            steeringVelocityError += escapeDirection * body.MoveSpeed * 5f;
         }
 
-        if (math.lengthsq(steeringVelocityError) > state.MaxForce * state.MaxForce)
+        if (math.lengthsq(steeringVelocityError) >
+            body.MaxAcceleration * body.MaxAcceleration)
         {
             steeringVelocityError = math.normalizesafe(steeringVelocityError) *
-                                    state.MaxForce;
+                                    body.MaxAcceleration;
         }
 
-        return state.IntegratedVelocity +
+        return step.IntegratedVelocity +
                steeringVelocityError * substepDeltaTime;
     }
 
@@ -99,35 +109,33 @@ public partial struct SolveXpbdUnitContactsJob
         float speedAfterSum = 0f;
         int simulatedBodyCount = 0;
 
-        for (int i = 0; i < States.Length; i++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[i];
-            if (!state.IsInsideGrid)
+            if (Bodies[bodyIndex].IsInsideSimulationDomain == 0)
                 continue;
 
-            state.IntegratedVelocity =
-                (state.PredictedPosition - state.PreviousSubstepPosition) /
+            CrowdBodyStepState step = StepStates[bodyIndex];
+            step.IntegratedVelocity =
+                (step.SolvedPosition - step.PreviousSubstepPosition) /
                 substepDeltaTime;
-            state.IntegratedVelocity.y = 0;
+            step.IntegratedVelocity.y = 0f;
             float velocityChange = math.distance(
-                state.IntegratedVelocity,
-                state.VelocityBeforeContact);
+                step.IntegratedVelocity,
+                step.VelocityBeforeContact);
             statistics.TotalVelocityChange += velocityChange;
             statistics.MaxVelocityChange = math.max(
                 statistics.MaxVelocityChange,
                 velocityChange);
-            speedBeforeSum += math.length(state.VelocityBeforeContact);
-            speedAfterSum += math.length(state.IntegratedVelocity);
+            speedBeforeSum += math.length(step.VelocityBeforeContact);
+            speedAfterSum += math.length(step.IntegratedVelocity);
             simulatedBodyCount++;
-            States[i] = state;
+            StepStates[bodyIndex] = step;
         }
 
         if (simulatedBodyCount > 0)
         {
-            statistics.AverageSpeedBeforeContact +=
-                speedBeforeSum / simulatedBodyCount;
-            statistics.AverageSpeedAfterContact +=
-                speedAfterSum / simulatedBodyCount;
+            statistics.AverageSpeedBeforeContact += speedBeforeSum / simulatedBodyCount;
+            statistics.AverageSpeedAfterContact += speedAfterSum / simulatedBodyCount;
         }
     }
 }

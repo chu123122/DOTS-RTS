@@ -8,8 +8,9 @@ paths = {
     "base": ROOT / "BaseFlowMovementSystem.cs",
     "composition": ROOT / "BaseFlowMovementComposition.cs",
     "resources": ROOT / "ContactPipelineResources.cs",
-    "frame": ROOT / "Jobs/FlowMovementFrameState.cs",
-    "intent": ROOT / "Jobs/CalculateIndependentFlowForceJob.cs",
+    "intent": ROOT / "Jobs/BuildCrowdMotionIntentJob.cs",
+    "result": ROOT / "Jobs/BuildCrowdBodyResultsJob.cs",
+    "apply": ROOT / "Jobs/ApplyFlowMovementJob.cs",
     "body_contracts": PIPE / "Core/CrowdSimulationDataContracts.cs",
     "environment": PIPE / "Core/CrowdEnvironmentViews.cs",
     "configuration": PIPE / "Core/ContactPipelineConfiguration.cs",
@@ -97,19 +98,37 @@ for required in ("CacheGeneration", "statistics.Timestep = completedStep.Simulat
     if required not in text["telemetry"] + text["pipeline_snapshot"]:
         raise SystemExit(f"Step/cache identity separation missing: {required}")
 
+retired_body_paths = (
+    ROOT / "Jobs/FlowMovementFrameState.cs",
+    ROOT / "Jobs/FlowMovementFrameState.cs.meta",
+    ROOT / "Jobs/CalculateIndependentFlowForceJob.cs",
+    ROOT / "Jobs/CalculateIndependentFlowForceJob.cs.meta",
+)
+for retired in retired_body_paths:
+    if retired.exists():
+        raise SystemExit(f"Retired body compatibility path still exists: {retired}")
+
 for required in (
-    "public CrowdBodySnapshot Body;",
-    "public CrowdNavigationState Navigation;",
-    "public CrowdMotionIntent MotionIntent;",
+    "NativeArray<CrowdBodySnapshot> Bodies",
+    "NativeArray<CrowdNavigationState> NavigationStates",
+    "NativeArray<CrowdMotionIntent> MotionIntents",
 ):
-    if required not in text["frame"]:
-        raise SystemExit(f"Frame state did not adopt explicit data contract: {required}")
-for forbidden in ("FlowFieldCell", "NavigationCell", "public FlowFieldCell Cell"):
-    if forbidden in text["frame"]:
-        raise SystemExit(f"Frame state again retains complete navigation cells: {forbidden}")
-for required in ("Navigation.IsBlocked", "MotionIntent.PreferredVelocity"):
-    if required not in text["intent"] + text["parallel"]:
-        raise SystemExit(f"Compact navigation semantic missing: {required}")
+    if required not in text["intent"]:
+        raise SystemExit(f"Movement-intent stage misses direct product: {required}")
+for required in (
+    "NativeArray<CrowdMotionEvidence> MotionEvidence",
+    "NativeArray<CrowdBodyStepState> StepStates",
+):
+    if required not in text["resources"] + text["composition"]:
+        raise SystemExit(f"Crowd-step product is not wired directly: {required}")
+if "NativeArray<CrowdBodyResult> Results" not in text["result"] + text["apply"]:
+    raise SystemExit("Detached crowd results are not the ECS writeback product")
+for forbidden in ("FlowMovementFrameState", "CalculateIndependentFlowForceJob", "IndependentForce"):
+    for cs_path in ROOT.rglob("*.cs"):
+        if forbidden in cs_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Retired body compatibility symbol remains in {cs_path}: {forbidden}")
+if "FlowNavigationView" not in text["intent"]:
+    raise SystemExit("Navigation intent bypasses FlowNavigationView")
 
 for required in (
     "ContactConstraintDefinition",

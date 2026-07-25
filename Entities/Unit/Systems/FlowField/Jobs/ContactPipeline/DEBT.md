@@ -29,10 +29,6 @@
 - `BaseFlowMovementComposition` still expands individual Native containers into
   that compatibility ABI. It should shrink into certifier, soft, motion, assembly
   and solver-specific contexts without adding synchronization points.
-- Timestep/substep vectors remain flat in `FlowMovementFrameState` because several
-  existing Burst jobs pass them through `ref`/`out`. They should migrate into
-  `CrowdMotionEvidence` and `CrowdBodyStepState` in a dedicated differential-tested
-  batch.
 - P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
   Native containers to remain direct job fields. Their interpretation is now routed
   through `GridObstacleView`; a future backend split may change storage without
@@ -65,10 +61,9 @@
 
 ## Terminology debt
 
-- `IndependentForce` and serialized `MaxForce` remain compatibility names. Runtime
-  semantics are preferred velocity plus steering velocity error integrated under a
-  velocity-change-rate cap; authoring migration should use `FormerlySerializedAs`
-  before final renaming.
+- Serialized `UnitMovementSettings.MaxForce` is still an authoring-schema name.
+  Runtime products use `MaxAcceleration` and `SteeringVelocityError`; asset-schema
+  renaming should use `FormerlySerializedAs` in a separate authoring migration.
 - `ReciprocalVelocityObstacle` is a compatibility enum name. The implemented math
   is pairwise reciprocal closest-approach velocity correction, not ORCA/RVO2 linear
   programming and not acceleration-velocity-obstacle set construction.

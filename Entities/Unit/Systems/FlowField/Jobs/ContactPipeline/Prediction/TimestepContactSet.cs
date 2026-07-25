@@ -30,38 +30,49 @@ public partial struct SolveXpbdUnitContactsJob
         float margin = math.max(0f, TimestepContactMargin);
         float skin = math.max(0f, PredictiveSkin);
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid)
+            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 continue;
 
             float3 start = fromSolvedPosition
-                ? state.PredictedPosition
-                : state.CurrentPosition;
+                ? stateStep.SolvedPosition
+                : stateSnapshot.Position;
             float3 velocity = fromSolvedPosition
-                ? state.BasePredictedVelocity
-                : CalculateBaseVelocityForSubstep(state, duration);
-            if (state.IsSettled)
+                ? stateStep.BaseVelocity
+                : CalculateBaseVelocityForSubstep(
+                    stateSnapshot, stateNavigation, stateIntent, stateStep, duration);
+            if ((stateNavigation.IsSettled != 0))
                 velocity *= math.pow(0.8f, duration * 60f);
-            if (math.lengthsq(velocity) > state.MoveSpeed * state.MoveSpeed)
-                velocity = math.normalizesafe(velocity) * state.MoveSpeed;
+            if (math.lengthsq(velocity) > stateSnapshot.MoveSpeed * stateSnapshot.MoveSpeed)
+                velocity = math.normalizesafe(velocity) * stateSnapshot.MoveSpeed;
 
             float3 end = start + velocity * duration;
-            end.y = state.CurrentPosition.y;
-            float extent = math.max(0f, state.Radius) + skin + margin;
-            state.TimestepStartPosition = start;
-            state.TimestepPredictedPosition = end;
-            state.BasePredictedVelocity = velocity;
-            state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
-            state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            end.y = stateSnapshot.Position.y;
+            float extent = math.max(0f, stateSnapshot.Radius) + skin + margin;
+            stateEvidence.TrajectoryStart = start;
+            stateEvidence.BaselineEnd = end;
+            stateStep.BaseVelocity = velocity;
+            stateEvidence.ContactEnvelopeMin = math.min(start.xz, end.xz) - extent;
+            stateEvidence.ContactEnvelopeMax = math.max(start.xz, end.xz) + extent;
             CalculateIncrementalTightSweptBounds(
-                state,
-                out state.TimestepInteractionEnvelopeMin,
-                out state.TimestepInteractionEnvelopeMax);
+                stateSnapshot,
+                stateEvidence,
+                stateStep,
+                out stateEvidence.InteractionEnvelopeMin,
+                out stateEvidence.InteractionEnvelopeMax);
             if (!fromSolvedPosition)
-                state.TimestepEscaped = 0;
-            States[bodyIndex] = state;
+                stateEvidence.EnvelopeEscaped = 0;
+            Bodies[bodyIndex] = stateSnapshot;
+            NavigationStates[bodyIndex] = stateNavigation;
+            MotionIntents[bodyIndex] = stateIntent;
+            MotionEvidence[bodyIndex] = stateEvidence;
+            StepStates[bodyIndex] = stateStep;
         }
     }
 
@@ -70,25 +81,35 @@ public partial struct SolveXpbdUnitContactsJob
         float margin = math.max(0f, TimestepContactMargin);
         float skin = math.max(0f, PredictiveSkin);
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[bodyIndex];
-            if (!state.IsInsideGrid)
+            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 continue;
 
-            float3 start = state.StartPosition;
-            float3 end = state.PredictedPosition;
-            float extent = math.max(0f, state.Radius) + skin + margin;
-            state.TimestepStartPosition = start;
-            state.TimestepPredictedPosition = end;
-            state.TimestepEnvelopeMin = math.min(start.xz, end.xz) - extent;
-            state.TimestepEnvelopeMax = math.max(start.xz, end.xz) + extent;
+            float3 start = stateStep.SubstepStartPosition;
+            float3 end = stateStep.SolvedPosition;
+            float extent = math.max(0f, stateSnapshot.Radius) + skin + margin;
+            stateEvidence.TrajectoryStart = start;
+            stateEvidence.BaselineEnd = end;
+            stateEvidence.ContactEnvelopeMin = math.min(start.xz, end.xz) - extent;
+            stateEvidence.ContactEnvelopeMax = math.max(start.xz, end.xz) + extent;
             CalculateIncrementalTightSweptBounds(
-                state,
-                out state.TimestepInteractionEnvelopeMin,
-                out state.TimestepInteractionEnvelopeMax);
-            state.TimestepEscaped = 0;
-            States[bodyIndex] = state;
+                stateSnapshot,
+                stateEvidence,
+                stateStep,
+                out stateEvidence.InteractionEnvelopeMin,
+                out stateEvidence.InteractionEnvelopeMax);
+            stateEvidence.EnvelopeEscaped = 0;
+            Bodies[bodyIndex] = stateSnapshot;
+            NavigationStates[bodyIndex] = stateNavigation;
+            MotionIntents[bodyIndex] = stateIntent;
+            MotionEvidence[bodyIndex] = stateEvidence;
+            StepStates[bodyIndex] = stateStep;
         }
     }
 
@@ -363,15 +384,19 @@ public partial struct SolveXpbdUnitContactsJob
         if (!EnableDiagnostics)
             return;
 
-        for (int bodyIndex = 0; bodyIndex < States.Length; bodyIndex++)
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            FlowMovementFrameState state = States[bodyIndex];
+            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
+            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
+            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
+            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
+            CrowdBodyStepState stateStep = StepStates[bodyIndex];
             HeatSamples[bodyIndex] = new Stage3ContactHeatSample
             {
-                Entity = state.Entity,
-                Position = state.PredictedPosition,
-                ContactCorrection = math.length(state.TimestepContactCorrection),
-                Escaped = state.TimestepEscaped
+                Entity = stateSnapshot.Entity,
+                Position = stateStep.SolvedPosition,
+                ContactCorrection = math.length(stateEvidence.ContactCorrection),
+                Escaped = stateEvidence.EnvelopeEscaped
             };
         }
 
