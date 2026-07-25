@@ -23,6 +23,8 @@
 - The aggregate `BaseFlowMovementComposition` and `ContactPipelineResources` files
   have been deleted. Persistent candidates, body products, certification products,
   soft scratch, solver scratch and execution state have independent owners.
+- The `Jobs/Compatibility` type graveyard has been deleted. Its Adaptive Fat-AABB
+  records had no production or serialization references and were not migrated.
 - Architecture contracts are protected by a dedicated static CI workflow.
 
 ## Remaining capability-boundary debt

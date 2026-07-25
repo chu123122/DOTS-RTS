@@ -250,6 +250,7 @@ migration:
 - scheduled step identity cannot be derived from cache generation;
 - compact views must be signed at their common commit boundary;
 - the retired all-capability solver type and environment-access partial cannot return;
+- aggregate composition/resource bags and the `Jobs/Compatibility` graveyard cannot return;
 - the scheduling composition cannot become another `IJob`;
 - SoftAvoidance, Motion and Wall stages cannot reach persistent candidate fields;
 - serial environment stages cannot interpret navigation cost directly;
