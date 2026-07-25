@@ -398,7 +398,7 @@ public partial struct InteractionCertificationJob
 
     private PersistentPredictiveContact ClassifyPersistentNeighborPair(
         StableEntityPairKey key,
-        ContactConstraint rawPair,
+        BodyPair rawPair,
         CrowdBodySnapshot bodyASnapshot,
         CrowdMotionEvidence bodyAEvidence,
         CrowdBodySnapshot bodyBSnapshot,
@@ -1623,7 +1623,7 @@ public partial struct InteractionCertificationJob
                 out PersistentSweptProxy proxyB);
             PersistentPredictiveContact contact = ClassifyPersistentNeighborPair(
                 key,
-                rawPair,
+                new BodyPair(rawPair.BodyA, rawPair.BodyB),
                 bodyASnapshot,
                 bodyAEvidence,
                 bodyBSnapshot,

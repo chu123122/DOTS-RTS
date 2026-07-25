@@ -2,6 +2,8 @@ using Unity.Collections;
 using Unity.Mathematics;
 using Unity.Profiling.LowLevel.Unsafe;
 using RTS.Unit.FlowField.Diagnostics;
+using Unity.Entities;
+
 namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
@@ -504,7 +506,7 @@ public partial struct InteractionCertificationJob
         ParallelJacobiIterationTelemetry iteration = iterationState.Value;
         for (int blockIndex = 0; blockIndex < bodyBlockCount; blockIndex++)
         {
-            int bodyIndex = blockIndex * ParallelBodyBatchSize;
+            int bodyIndex = blockIndex * CrowdContactPipelineScheduler.ParallelBodyBatchSize;
             ParallelBodyStageResult body = ParallelBodyStatistics[bodyIndex];
             iteration.TotalWallPositionCorrection += body.Total;
             iteration.MaxWallPositionCorrection = math.max(
@@ -544,7 +546,7 @@ public partial struct InteractionCertificationJob
                 TimestepContactPairs.Length);
         }
         blockStatistics.ResizeUninitialized(
-            (TimestepContactPairs.Length + JacobiPairBatchSize - 1) / JacobiPairBatchSize);
+            (TimestepContactPairs.Length + CrowdContactPipelineScheduler.JacobiPairBatchSize - 1) / CrowdContactPipelineScheduler.JacobiPairBatchSize);
 #endif
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);

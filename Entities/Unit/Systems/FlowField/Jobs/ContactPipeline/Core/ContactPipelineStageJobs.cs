@@ -162,6 +162,9 @@ public partial struct InteractionCertificationJob : IJob
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
     private ContactPositionSolverMode ContactPositionSolver => Configuration.ContactPositionSolver;
 
+    private FlowGridGeometry EnvironmentGeometry =>
+        new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
+
     private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
         IncrementalStatistics.Value;
