@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_pipeline_audit.py'
+      - '.github/scripts/validate_contact_architecture.py'
       - '.github/workflows/contact-pipeline-static-checks.yml'
   push:
     branches:
@@ -11,6 +13,8 @@ on:
       - 'codex/**'
     paths:
       - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_pipeline_audit.py'
+      - '.github/scripts/validate_contact_architecture.py'
       - '.github/workflows/contact-pipeline-static-checks.yml'
 
 permissions:
@@ -22,134 +26,178 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reject legacy execution symbols
+      - name: Validate authoritative architecture contracts
+        run: |
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_architecture.py
+
+      - name: Validate terminal source ownership
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           import re
+
           flow = Path('Entities/Unit/Systems/FlowField')
-          source = '\n'.join(p.read_text(encoding='utf-8') for p in flow.rglob('*.cs'))
-          names = [
+          pipeline = flow / 'Jobs/ContactPipeline'
+          workflows = Path('.github/workflows')
+          sources = {
+              path: path.read_text(encoding='utf-8')
+              for path in flow.rglob('*.cs')
+          }
+          production = '\n'.join(sources.values())
+
+          legacy_symbols = (
               'BuildAdaptiveFatAabbHotspots',
               'BuildAdaptiveHybridContactPairs',
               'BuildContactPairsFromFatAabbCache',
               'EnsureFatAabbRawCandidates',
               'UpdateAdaptiveFatAabbHistoryAfterSolve',
-              'AreCorrectedDiscsInsideFatCache'
+              'AreCorrectedDiscsInsideFatCache',
+              'ShadowStatistics',
+              'LegacyBroadPhaseStatistics',
+              'LegacyBroadPhaseSource',
+              'MappedFatCachePairs',
+              'FlowMovementFrameState',
+              'UnitCollisionPair',
+              'SolveXpbdUnitContactsJob',
+              'BaseFlowMovementComposition',
+              'ContactFrameResources',
+              'ContactPersistentState',
+          )
+          returned = [
+              token for token in legacy_symbols
+              if re.search(rf'\b{re.escape(token)}\b', production)
           ]
-          found = [name for name in names if re.search(rf'\b{re.escape(name)}\b', source)]
-          if found:
-              raise SystemExit('Legacy execution symbols returned: ' + ', '.join(found))
-          PY
+          if returned:
+              raise SystemExit('Retired contact symbols returned: ' + repr(returned))
 
-      - name: Reject ShadowStatistics field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'ShadowStatistics'
+          forbidden_paths = (
+              flow / 'Jobs/Legacy',
+              flow / 'Jobs/Compatibility',
+              flow / 'Jobs/Compatibility.meta',
+              flow / 'Jobs/FlowMovementFrameState.cs',
+              flow / 'Jobs/CalculateIndependentFlowForceJob.cs',
+              flow / 'BaseFlowMovementComposition.cs',
+              flow / 'ContactPipelineResources.cs',
+              pipeline / 'Core/SolveXpbdUnitContactsJob.cs',
+              pipeline / 'Core/ContactPairTypes.cs',
+              pipeline / 'Core/CrowdEnvironmentAccess.cs',
+          )
+          present = [str(path) for path in forbidden_paths if path.exists()]
+          if present:
+              raise SystemExit('Retired files returned: ' + repr(present))
 
-      - name: Reject LegacyBroadPhaseStatistics field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'LegacyBroadPhaseStatistics'
-
-      - name: Reject LegacyBroadPhaseSource field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'LegacyBroadPhaseSource'
-
-      - name: Reject MappedFatCachePairs field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'MappedFatCachePairs'
-
-      - name: Reject legacy jobs hierarchy
-        shell: bash
-        run: |
-          set -euo pipefail
-          test ! -e Entities/Unit/Systems/FlowField/Jobs/Legacy
-
-      - name: Validate compatibility boundary and scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
-          production = '\n'.join(p.read_text(encoding='utf-8') for p in pipeline.rglob('*.cs'))
-          occurrences = [
-              str(path) for path in pipeline.rglob('*.cs')
-              if 'PersistentGuardEnvelopeMargin' in path.read_text(encoding='utf-8')
+          margin_paths = [
+              path for path, text in sources.items()
+              if 'PersistentGuardEnvelopeMargin' in text
           ]
-          expected = str(pipeline / 'Core/ContactPipelineConfiguration.cs')
-          if occurrences != [expected]:
+          expected_margin = [pipeline / 'Core/ContactPipelineConfiguration.cs']
+          if margin_paths != expected_margin:
               raise SystemExit(
-                  'Serialized FatAabb margin escaped compatibility boundary: ' +
-                  repr(occurrences))
+                  'Serialized margin escaped configuration boundary: ' +
+                  repr(margin_paths))
+
           if re.search(
                   r'\b(?:SleepingBody|SleepingIsland|ContactIslandSleeping)\b',
                   production):
               raise SystemExit(
                   'Sleeping policy introduced without a dedicated design stage')
-          PY
 
-      - name: Validate final type ownership contracts
-        run: python .github/scripts/validate_contact_type_ownership.py
+          ownership = {
+              r'\bpublic\s+struct\s+BodyPair\b':
+                  pipeline / 'Core/BodyPair.cs',
+              r'\bpublic\s+struct\s+ContactConstraint\b':
+                  pipeline / 'Core/ContactConstraint.cs',
+              r'\bpublic\s+struct\s+SweptDiscCellEntry\b':
+                  pipeline / 'BroadPhase/SweptDiscTypes.cs',
+              r'\bpublic\s+struct\s+IncrementalContactCacheState\b':
+                  pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs',
+              r'\bpublic\s+struct\s+IncrementalContactPipelineStatistics\b':
+                  flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs',
+          }
+          for pattern, expected_path in ownership.items():
+              paths = [
+                  path for path, text in sources.items()
+                  if re.search(pattern, text)
+              ]
+              if paths != [expected_path]:
+                  raise SystemExit(
+                      f'{pattern} ownership mismatch: {paths}')
 
-      - name: Validate diagnostics source layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          root = Path('Entities/Unit/Systems/FlowField')
-          expected = [
-              root / 'Diagnostics/Capture/ContactPipelineTelemetry.cs',
-              root / 'Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs',
-              root / 'Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs',
-              root / 'Diagnostics/Capture/Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
-              root / 'Diagnostics/Capture/Jobs/Stage3ContactDiagnosticRecorder.cs',
-              root / 'Diagnostics/Instrumentation/ContactPipelineProfilerClock.cs',
-              root / 'Diagnostics/Validation/IncrementalContactOracle.cs',
-              root / 'Diagnostics/README.md'
-          ]
-          missing = [str(path) for path in expected if not path.exists()]
+          solver_math = (
+              pipeline / 'Solver/XpbdContactSolver.cs'
+          ).read_text(encoding='utf-8')
+          internal_tokens = (
+              'internal struct ContactConstraintEvaluation',
+              'internal static class XpbdContactConstraintMath',
+              'internal static ContactConstraintEvaluation Evaluate(',
+          )
+          missing = [token for token in internal_tokens if token not in solver_math]
+          if missing:
+              raise SystemExit(
+                  'Solver-local evaluation accessibility mismatch: ' + repr(missing))
+
+          runtime_types = (
+              pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs'
+          ).read_text(encoding='utf-8')
+          telemetry = (
+              flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs'
+          ).read_text(encoding='utf-8')
+          if 'Nanoseconds' in runtime_types or 'OraclePairCount' in runtime_types:
+              raise SystemExit('Telemetry leaked into authoritative runtime state')
+          if 'IncrementalContactCacheState' in telemetry:
+              raise SystemExit('Runtime cache state leaked into telemetry schema')
+
+          temporary_patterns = (
+              'refactor-contact-pipeline-phase*.yml',
+              'audit-*.yml',
+              'apply-hard-cutover*.yml',
+              'diagnose-*.yml',
+              'export-cutover-source.yml',
+              'fix-contact-*.yml',
+              'update-parallel-jacobi-contract.yml',
+          )
+          temporary = []
+          for pattern in temporary_patterns:
+              temporary.extend(workflows.glob(pattern))
+          if temporary:
+              raise SystemExit(
+                  'Temporary workflows remain: ' +
+                  repr(sorted(map(str, temporary))))
+
+          expected_diagnostics = (
+              flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs',
+              flow / 'Diagnostics/Capture/IncrementalContactPipelineDiagnostics.cs',
+              flow / 'Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs',
+              flow / 'Diagnostics/Capture/Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
+              flow / 'Diagnostics/Capture/Jobs/Stage3ContactDiagnosticRecorder.cs',
+              flow / 'Diagnostics/Instrumentation/ContactPipelineProfilerClock.cs',
+              flow / 'Diagnostics/Validation/IncrementalContactOracle.cs',
+              flow / 'Diagnostics/README.md',
+          )
+          missing = [str(path) for path in expected_diagnostics if not path.exists()]
           if missing:
               raise SystemExit('Diagnostics ownership files missing: ' + repr(missing))
-          legacy = [
-              root / 'Diagnostics/ContactPipelineTelemetry.cs',
-              root / 'Diagnostics/IncrementalContactPipelineDiagnostics.cs',
-              root / 'Diagnostics/SimulationDebuggerSnapshotPublishing.cs',
-              root / 'Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
-              root / 'Jobs/Stage3ContactDiagnosticRecorder.cs',
-              root / 'Jobs/IncrementalContactOracle.cs',
-              root / 'Jobs/ContactPipeline/Core/ContactPipelineProfilerClock.cs'
-          ]
-          returned = [str(path) for path in legacy if path.exists()]
-          if returned:
-              raise SystemExit('Diagnostics files returned to runtime folders: ' + repr(returned))
-          PY
 
-      - name: Validate diagnostics schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          csv_path = Path(
-              'Entities/Unit/Systems/FlowField/Diagnostics/Recording/'
-              'IncrementalContactPipelineCsvRecorder.cs')
-          csv_text = csv_path.read_text(encoding='utf-8')
+          legacy_diagnostics = (
+              flow / 'Diagnostics/ContactPipelineTelemetry.cs',
+              flow / 'Diagnostics/IncrementalContactPipelineDiagnostics.cs',
+              flow / 'Diagnostics/SimulationDebuggerSnapshotPublishing.cs',
+              flow / 'Jobs/PublishPredictiveDiscContactStatisticsJob.cs',
+              flow / 'Jobs/Stage3ContactDiagnosticRecorder.cs',
+              flow / 'Jobs/IncrementalContactOracle.cs',
+              pipeline / 'Core/ContactPipelineProfilerClock.cs',
+          )
+          returned = [str(path) for path in legacy_diagnostics if path.exists()]
+          if returned:
+              raise SystemExit(
+                  'Diagnostics files returned to runtime folders: ' + repr(returned))
+
+          csv_text = (
+              flow / 'Diagnostics/Recording/IncrementalContactPipelineCsvRecorder.cs'
+          ).read_text(encoding='utf-8')
           if 'CsvSchemaVersion = 7' not in csv_text:
               raise SystemExit('Unexpected contact CSV schema')
           if ('LegacyCacheUseCount' in csv_text or
@@ -157,109 +205,131 @@ jobs:
               raise SystemExit('Legacy CSV columns returned')
           PY
 
-      - name: Validate parallel Jacobi contracts
+      - name: Validate parallel Jacobi ownership
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
+
           solver = Path(
               'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
               'ParallelJacobiSolver.cs').read_text(encoding='utf-8')
           p1p6 = Path(
               'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
               'ParallelContactPipelineP1P6.cs').read_text(encoding='utf-8')
+          resources = Path(
+              'Entities/Unit/Systems/FlowField/ConstraintSolverFrameResources.cs'
+          ).read_text(encoding='utf-8')
+          stage_jobs = Path(
+              'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/'
+              'ContactPipelineStageJobs.cs').read_text(encoding='utf-8')
           base = Path(
               'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs'
           ).read_text(encoding='utf-8')
-          required_solver = [
-              'IJobParallelForDefer',
-              'EvaluateParallelJacobiPairsJob',
-              'GatherAndApplyParallelJacobiBodiesJob',
-              'ActiveIncidentOffsets',
-              'ScheduleParallelJacobi'
-          ]
-          required_capture = [
-              'EvaluateParallelJacobiPairsWithDiagnosticsJob',
-              'ParallelSimulationDebuggerPairCandidates',
-              'CountParallelSimulationDebuggerPairBlocksJob',
-              'PrefixParallelSimulationDebuggerPairsJob',
-              'ScatterParallelSimulationDebuggerPairsJob',
-              'MergeParallelSimulationDebuggerPairsJob'
-          ]
-          missing = [token for token in required_solver if token not in solver]
-          missing += [token for token in required_capture if token not in p1p6]
+
+          contracts = {
+              'parallel solver': (
+                  solver,
+                  (
+                      'IJobParallelForDefer',
+                      'EvaluateParallelJacobiPairsJob',
+                      'GatherAndApplyParallelJacobiBodiesJob',
+                  )),
+              'P1-P6 scheduler': (
+                  p1p6,
+                  (
+                      'ScheduleParallelJacobiP1P6',
+                      'EvaluateParallelJacobiPairsWithDiagnosticsJob',
+                      'ParallelSimulationDebuggerPairCandidates',
+                      'CountParallelSimulationDebuggerPairBlocksJob',
+                      'PrefixParallelSimulationDebuggerPairsJob',
+                      'ScatterParallelSimulationDebuggerPairsJob',
+                      'ConstraintSolverOperation.MergeParallelDebuggerPairs',
+                  )),
+              'solver resources': (
+                  resources,
+                  (
+                      'ActiveIncidentOffsets',
+                      'ActiveIncidentPairIndices',
+                      'JacobiPairCorrections',
+                  )),
+              'constraint stage': (
+                  stage_jobs,
+                  (
+                      'MergeParallelDebuggerPairs',
+                      'ConstraintSolverOperation',
+                  )),
+          }
+          missing = []
+          for owner, (text, tokens) in contracts.items():
+              missing.extend(
+                  f'{owner}: {token}' for token in tokens if token not in text)
           if missing:
-              raise SystemExit('Parallel Jacobi contract missing: ' + repr(missing))
+              raise SystemExit(
+                  'Parallel Jacobi contract missing: ' + repr(missing))
+
           if 'Interlocked' in solver or 'Atomic' in solver:
-              raise SystemExit('Parallel Jacobi must not use floating-point atomics')
+              raise SystemExit(
+                  'Parallel Jacobi must not use floating-point atomics')
           if 'requiresSerialJacobiCapture' in base:
-              raise SystemExit('Selected-pair capture must not change the Jacobi backend')
+              raise SystemExit(
+                  'Selected-pair capture must not change the Jacobi backend')
           if ('bool useParallelJacobi = usesJacobiScratch;' not in base or
                   'captureParallelSelectedPairs' not in base):
               raise SystemExit(
                   'Selected-pair capture must use the parallel pair-slot path')
           PY
 
-      - name: Validate diagnostics build profile
+      - name: Validate diagnostics build profile and source structure
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
-          editor_settings = Path(
-              'Entities/Unit/Systems/FlowField/Editor/'
-              'SimulationDiagnosticsBuildSettings.cs')
-          compile_status = Path(
-              'Entities/Unit/Systems/FlowField/Diagnostics/'
-              'SimulationDiagnosticsCompileStatus.cs')
-          asset = Path(
-              'Entities/Unit/Systems/FlowField/Editor/'
-              'SimulationDiagnosticsBuildSettings.asset')
+
+          root = Path('Entities/Unit/Systems/FlowField')
+          editor_settings = root / 'Editor/SimulationDiagnosticsBuildSettings.cs'
+          compile_status = root / 'Diagnostics/SimulationDiagnosticsCompileStatus.cs'
+          asset = root / 'Editor/SimulationDiagnosticsBuildSettings.asset'
           for path in (editor_settings, compile_status, asset):
               if not path.exists():
                   raise SystemExit(f'Missing diagnostics build artifact: {path}')
+
           editor_text = editor_settings.read_text(encoding='utf-8')
-          required = [
+          required = (
               'RTS_CONTACT_DIAGNOSTICS',
               'PlayerSettings.GetScriptingDefineSymbols',
               'PlayerSettings.SetScriptingDefineSymbols',
               'Editor Diagnostics',
               'Development Diagnostics',
-              'Release Gameplay Only'
-          ]
+              'Release Gameplay Only',
+          )
           missing = [token for token in required if token not in editor_text]
           if missing:
               raise SystemExit(
                   'Diagnostics build settings contract missing: ' + repr(missing))
-          runtime_text = compile_status.read_text(encoding='utf-8')
-          if 'UnityEditor' in runtime_text:
-              raise SystemExit('Runtime compile status must not reference UnityEditor')
-          PY
 
-      - name: Validate simple source structure
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          roots = [
-              Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline'),
-              Path('Entities/Unit/Systems/FlowField/Diagnostics/Capture'),
-              Path('Entities/Unit/Systems/FlowField/Diagnostics/Instrumentation'),
-              Path('Entities/Unit/Systems/FlowField/Diagnostics/Validation')
-          ]
-          for root in roots:
-              for path in root.rglob('*.cs'):
+          if 'UnityEditor' in compile_status.read_text(encoding='utf-8'):
+              raise SystemExit(
+                  'Runtime compile status must not reference UnityEditor')
+
+          roots = (
+              root / 'Jobs/ContactPipeline',
+              root / 'Diagnostics/Capture',
+              root / 'Diagnostics/Instrumentation',
+              root / 'Diagnostics/Validation',
+          )
+          for source_root in roots:
+              for path in source_root.rglob('*.cs'):
                   text = path.read_text(encoding='utf-8')
                   if text.count('{') != text.count('}'):
                       raise SystemExit(f'Brace mismatch: {path}')
           PY
-
 
   diagnostics-compile-boundaries:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate diagnostics compile boundaries
-        run: python .github/scripts/validate_contact_diagnostics.py
+        run: python3 .github/scripts/validate_contact_diagnostics.py
