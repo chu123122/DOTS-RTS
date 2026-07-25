@@ -1,0 +1,37 @@
+name: Apply hard cutover phase 1
+
+on:
+  push:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/cutover/phase-1/**'
+      - '.github/workflows/apply-hard-cutover-phase-1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 1
+      - name: Restore phase patch
+        run: |
+          cat .github/cutover/phase-1/chunk-*.b64 | base64 -d | gzip -d > /tmp/phase-1.patch
+          git apply --index /tmp/phase-1.patch
+      - name: Validate source contracts
+        run: |
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+      - name: Commit hard cutover
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "hard cutover crowd body data"
+          git push origin HEAD:codex/simulation-integration
