@@ -8,7 +8,7 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public partial struct SolveXpbdUnitContactsJob
+public partial struct ConstraintSolverJob
 {
     private void AccumulateConstraintStatistics(
         ref PredictiveDiscContactStatistics statistics,
@@ -219,22 +219,10 @@ public partial struct SolveXpbdUnitContactsJob
             TimestepWallCorrection = selectedEvidence.WallCorrection
         };
 
-        if (EnablePersistentContactCache &&
-            TryFindPersistentProxy(
-                selectedSnapshot.Entity,
-                out PersistentSweptProxy proxy) &&
-            proxy.IsValid != 0)
-        {
-            float coreExtent = math.max(0f, selectedSnapshot.Radius) +
-                               math.max(0f, PredictiveSkin);
-            float2 finalMin = selectedStep.SolvedPosition.xz - coreExtent;
-            float2 finalMax = selectedStep.SolvedPosition.xz + coreExtent;
-            selectedDiagnostic.ShadowReferenceAvailable = 1;
-            selectedDiagnostic.ShadowEscaped =
-                (byte)(AabbContains(proxy.GuardMin, proxy.GuardMax, finalMin, finalMax) ? 0 : 1);
-            selectedDiagnostic.ShadowFatMin = proxy.GuardMin;
-            selectedDiagnostic.ShadowFatMax = proxy.GuardMax;
-        }
+        selectedDiagnostic.ShadowReferenceAvailable = 1;
+        selectedDiagnostic.ShadowEscaped = selectedEvidence.EnvelopeEscaped;
+        selectedDiagnostic.ShadowFatMin = selectedEvidence.InteractionEnvelopeMin;
+        selectedDiagnostic.ShadowFatMax = selectedEvidence.InteractionEnvelopeMax;
 
         SelectedBodyDiagnostic.Value = selectedDiagnostic;
 

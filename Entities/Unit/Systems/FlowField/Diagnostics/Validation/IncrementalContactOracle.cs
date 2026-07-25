@@ -3,7 +3,7 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
     /// <summary>
     /// Diagnostic-only O(N^2) oracle. It evaluates the exact swept-disc test
@@ -74,7 +74,7 @@ public partial struct SolveXpbdUnitContactsJob
             }
         }
 
-        SortAndDeduplicateBodyPairs(IncrementalOracleContactPairs);
+        ContactPipelineShared.SortAndDeduplicateBodyPairs(IncrementalOracleContactPairs);
         int missingPairCount = 0;
         int extraPairCount = 0;
 

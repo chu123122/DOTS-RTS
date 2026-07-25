@@ -8,7 +8,7 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
     private void BuildSweptInteractionPairs(ref PredictiveDiscContactStatistics statistics)
     {
@@ -59,7 +59,7 @@ public partial struct SolveXpbdUnitContactsJob
         SweptCellEntries.AsArray().Sort(new SweptDiscCellEntryComparer());
         EmitCellPairs();
         SortAndDeduplicatePairs();
-        CopyConstraintsToBodyPairs(Pairs.AsArray(), TimestepInteractionPairs);
+        ContactPipelineShared.CopyConstraintsToBodyPairs(Pairs.AsArray(), TimestepInteractionPairs);
     }
 
     private void EmitCellPairs()
@@ -210,7 +210,7 @@ public partial struct SolveXpbdUnitContactsJob
             predictiveNormal.y = 0f;
             pair.PredictiveNormal = math.normalizesafe(
                 predictiveNormal,
-                DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
+                ContactPipelineMath.DeterministicFallbackNormal(pair.BodyA, pair.BodyB));
             Pairs[writeIndex++] = pair;
 
             if (isDormant)

@@ -8,7 +8,7 @@ namespace RTS.Unit.FlowField.Jobs
 /// current backend is the grid obstacle view; navigation-cell costs are not part
 /// of this stage's public semantics.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct ConstraintSolverJob
 {
     private void SolveWallConstraintIteration(
         bool trackCorrectedBodies,
@@ -41,10 +41,10 @@ public partial struct SolveXpbdUnitContactsJob
                 for (int y = -1; y <= 1; y++)
                 {
                     int2 checkCell = currentCell + new int2(x, y);
-                    if (!IsObstacleCell(checkCell))
+                    if (!GridObstacleView.IsBlocked(Grid, EnvironmentGeometry, checkCell))
                         continue;
 
-                    float3 wallPosition = ObstacleCellCenter(
+                    float3 wallPosition = GridObstacleView.CellCenter(EnvironmentGeometry,
                         checkCell,
                         stateStep.SolvedPosition.y);
                     float3 delta = stateStep.SolvedPosition - wallPosition;
@@ -57,7 +57,7 @@ public partial struct SolveXpbdUnitContactsJob
 
                     float3 normal = distance > 0.00001f
                         ? delta / distance
-                        : DeterministicFallbackNormal(
+                        : ContactPipelineMath.DeterministicFallbackNormal(
                             bodyIndex,
                             EnvironmentGeometry.FlatIndex(checkCell));
                     float3 correction =

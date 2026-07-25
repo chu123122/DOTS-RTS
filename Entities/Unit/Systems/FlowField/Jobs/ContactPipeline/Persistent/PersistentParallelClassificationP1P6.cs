@@ -41,30 +41,20 @@ public struct PersistentClassificationTelemetryState
 /// P5C separates persistent-pair classification into a serial prepare phase,
 /// a pair-exclusive parallel evaluation phase and a deterministic serial commit.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
     private const int PersistentClassificationBatchSize = 64;
 
-    public NativeList<PersistentPairClassificationResult> PersistentClassificationResults;
-    public NativeReference<PersistentClassificationPhaseState> PersistentClassificationState;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
-#endif
 
-    public NativeParallelMultiHashMap<int, int> PersistentSpatialMembership;
-    public NativeReference<uint> PersistentSpatialMembershipEpoch;
-    public NativeArray<uint> PersistentSpatialVisitStampByProxy;
-    public NativeReference<uint> PersistentSpatialVisitStamp;
 
-    private JobHandle ScheduleInitialPersistentContactSetP1P6(
+    internal JobHandle ScheduleInitialPersistentContactSetP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         JobHandle dependency)
     {
-        JobHandle handle = new PreparePersistentClassificationP1P6Job
-        {
-            Solver = this,
-            RuntimeState = runtimeState
-        }.Schedule(dependency);
+        InteractionCertificationJob prepare = this;
+        prepare.Operation = InteractionCertificationOperation.PreparePersistentClassificationP1P6;
+        prepare.RuntimeState = runtimeState;
+        JobHandle handle = prepare.Schedule(dependency);
 
         var evaluateJob = new EvaluatePersistentPairClassificationsP1P6Job
         {
@@ -97,24 +87,13 @@ public partial struct SolveXpbdUnitContactsJob
             PersistentClassificationBatchSize,
             handle);
 
-        return new CommitPersistentClassificationP1P6Job
-        {
-            Solver = this,
-            RuntimeState = runtimeState
-        }.Schedule(handle);
+        InteractionCertificationJob commit = this;
+        commit.Operation = InteractionCertificationOperation.CommitPersistentClassificationP1P6;
+        commit.RuntimeState = runtimeState;
+        return commit.Schedule(handle);
     }
 
-    [BurstCompile]
-    private struct PreparePersistentClassificationP1P6Job : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
-        public void Execute()
-        {
-            Solver.PreparePersistentClassificationP1P6(RuntimeState);
-        }
-    }
 
     [BurstCompile]
     private struct EvaluatePersistentPairClassificationsP1P6Job : IJobParallelForDefer
@@ -223,17 +202,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct CommitPersistentClassificationP1P6Job : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
 
-        public void Execute()
-        {
-            Solver.CommitPersistentClassificationP1P6(RuntimeState);
-        }
-    }
 
     private void PreparePersistentClassificationP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
@@ -304,7 +273,7 @@ public partial struct SolveXpbdUnitContactsJob
             ref incrementalStatistics,
             out int topologyDirtyCount,
             out bool entitySetDirty);
-        incrementalStatistics.ProxyValidationNanoseconds += TimestampToNanoseconds(
+        incrementalStatistics.ProxyValidationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - validationStart);
 
         float dirtyRatio = Bodies.Length > 0
@@ -321,7 +290,7 @@ public partial struct SolveXpbdUnitContactsJob
             FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
             RebuildPersistentSpatialMembershipP1P6(
                 IncrementalCacheState.Value.TopologyEpoch);
-            long elapsed = TimestampToNanoseconds(
+            long elapsed = ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - buildStart);
             long localElapsed =
                 incrementalStatistics.LocalBroadPhaseNanoseconds - localBefore;
@@ -344,7 +313,7 @@ public partial struct SolveXpbdUnitContactsJob
             {
                 AdvancePersistentCacheTimestepP1P6(ref incrementalStatistics);
             }
-            long elapsed = TimestampToNanoseconds(
+            long elapsed = ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - repairStart);
             long localElapsed =
                 incrementalStatistics.LocalBroadPhaseNanoseconds - localBefore;
@@ -358,7 +327,7 @@ public partial struct SolveXpbdUnitContactsJob
                 ref statistics,
                 ref incrementalStatistics))
         {
-            incrementalStatistics.SweptClassificationNanoseconds += TimestampToNanoseconds(
+            incrementalStatistics.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - classificationStart);
             incrementalStatistics.PersistentNeighborPairCount =
                 PersistentNeighborPairs.Length;
@@ -377,7 +346,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         long mappingStart = ProfilerUnsafeUtility.Timestamp;
         bool mapped = MapPersistentNeighborPairsToCurrentBodies();
-        incrementalStatistics.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
+        incrementalStatistics.PersistentPairMappingNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - mappingStart);
         if (mapped)
             return true;
@@ -388,7 +357,7 @@ public partial struct SolveXpbdUnitContactsJob
         TimestepInteractionPairs.Clear();
         long fullSweepStart = ProfilerUnsafeUtility.Timestamp;
         BuildSweptInteractionPairs(ref statistics);
-        incrementalStatistics.FullSweepSourceNanoseconds += TimestampToNanoseconds(
+        incrementalStatistics.FullSweepSourceNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - fullSweepStart);
         incrementalStatistics.UsedFullRebuild = 1;
         incrementalStatistics.CurrentInteractionPairCount =
@@ -503,7 +472,7 @@ public partial struct SolveXpbdUnitContactsJob
 #if RTS_CONTACT_DIAGNOSTICS
         PersistentClassificationTelemetryState telemetry =
             PersistentClassificationTelemetry.Value;
-        incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
+        incremental.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
         FinalizePersistentBuildTimingP1P6(
             telemetry.BuildStartTimestamp,
@@ -521,7 +490,7 @@ public partial struct SolveXpbdUnitContactsJob
         long startTimestamp,
         ref PredictiveDiscContactStatistics statistics)
     {
-        long elapsed = TimestampToNanoseconds(
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - startTimestamp);
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
         statistics.PairGenerationNanoseconds += elapsed;
@@ -649,7 +618,7 @@ public partial struct SolveXpbdUnitContactsJob
                     if (other.IsValid == 0 || other.Entity == dirtyProxy.Entity)
                         continue;
                     incrementalStatistics.LocalProxyQueryCount++;
-                    if (!AabbOverlaps(
+                    if (!ContactPipelineShared.AabbOverlaps(
                             dirtyProxy.GuardMin,
                             dirtyProxy.GuardMax,
                             other.GuardMin,
@@ -826,7 +795,7 @@ public partial struct SolveXpbdUnitContactsJob
         stableNormal.y = 0f;
         stableNormal = math.normalizesafe(
             stableNormal,
-            DeterministicFallbackNormal(rawPair.BodyA, rawPair.BodyB));
+            ContactPipelineMath.DeterministicFallbackNormal(rawPair.BodyA, rawPair.BodyB));
 
         ushort firstPossibleSubstep = 0;
         if (lifecycle == PersistentContactLifecycle.Dormant)

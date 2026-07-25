@@ -72,23 +72,12 @@ internal enum StagedContactPipelinePhase : byte
 /// Independent body/pair work runs in parallel; topology mutation, repair and
 /// deterministic compaction remain serialized at explicit phase boundaries.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct CrowdContactPipelineScheduler
 {
     private const int ParallelBodyBatchSize = 64;
     private const int SoftPairBatchSize = 64;
 
-    public NativeArray<byte> EnvelopeEscapeFlags;
-    public NativeArray<ParallelBodyStageResult> ParallelBodyStatistics;
-    // Dedicated block counts/offsets for dirty, escape and corrected-body compaction.
-    // SoftIncidentWriteCursors is now reserved for the soft incident index only.
-    public NativeArray<int> DirtyBodyBlockOffsets;
-    public NativeArray<int> SoftIncidentOffsets;
-    public NativeArray<int> SoftIncidentWriteCursors;
-    public NativeList<int> SoftIncidentPairIndices;
-    public NativeList<SoftAvoidancePairContribution> SoftPairContributions;
-    public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
-    public NativeParallelMultiHashMap<Entity, int> PersistentIncidentPairLookup;
-    public NativeReference<uint> PersistentIncidentLookupEpoch;
+
 
     public JobHandle ScheduleParallelJacobiP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState,
@@ -98,11 +87,10 @@ public partial struct SolveXpbdUnitContactsJob
 #endif
         JobHandle dependency)
     {
-        JobHandle handle = new InitializeP1P6PipelineJob
-        {
-            Solver = this,
-            RuntimeState = runtimeState
-        }.Schedule(dependency);
+        ContactPipelineLifecycleJob initialize = Lifecycle;
+        initialize.Operation = ContactPipelineLifecycleOperation.InitializeParallel;
+        initialize.RuntimeState = runtimeState;
+        JobHandle handle = initialize.Schedule(dependency);
 
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
@@ -120,11 +108,10 @@ public partial struct SolveXpbdUnitContactsJob
         if (substepDeltaTime <= 0f)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            return new FinalizeParallelJacobiPipelineJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState
-            }.Schedule(handle);
+            ConstraintSolverJob finalizePipeline = ConstraintSolver;
+            finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizePipeline.RuntimeState = runtimeState;
+            return finalizePipeline.Schedule(handle);
 #else
             return handle;
 #endif
@@ -184,17 +171,16 @@ public partial struct SolveXpbdUnitContactsJob
         if (Configuration.EnableTimestepContactSetCache &&
             Configuration.EnablePersistentContactCache)
         {
-            handle = ScheduleInitialPersistentContactSetP1P6(
+            handle = Certification.ScheduleInitialPersistentContactSetP1P6(
                 runtimeState,
                 handle);
         }
         else
         {
-            handle = new BuildInitialP1P6ContactSetJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState
-            }.Schedule(handle);
+            InteractionCertificationJob buildInitial = Certification;
+            buildInitial.Operation = InteractionCertificationOperation.BuildInitialP1P6;
+            buildInitial.RuntimeState = runtimeState;
+            handle = buildInitial.Schedule(handle);
         }
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
@@ -282,12 +268,11 @@ public partial struct SolveXpbdUnitContactsJob
                 BodyCount = Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new FinalizeP1P6EnvelopeEscapesJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                SubstepIndex = substepIndex
-            }.Schedule(handle);
+            InteractionCertificationJob finalizeEscapes = Certification;
+            finalizeEscapes.Operation = InteractionCertificationOperation.FinalizeEnvelopeEscapesP1P6;
+            finalizeEscapes.RuntimeState = runtimeState;
+            finalizeEscapes.SubstepIndex = substepIndex;
+            handle = finalizeEscapes.Schedule(handle);
 
             handle = new PrepareP1P6RepairPredictionBodiesJob
             {
@@ -311,12 +296,11 @@ public partial struct SolveXpbdUnitContactsJob
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);
 
-            handle = new PrepareP1P6SubstepRepairClassificationJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                SubstepIndex = substepIndex
-            }.Schedule(handle);
+            InteractionCertificationJob prepareRepair = Certification;
+            prepareRepair.Operation = InteractionCertificationOperation.PrepareSubstepRepairP1P6;
+            prepareRepair.RuntimeState = runtimeState;
+            prepareRepair.SubstepIndex = substepIndex;
+            handle = prepareRepair.Schedule(handle);
 
             handle = new EvaluatePersistentPairClassificationsP1P6Job
             {
@@ -345,21 +329,19 @@ public partial struct SolveXpbdUnitContactsJob
                 ScheduleStartSubstep = substepIndex
             }.Schedule(PersistentClassificationResults, SoftPairBatchSize, handle);
 
-            handle = new CommitP1P6SubstepRepairClassificationJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                SubstepIndex = substepIndex
-            }.Schedule(handle);
+            InteractionCertificationJob commitRepair = Certification;
+            commitRepair.Operation = InteractionCertificationOperation.CommitSubstepRepairP1P6;
+            commitRepair.RuntimeState = runtimeState;
+            commitRepair.SubstepIndex = substepIndex;
+            handle = commitRepair.Schedule(handle);
 
-            handle = new PrepareP1P6SoftWorksetJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState
+            SoftAvoidanceJob prepareSoft = SoftAvoidance;
+            prepareSoft.Operation = SoftAvoidanceOperation.PrepareParallelWorkset;
+            prepareSoft.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
-                , BlockStatistics = blockStatistics
+            prepareSoft.BlockStatistics = blockStatistics;
 #endif
-            }.Schedule(handle);
+            handle = prepareSoft.Schedule(handle);
 
             handle = new InitializeSoftAvoidanceBodiesJob
             {
@@ -432,14 +414,13 @@ public partial struct SolveXpbdUnitContactsJob
                 BodyCount = Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new FinalizeP1P6SoftAvoidanceJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                BlockStatistics = blockStatistics,
-                EscapeCountsByBlock = DirtyBodyBlockOffsets,
-                EscapeBlockCount = escapeBlockCount
-            }.Schedule(handle);
+            SoftAvoidanceJob finalizeSoft = SoftAvoidance;
+            finalizeSoft.Operation = SoftAvoidanceOperation.FinalizeParallel;
+            finalizeSoft.RuntimeState = runtimeState;
+            finalizeSoft.BlockStatistics = blockStatistics;
+            finalizeSoft.EscapeCountsByBlock = DirtyBodyBlockOffsets;
+            finalizeSoft.EscapeBlockCount = escapeBlockCount;
+            handle = finalizeSoft.Schedule(handle);
 #endif
 
             handle = new PredictUnconstrainedBodiesJob
@@ -496,12 +477,11 @@ public partial struct SolveXpbdUnitContactsJob
                 BodyCount = Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new FinalizeP1P6PreparedSubstepJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                SubstepIndex = substepIndex
-            }.Schedule(handle);
+            InteractionCertificationJob finalizePrepared = Certification;
+            finalizePrepared.Operation = InteractionCertificationOperation.FinalizePreparedSubstepP1P6;
+            finalizePrepared.RuntimeState = runtimeState;
+            finalizePrepared.SubstepIndex = substepIndex;
+            handle = finalizePrepared.Schedule(handle);
 
             handle = new ResetContactPairStateJob
             {
@@ -510,15 +490,14 @@ public partial struct SolveXpbdUnitContactsJob
 
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
             {
-                handle = new BeginP1P6IterationJob
-                {
-                    Solver = this,
-                    RuntimeState = runtimeState,
+                ConstraintSolverJob beginIteration = ConstraintSolver;
+                beginIteration.Operation = ConstraintSolverOperation.BeginParallelIteration;
+                beginIteration.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
-                    IterationState = iterationState,
+                beginIteration.IterationState = iterationState;
 #endif
-                    SubstepIndex = substepIndex
-                }.Schedule(handle);
+                beginIteration.SubstepIndex = substepIndex;
+                handle = beginIteration.Schedule(handle);
 
                 handle = new SolveWallConstraintBodiesJob
                 {
@@ -558,17 +537,16 @@ public partial struct SolveXpbdUnitContactsJob
                     BodyCount = Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
-                handle = new FinalizeP1P6WallIterationJob
-                {
-                    Solver = this,
-                    RuntimeState = runtimeState,
+                InteractionCertificationJob finalizeWall = Certification;
+                finalizeWall.Operation = InteractionCertificationOperation.FinalizeWallIterationP1P6;
+                finalizeWall.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
-                    IterationState = iterationState,
-                    BlockStatistics = blockStatistics,
+                finalizeWall.IterationState = iterationState;
+                finalizeWall.BlockStatistics = blockStatistics;
 #endif
-                    SubstepIndex = substepIndex,
-                    BodyBlockCount = escapeBlockCount
-                }.Schedule(handle);
+                finalizeWall.SubstepIndex = substepIndex;
+                finalizeWall.BodyBlockCount = escapeBlockCount;
+                handle = finalizeWall.Schedule(handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
                 if (captureSelectedPairs)
@@ -647,10 +625,9 @@ public partial struct SolveXpbdUnitContactsJob
                             ParallelSimulationDebuggerPairScratch.AsDeferredJobArray()
                     }.Schedule(blockStatistics, 1, handle);
 
-                    handle = new MergeParallelSimulationDebuggerPairsJob
-                    {
-                        Solver = this
-                    }.Schedule(handle);
+                    ConstraintSolverJob mergeDebuggerPairs = ConstraintSolver;
+                    mergeDebuggerPairs.Operation = ConstraintSolverOperation.MergeParallelDebuggerPairs;
+                    handle = mergeDebuggerPairs.Schedule(handle);
                 }
 #endif
 
@@ -668,25 +645,29 @@ public partial struct SolveXpbdUnitContactsJob
                     CorrectedBodyFlags = CorrectedBodyFlags
                 }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
-                handle = new FinalizeParallelJacobiIterationJob
-                {
-                    Solver = this,
-                    RuntimeState = runtimeState,
+                InteractionCertificationJob finalizeContact = Certification;
+                finalizeContact.Operation = InteractionCertificationOperation.FinalizeContactIterationP1P6;
+                finalizeContact.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
-                    IterationState = iterationState,
-                    BlockStatistics = blockStatistics,
+                finalizeContact.IterationState = iterationState;
+                finalizeContact.BlockStatistics = blockStatistics;
 #endif
-                    SubstepIndex = substepIndex,
-                    IterationIndex = iterationIndex
-                }.Schedule(handle);
+                finalizeContact.SubstepIndex = substepIndex;
+                finalizeContact.IterationIndex = iterationIndex;
+                handle = finalizeContact.Schedule(handle);
+
+                ConstraintSolverJob recovery = ConstraintSolver;
+                recovery.Operation = ConstraintSolverOperation.SolveParallelRecovery;
+                recovery.RuntimeState = runtimeState;
+                recovery.SubstepIndex = substepIndex;
+                handle = recovery.Schedule(handle);
             }
 
 #if RTS_CONTACT_DIAGNOSTICS
-            handle = new BeginP1P6FinalizeSubstepJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState
-            }.Schedule(handle);
+            ConstraintSolverJob beginFinalizeSubstep = ConstraintSolver;
+            beginFinalizeSubstep.Operation = ConstraintSolverOperation.BeginParallelFinalizeSubstep;
+            beginFinalizeSubstep.RuntimeState = runtimeState;
+            handle = beginFinalizeSubstep.Schedule(handle);
 #endif
 
             handle = new ReconstructVelocityBodiesJob
@@ -707,41 +688,27 @@ public partial struct SolveXpbdUnitContactsJob
                 BodyCount = Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new FinalizeP1P6VelocityStatisticsJob
-            {
-                Solver = this,
-                RuntimeState = runtimeState,
-                BlockCount = escapeBlockCount
-            }.Schedule(handle);
+            ConstraintSolverJob finalizeVelocity = ConstraintSolver;
+            finalizeVelocity.Operation = ConstraintSolverOperation.FinalizeParallelVelocity;
+            finalizeVelocity.RuntimeState = runtimeState;
+            finalizeVelocity.BlockCount = escapeBlockCount;
+            handle = finalizeVelocity.Schedule(handle);
 #endif
         }
 
 #if RTS_CONTACT_DIAGNOSTICS
-        return new FinalizeParallelJacobiPipelineJob
-        {
-            Solver = this,
-            RuntimeState = runtimeState
-        }.Schedule(handle);
+        ConstraintSolverJob finalizePipeline = ConstraintSolver;
+        finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+        finalizePipeline.RuntimeState = runtimeState;
+        return finalizePipeline.Schedule(handle);
 #else
         return handle;
 #endif
     }
 
-    [BurstCompile]
-    private struct InitializeP1P6PipelineJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public void Execute() => Solver.InitializeP1P6Pipeline(RuntimeState);
-    }
 
-    [BurstCompile]
-    private struct BuildInitialP1P6ContactSetJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public void Execute() => Solver.BuildInitialP1P6ContactSet(RuntimeState);
-    }
+
+
 
     [BurstCompile]
     private struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
@@ -779,7 +746,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 if (DetectPersistentDirty != 0)
-                    DirtyFlagsByBody[bodyIndex] = (byte)ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                    DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBodyP1P6(
                         bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                         PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -792,7 +759,7 @@ public partial struct SolveXpbdUnitContactsJob
                 : stateSnapshot.Position;
             float3 velocity = FromSolvedPosition != 0
                 ? stateStep.BaseVelocity
-                : CalculateBaseVelocity(stateSnapshot, stateNavigation, stateIntent, stateStep, Duration, GridOrigin, CellRadius);
+                : ContactPipelineMath.CalculateBaseVelocity(stateSnapshot, stateNavigation, stateIntent, stateStep, Duration, GridOrigin, CellRadius);
             if ((stateNavigation.IsSettled != 0))
                 velocity *= math.pow(0.8f, Duration * 60f);
             if (math.lengthsq(velocity) > stateSnapshot.MoveSpeed * stateSnapshot.MoveSpeed)
@@ -806,7 +773,7 @@ public partial struct SolveXpbdUnitContactsJob
             stateStep.BaseVelocity = velocity;
             stateEvidence.ContactEnvelopeMin = math.min(start.xz, end.xz) - extent;
             stateEvidence.ContactEnvelopeMax = math.max(start.xz, end.xz) + extent;
-            CalculateInteractionBounds(
+            ContactPipelineMath.CalculateInteractionBounds(
                 stateSnapshot,
                 stateEvidence,
                 stateStep,
@@ -826,7 +793,7 @@ public partial struct SolveXpbdUnitContactsJob
             MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
             if (DetectPersistentDirty != 0)
-                DirtyFlagsByBody[bodyIndex] = (byte)ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBodyP1P6(
                     bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                     PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -913,7 +880,7 @@ public partial struct SolveXpbdUnitContactsJob
             CrowdBodyStepState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 return;
-            stateStep.BaseVelocity = CalculateBaseVelocity(
+            stateStep.BaseVelocity = ContactPipelineMath.CalculateBaseVelocity(
                 stateSnapshot,
                 stateNavigation,
                 stateIntent,
@@ -963,7 +930,7 @@ public partial struct SolveXpbdUnitContactsJob
                 EscapeFlags[bodyIndex] = 0;
                 return;
             }
-            CalculateValidationBounds(
+            ContactPipelineMath.CalculateValidationBounds(
                 stateSnapshot,
                 stateEvidence,
                 stateStep,
@@ -975,7 +942,7 @@ public partial struct SolveXpbdUnitContactsJob
                 RvoTimeHorizon,
                 out float2 min,
                 out float2 max);
-            EscapeFlags[bodyIndex] = (byte)(Contains(
+            EscapeFlags[bodyIndex] = (byte)(ContactPipelineMath.Contains(
                 stateEvidence.InteractionEnvelopeMin,
                 stateEvidence.InteractionEnvelopeMax,
                 min,
@@ -1092,14 +1059,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct FinalizeP1P6EnvelopeEscapesJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public void Execute() => Solver.FinalizeP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
-    }
+
 
     [BurstCompile]
     private struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelFor
@@ -1153,7 +1113,7 @@ public partial struct SolveXpbdUnitContactsJob
             stateStep.BaseVelocity = velocity;
             stateEvidence.ContactEnvelopeMin = math.min(start.xz, end.xz) - extent;
             stateEvidence.ContactEnvelopeMax = math.max(start.xz, end.xz) + extent;
-            CalculateInteractionBounds(
+            ContactPipelineMath.CalculateInteractionBounds(
                 stateSnapshot,
                 stateEvidence,
                 stateStep,
@@ -1173,43 +1133,11 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct PrepareP1P6SubstepRepairClassificationJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public void Execute() => Solver.PrepareP1P6SubstepRepairClassification(
-            SubstepIndex,
-            RuntimeState);
-    }
 
-    [BurstCompile]
-    private struct CommitP1P6SubstepRepairClassificationJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public void Execute() => Solver.CommitP1P6SubstepRepairClassification(
-            SubstepIndex,
-            RuntimeState);
-    }
 
-    [BurstCompile]
-    private struct PrepareP1P6SoftWorksetJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-#if RTS_CONTACT_DIAGNOSTICS
-        public NativeList<JacobiBlockTelemetry> BlockStatistics;
-#endif
-        public void Execute() => Solver.PrepareP1P6SoftWorkset(
-            RuntimeState
-#if RTS_CONTACT_DIAGNOSTICS
-            , BlockStatistics
-#endif
-        );
-    }
+
+
+
 
     [BurstCompile]
     private struct InitializeSoftAvoidanceBodiesJob : IJobParallelFor
@@ -1326,7 +1254,7 @@ public partial struct SolveXpbdUnitContactsJob
                     SoftShell,
                     RvoTimeHorizon,
                     SubstepDeltaTime,
-                    DeterministicPairNormal(pair.BodyA, pair.BodyB),
+                    ContactPipelineMath.DeterministicPairNormal(pair.BodyA, pair.BodyB),
                     out result.VelocityA,
                     out result.VelocityB))
             {
@@ -1428,7 +1356,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (ClampToEnvelope != 0)
             {
                 float3 requested = stateStep.SoftAvoidanceVelocity;
-                if (!SoftOutputInsideEnvelope(
+                if (!ContactPipelineMath.SoftOutputInsideEnvelope(
                         stateSnapshot,
                         stateNavigation,
                         stateEvidence,
@@ -1443,7 +1371,7 @@ public partial struct SolveXpbdUnitContactsJob
                 {
                     float lower = 0f;
                     float upper = 1f;
-                    if (SoftOutputInsideEnvelope(
+                    if (ContactPipelineMath.SoftOutputInsideEnvelope(
                             stateSnapshot,
                             stateNavigation,
                             stateEvidence,
@@ -1459,7 +1387,7 @@ public partial struct SolveXpbdUnitContactsJob
                         for (int i = 0; i < 8; i++)
                         {
                             float middle = (lower + upper) * 0.5f;
-                            if (SoftOutputInsideEnvelope(
+                            if (ContactPipelineMath.SoftOutputInsideEnvelope(
                                     stateSnapshot,
                                     stateNavigation,
                                     stateEvidence,
@@ -1508,20 +1436,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct FinalizeP1P6SoftAvoidanceJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        [ReadOnly] public NativeList<JacobiBlockTelemetry> BlockStatistics;
-        [ReadOnly] public NativeArray<int> EscapeCountsByBlock;
-        public int EscapeBlockCount;
-        public void Execute() => Solver.FinalizeP1P6SoftAvoidance(
-            RuntimeState,
-            BlockStatistics,
-            EscapeCountsByBlock,
-            EscapeBlockCount);
-    }
+
 
 #endif
 
@@ -1600,7 +1515,7 @@ public partial struct SolveXpbdUnitContactsJob
                 return;
             }
             float extent = math.max(0f, stateSnapshot.Radius) + math.max(0f, PredictiveSkin);
-            EscapeFlags[bodyIndex] = (byte)(Contains(
+            EscapeFlags[bodyIndex] = (byte)(ContactPipelineMath.Contains(
                 stateEvidence.ContactEnvelopeMin,
                 stateEvidence.ContactEnvelopeMax,
                 stateStep.SolvedPosition.xz - extent,
@@ -1608,14 +1523,7 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct FinalizeP1P6PreparedSubstepJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public void Execute() => Solver.FinalizeP1P6PreparedSubstep(SubstepIndex, RuntimeState);
-    }
+
 
     [BurstCompile]
     private struct ResetContactPairStateJob : IJobParallelForDefer
@@ -1700,32 +1608,11 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct MergeParallelSimulationDebuggerPairsJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public void Execute() => Solver.MergeParallelSimulationDebuggerPairScratch();
-    }
+
 
 #endif
 
-    [BurstCompile]
-    private struct BeginP1P6IterationJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-#if RTS_CONTACT_DIAGNOSTICS
-        public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
-#endif
-        public int SubstepIndex;
-        public void Execute() => Solver.BeginP1P6Iteration(
-            SubstepIndex,
-            RuntimeState
-#if RTS_CONTACT_DIAGNOSTICS
-            , IterationState
-#endif
-        );
-    }
+
 
     [BurstCompile]
     private struct SolveWallConstraintBodiesJob : IJobParallelFor
@@ -1778,7 +1665,7 @@ public partial struct SolveXpbdUnitContactsJob
                             continue;
                         float3 normal = distance > 0.00001f
                             ? delta / distance
-                            : DeterministicPairNormal(bodyIndex, checkIndex);
+                            : ContactPipelineMath.DeterministicPairNormal(bodyIndex, checkIndex);
                         float3 correction = normal * ((hardDistance - distance) * 0.5f);
                         stateStep.SolvedPosition += correction;
                         stateStep.SolvedPosition.y = stateSnapshot.Position.y;
@@ -1877,35 +1764,10 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct FinalizeP1P6WallIterationJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-#if RTS_CONTACT_DIAGNOSTICS
-        public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
-        public NativeList<JacobiBlockTelemetry> BlockStatistics;
-#endif
-        public int SubstepIndex;
-        public int BodyBlockCount;
-        public void Execute() => Solver.FinalizeP1P6WallIteration(
-            SubstepIndex,
-            RuntimeState
-#if RTS_CONTACT_DIAGNOSTICS
-            , IterationState,
-            BlockStatistics
-#endif
-            , BodyBlockCount);
-    }
+
 
 #if RTS_CONTACT_DIAGNOSTICS
-    [BurstCompile]
-    private struct BeginP1P6FinalizeSubstepJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public void Execute() => Solver.BeginP1P6FinalizeSubstep(RuntimeState);
-    }
+
 
 #endif
 
@@ -1979,987 +1841,70 @@ public partial struct SolveXpbdUnitContactsJob
         }
     }
 
-    [BurstCompile]
-    private struct FinalizeP1P6VelocityStatisticsJob : IJob
-    {
-        public SolveXpbdUnitContactsJob Solver;
-        public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-        public int BlockCount;
-        public void Execute() => Solver.FinalizeP1P6VelocityStatistics(
-            RuntimeState,
-            BlockCount);
-    }
+
 
 #endif
 
-    private void InitializeP1P6Pipeline(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        var runtime = new ParallelJacobiExecutionState
-        {
-            IsValid = 1
-        };
-#if RTS_CONTACT_DIAGNOSTICS
-        runtime.SolverStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-#endif
-        var statistics = new PredictiveDiscContactStatistics
-        {
-            TimestepContactSetFirstEscapeSubstep = -1
-        };
-        ResetContactDiagnosticsCapture();
-        StoreIncrementalStatistics(default);
-        StoreContactStatistics(statistics);
-        ActiveIncidentIndexState.Value = default;
 
-        if (DeltaTime / math.max(1, SubstepCount) <= 0f)
-            runtime.IsValid = 0;
-        if (!EnablePersistentContactCache)
-        {
-            PersistentSweptProxies.Clear();
-            PersistentProxyIndexByBody.Clear();
-            PersistentNeighborPairs.Clear();
-            PersistentPredictiveContacts.Clear();
-            if (PersistentSpatialMembership.IsCreated)
-                PersistentSpatialMembership.Clear();
-            if (PersistentSpatialMembershipEpoch.IsCreated)
-                PersistentSpatialMembershipEpoch.Value = 0;
-            if (PersistentIncidentPairLookup.IsCreated)
-                PersistentIncidentPairLookup.Clear();
-            if (PersistentIncidentLookupEpoch.IsCreated)
-                PersistentIncidentLookupEpoch.Value = 0;
-            IncrementalCacheState.Value = default;
-        }
-        runtimeState.Value = runtime;
-    }
 
-    private void BuildInitialP1P6ContactSet(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        if (runtimeState.Value.IsValid == 0 || !EnableTimestepContactSetCache)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        long start = ProfilerUnsafeUtility.Timestamp;
-        BuildOrRefreshTimestepContactViews(ref statistics, ref incremental, false, false);
-        statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - start);
-        RebuildPersistentIncidentPairLookupIfNeededP1P6();
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
 
-    private void FinalizeP1P6EnvelopeEscapes(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        if (runtimeState.Value.IsValid == 0 || !EnableTimestepContactSetCache)
-            return;
 
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int newlyEscaped = CountNewlyEscapedP1P6();
-        if (newlyEscaped > 0)
-        {
-            statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
-            if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
-                statistics.TimestepContactSetFirstEscapeSubstep = substepIndex;
-        }
-        incremental.InteractionEnvelopeEscapeCount += IncrementalDirtyBodies.Length;
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
 
-    private int CountNewlyEscapedP1P6()
-    {
-        int newlyEscaped = 0;
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
-        {
-            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            newlyEscaped += ParallelBodyStatistics[bodyIndex].EscapeCount;
-        }
-        return newlyEscaped;
-    }
 
-    private void PrepareP1P6SubstepRepairClassification(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        PersistentClassificationPhaseState phase = default;
-        PersistentClassificationResults.Clear();
-        PersistentClassificationState.Value = phase;
 
-        if (runtimeState.Value.IsValid == 0)
-            return;
-        if (!EnableTimestepContactSetCache ||
-            !EnablePersistentContactCache ||
-            IncrementalDirtyBodies.Length == 0)
-        {
-            RepairP1P6SubstepContactView(substepIndex, runtimeState);
-            return;
-        }
 
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        long validationStart = ProfilerUnsafeUtility.Timestamp;
-        PrepareCurrentBodyLookup();
-        if (!RefreshPreparedIncrementalDirtyBodiesP1P6(
-                ref incremental,
-                out int topologyDirtyCount))
-        {
-            incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - validationStart);
-            BuildOrRefreshTimestepContactViews(
-                ref statistics,
-                ref incremental,
-                true,
-                true,
-                substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            StoreContactStatistics(statistics);
-            StoreIncrementalStatistics(incremental);
-            return;
-        }
-        incremental.ProxyValidationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - validationStart);
 
-        float dirtyRatio = Bodies.Length > 0
-            ? (float)IncrementalDirtyBodies.Length / Bodies.Length
-            : 1f;
-        if (dirtyRatio > IncrementalDirtyBodyRatioThreshold ||
-            IncrementalCacheState.Value.IsValid == 0)
-        {
-            BuildOrRefreshTimestepContactViews(
-                ref statistics,
-                ref incremental,
-                true,
-                true,
-                substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            StoreContactStatistics(statistics);
-            StoreIncrementalStatistics(incremental);
-            return;
-        }
 
-        long pairDiffStart = ProfilerUnsafeUtility.Timestamp;
-        long localBroadPhaseBefore = incremental.LocalBroadPhaseNanoseconds;
-        if (topologyDirtyCount > 0)
-            IncrementallyRepairPersistentNeighborTopology(ref incremental, false);
-        long pairDiffElapsed = TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - pairDiffStart);
-        long localBroadPhaseElapsed =
-            incremental.LocalBroadPhaseNanoseconds - localBroadPhaseBefore;
-        long pairDiffExclusive = pairDiffElapsed - localBroadPhaseElapsed;
-        incremental.PairDiffNanoseconds += pairDiffExclusive > 0L
-            ? pairDiffExclusive
-            : 0L;
 
-        PreviousTimestepContactPairs.Clear();
-        PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
-        long mappingStart = ProfilerUnsafeUtility.Timestamp;
-        if (!MapDirtyIncidentNeighborPairsToCurrentBodies())
-        {
-            incremental.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - mappingStart);
-            BuildOrRefreshTimestepContactViews(
-                ref statistics,
-                ref incremental,
-                true,
-                true,
-                substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            StoreContactStatistics(statistics);
-            StoreIncrementalStatistics(incremental);
-            return;
-        }
-        incremental.PersistentPairMappingNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - mappingStart);
 
-        RemoveDirtyPredictiveContactSchedules();
-        PredictiveContactScratch.Clear();
-        for (int contactIndex = 0;
-             contactIndex < PersistentPredictiveContacts.Length;
-             contactIndex++)
-        {
-            PersistentPredictiveContact contact =
-                PersistentPredictiveContacts[contactIndex];
-            if (IsDirtyEntity(contact.Key.EntityA) ||
-                IsDirtyEntity(contact.Key.EntityB))
-                continue;
-            PredictiveContactScratch.Add(contact);
-        }
+
+
+
+
+
+
+
 
 #if RTS_CONTACT_DIAGNOSTICS
-        PersistentClassificationTelemetryState telemetry =
-            new PersistentClassificationTelemetryState
-            {
-                BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp
-            };
-        telemetry.ClassificationStartTimestamp = telemetry.BuildStartTimestamp;
-        PersistentClassificationTelemetry.Value = telemetry;
-#endif
-        phase.Timestep = IncrementalCacheState.Value.Timestep;
-        phase.ClassificationEpoch = CalculateClassificationEpoch();
-        phase.NeedsCommit = 2;
-        ClassificationBodyPairs.Clear();
-        CopyConstraintsToBodyPairs(Pairs.AsArray(), ClassificationBodyPairs);
-        PersistentClassificationResults.ResizeUninitialized(
-            ClassificationBodyPairs.Length);
-        PersistentClassificationState.Value = phase;
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
 
-    private void CommitP1P6SubstepRepairClassification(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        PersistentClassificationPhaseState phase =
-            PersistentClassificationState.Value;
-        if (runtimeState.Value.IsValid == 0 || phase.NeedsCommit != 2)
-            return;
 
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int retainedCount = 0;
-        int activeWriteIndex = 0;
-        statistics.CandidatePairCount += PersistentClassificationResults.Length;
-
-        for (int pairIndex = 0;
-             pairIndex < PersistentClassificationResults.Length;
-             pairIndex++)
-        {
-            PersistentPairClassificationResult result =
-                PersistentClassificationResults[pairIndex];
-            BodyPair rawPair = result.RawPair;
-            PersistentPredictiveContact contact = result.Contact;
-            PredictiveContactScratch.Add(contact);
-            if (result.WasReclassified != 0)
-            {
-                incremental.ReclassifiedPairEvaluationCount++;
-                incremental.SweptClassificationEvaluationCount++;
-            }
-            else
-            {
-                incremental.ClassificationReuseCount++;
-                incremental.ClassificationSkippedCount++;
-            }
-            AccumulatePersistentClassificationStatistics(contact, ref statistics);
-
-            if (contact.Lifecycle == PersistentContactLifecycle.Expired)
-                continue;
-            retainedCount++;
-            if (contact.Lifecycle == PersistentContactLifecycle.Dormant)
-            {
-                PredictiveContactSchedule.Add(new PredictiveContactScheduleEntry
-                {
-                    Key = contact.Key,
-                    Substep = contact.NextCheckSubstep
-                });
-                continue;
-            }
-            Pairs[activeWriteIndex++] = BuildContactConstraintFromPersistentContact(
-                rawPair.BodyA,
-                rawPair.BodyB,
-                contact);
-        }
-
-        Pairs.ResizeUninitialized(activeWriteIndex);
-        if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new ContactConstraintComparer());
-        if (PredictiveContactScratch.Length > 1)
-            PredictiveContactScratch.AsArray().Sort(
-                new PersistentPredictiveContactComparer());
-        if (PredictiveContactSchedule.Length > 1)
-            PredictiveContactSchedule.AsArray().Sort(
-                new PredictiveContactScheduleEntryComparer());
-        PredictiveContactScheduleCursor.Value = 0;
-
-        PersistentPredictiveContacts.Clear();
-        PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
-        RebuildPersistentContactViews();
-        RebuildSoftAvoidancePairSetFromPersistentContacts();
-        statistics.ContactPairCount += retainedCount;
-        incremental.CurrentInteractionPairCount = PersistentNeighborPairs.Length;
-        incremental.CurrentSoftAvoidancePairCount = SoftAvoidancePairs.Length;
-        incremental.PersistentViewRebuildCount++;
-
-        IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
-        cacheState.ClassificationEpoch = phase.ClassificationEpoch;
-        cacheState.LastUpdateWasFullRebuild = 0;
-        cacheState.NeighborPairCount = PersistentNeighborPairs.Length;
-        IncrementalCacheState.Value = cacheState;
-
-        RebuildEscapedTimestepContactView(ref statistics, ref incremental);
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
-        {
-            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
-            stateEvidence.EnvelopeEscaped = 0;
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
-            StepStates[bodyIndex] = stateStep;
-        }
-
-        incremental.IncrementalRepairCount++;
-        incremental.UsedIncrementalTopology = 1;
-        incremental.PersistentNeighborPairCount = PersistentNeighborPairs.Length;
-#if RTS_CONTACT_DIAGNOSTICS
-        PersistentClassificationTelemetryState telemetry =
-            PersistentClassificationTelemetry.Value;
-        incremental.SweptClassificationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
-        statistics.TimestepContactSetBuildNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - telemetry.BuildStartTimestamp);
 #endif
 
-        InvalidateSoftIncidentIndexP1P6();
-        RebuildPersistentIncidentPairLookupIfNeededP1P6();
-        phase.NeedsCommit = 0;
-        PersistentClassificationState.Value = phase;
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
 
-    private bool TryFindCurrentIncrementalProxyP1P6(
-        Entity entity,
-        out PersistentSweptProxy proxy,
-        out int proxyIndex)
-    {
-        int low = 0;
-        int high = CurrentIncrementalProxies.Length - 1;
-        while (low <= high)
-        {
-            int middle = (low + high) >> 1;
-            PersistentSweptProxy candidate = CurrentIncrementalProxies[middle];
-            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
-            if (comparison == 0)
-            {
-                proxy = candidate;
-                proxyIndex = middle;
-                return true;
-            }
-            if (comparison < 0)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
-        proxy = default;
-        proxyIndex = -1;
-        return false;
-    }
 
-    private void RepairP1P6SubstepContactView(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        if (runtimeState.Value.IsValid == 0)
-            return;
 
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int substepCount = math.max(1, SubstepCount);
-        float substepDeltaTime = DeltaTime / substepCount;
 
-        if (!EnableTimestepContactSetCache)
-        {
-            long start = ProfilerUnsafeUtility.Timestamp;
-            BuildSubstepInteractionAndSoftViews(ref statistics, ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
-            statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - start);
-        }
-        else if (IncrementalDirtyBodies.Length > 0)
-        {
-            RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
-                substepIndex,
-                ref statistics,
-                ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-        }
 
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
-
-    private void RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
-        int substepIndex,
-        ref PredictiveDiscContactStatistics statistics,
-        ref IncrementalContactPipelineStatistics incrementalStatistics)
-    {
-        int scheduleStartSubstep = substepIndex;
-        if (EnablePersistentContactCache &&
-            TryIncrementallyRepairEscapedContactSet(
-                substepIndex,
-                scheduleStartSubstep,
-                ref statistics,
-                ref incrementalStatistics))
-            return;
-
-        BuildOrRefreshTimestepContactViews(
-            ref statistics,
-            ref incrementalStatistics,
-            true,
-            true,
-            scheduleStartSubstep);
-    }
-
-    private void PrepareP1P6SoftWorkset(
-        NativeReference<ParallelJacobiExecutionState> runtimeState
-#if RTS_CONTACT_DIAGNOSTICS
-        , NativeList<JacobiBlockTelemetry> blockStatistics
-#endif
-        )
-    {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
-        if (runtime.IsValid == 0)
-            return;
-
-        EnsureSoftIncidentIndexP1P6();
-        SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
-#if RTS_CONTACT_DIAGNOSTICS
-        blockStatistics.ResizeUninitialized(
-            (SoftAvoidancePairs.Length + SoftPairBatchSize - 1) / SoftPairBatchSize);
-#if RTS_CONTACT_DIAGNOSTICS
-        runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-#endif
-#endif
-        runtimeState.Value = runtime;
-    }
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private void FinalizeP1P6SoftAvoidance(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        NativeList<JacobiBlockTelemetry> blocks,
-        NativeArray<int> escapeCountsByBlock,
-        int escapeBlockCount)
-    {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
-        if (runtime.IsValid == 0)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int activated = 0;
-        for (int i = 0; i < blocks.Length; i++)
-            activated += blocks[i].NewlyActivatedPairCount;
-        int escaped = 0;
-        for (int blockIndex = 0; blockIndex < escapeBlockCount; blockIndex++)
-            escaped += escapeCountsByBlock[blockIndex];
-        if (EnablePersistentContactCache &&
-            SoftAvoidanceShell > 0f && SoftAvoidanceResponseRate > 0f)
-            statistics.SoftAvoidanceFatAabbUseCount++;
-        statistics.SoftAvoidanceCandidatePairCount += SoftAvoidancePairs.Length;
-        statistics.SoftAvoidanceActivatedPairCount += activated;
-        statistics.SoftAvoidanceEvaluationCount++;
-        statistics.SoftAvoidanceNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - runtime.IterationStartTimestamp);
-        incremental.SoftAvoidancePairEvaluationCount += SoftAvoidancePairs.Length;
-        incremental.InteractionEnvelopeEscapeCount += escaped;
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-    }
+
+
+
 
 #endif
 
-    private void FinalizeP1P6PreparedSubstep(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
-        if (runtime.IsValid == 0)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int substepCount = math.max(1, SubstepCount);
-        float substepDeltaTime = DeltaTime / substepCount;
 
-        int newlyEscaped = CountNewlyEscapedP1P6();
-        if (newlyEscaped > 0)
-        {
-            statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
-            if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
-                statistics.TimestepContactSetFirstEscapeSubstep = substepIndex;
-        }
-        incremental.CorrectedEscapeBodyCount += IncrementalDirtyBodies.Length;
-        bool rebuilt = false;
-        if (IncrementalDirtyBodies.Length > 0)
-        {
-            RepairOrRebuildContactViewForRemainingTime(
-                substepIndex,
-                substepCount,
-                substepDeltaTime,
-                EnableTimestepContactSetCache,
-                ref statistics,
-                ref incremental,
-                false);
-            InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            rebuilt = true;
-        }
-        if (!EnableTimestepContactSetCache && !rebuilt)
-        {
-            // Preserve the reference ordering: first validate the pre-soft swept
-            // envelope, then publish the actual solved substep trajectory used by
-            // Narrow Phase. Preparing this before validation would make every B0
-            // validation trivially pass.
-            PrepareSubstepContactPrediction();
-            long start = ProfilerUnsafeUtility.Timestamp;
-            BuildSubstepContactView(ref statistics, ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
-            statistics.PairGenerationNanoseconds += TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - start);
-        }
 
-        ActivateScheduledPredictiveContactsForSubstep(
-            EnableTimestepContactSetCache ? substepIndex : 0,
-            EnableTimestepContactSetCache ? substepCount : 1,
-            ref incremental);
-        EnsureActiveConstraintIncidentIndexP1P6();
-        statistics.TimestepContactSetSubstepUseCount++;
-#if RTS_CONTACT_DIAGNOSTICS
-        runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-#endif
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-        runtimeState.Value = runtime;
-    }
 
-    private void BeginP1P6Iteration(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState
-#if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ParallelJacobiIterationTelemetry> iterationState
-#endif
-        )
-    {
-        if (runtimeState.Value.IsValid == 0)
-            return;
-#if RTS_CONTACT_DIAGNOSTICS
-        ParallelJacobiIterationTelemetry iteration = default;
-        if (EnableDiagnostics)
-        {
-            MeasureContactResidual(
-                out iteration.MaxViolationBeforeSolve,
-                out iteration.AverageViolationBeforeSolve);
-        }
-#endif
-        ResetCorrectedBodyTracking();
-#if RTS_CONTACT_DIAGNOSTICS
-        iterationState.Value = iteration;
-#endif
-    }
 
-    private void FinalizeP1P6WallIteration(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState
-#if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
-        NativeList<JacobiBlockTelemetry> blockStatistics
-#endif
-        , int bodyBlockCount)
-    {
-        if (runtimeState.Value.IsValid == 0)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-#if RTS_CONTACT_DIAGNOSTICS
-        ParallelJacobiIterationTelemetry iteration = iterationState.Value;
-        for (int blockIndex = 0; blockIndex < bodyBlockCount; blockIndex++)
-        {
-            int bodyIndex = blockIndex * ParallelBodyBatchSize;
-            ParallelBodyStageResult body = ParallelBodyStatistics[bodyIndex];
-            iteration.TotalWallPositionCorrection += body.Total;
-            iteration.MaxWallPositionCorrection = math.max(
-                iteration.MaxWallPositionCorrection,
-                body.Maximum);
-        }
 
-#endif
 
-        if (!ValidateSolverCorrectionContactEnvelope(
-                substepIndex,
-                ref statistics,
-                ref incremental))
-        {
-            int substepCount = math.max(1, SubstepCount);
-            float substepDeltaTime = DeltaTime / substepCount;
-            RepairOrRebuildContactViewForRemainingTime(
-                substepIndex,
-                substepCount,
-                substepDeltaTime,
-                EnableTimestepContactSetCache,
-                ref statistics,
-                ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
-            ResetTimestepContactSetForSubstep();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            ActiveIncidentIndexState.Value = default;
-            EnsureActiveConstraintIncidentIndexP1P6();
-        }
 
-        ResetCorrectedBodyTracking();
-        JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
-#if RTS_CONTACT_DIAGNOSTICS
-        if (ParallelSimulationDebuggerPairCandidates.IsCreated)
-        {
-            ParallelSimulationDebuggerPairCandidates.ResizeUninitialized(
-                TimestepContactPairs.Length);
-        }
-        blockStatistics.ResizeUninitialized(
-            (TimestepContactPairs.Length + JacobiPairBatchSize - 1) / JacobiPairBatchSize);
-#endif
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incremental);
-#if RTS_CONTACT_DIAGNOSTICS
-        iterationState.Value = iteration;
-#endif
-    }
 
-#if RTS_CONTACT_DIAGNOSTICS
-    private void BeginP1P6FinalizeSubstep(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
-    {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
-        if (runtime.IsValid == 0)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        statistics.IterationNanoseconds += TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - runtime.IterationStartTimestamp);
-        AccumulateConstraintStatistics(ref statistics, ref runtime.PenetrationSum);
-        StoreContactStatistics(statistics);
-        runtimeState.Value = runtime;
-    }
 
-    private void FinalizeP1P6VelocityStatistics(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
-        int blockCount)
-    {
-        if (runtimeState.Value.IsValid == 0)
-            return;
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        float speedBefore = 0f;
-        float speedAfter = 0f;
-        int count = 0;
-        for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
-        {
-            int bodyIndex = blockIndex * ParallelBodyBatchSize;
-            ParallelBodyStageResult body = ParallelBodyStatistics[bodyIndex];
-            statistics.TotalVelocityChange += body.Total;
-            statistics.MaxVelocityChange = math.max(statistics.MaxVelocityChange, body.Maximum);
-            speedBefore += body.SecondaryTotal;
-            speedAfter += body.TertiaryTotal;
-            count += body.Count;
-        }
-        if (count > 0)
-        {
-            statistics.AverageSpeedBeforeContact += speedBefore / count;
-            statistics.AverageSpeedAfterContact += speedAfter / count;
-        }
-        StoreContactStatistics(statistics);
-    }
 
-#endif
 
-    private void EnsureSoftIncidentIndexP1P6()
-    {
-        ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
-        if (state.SoftIsValid != 0 &&
-            state.SoftPairCount == SoftAvoidancePairs.Length &&
-            state.SoftBodyCount == Bodies.Length)
-            return;
 
-        BuildSoftIncidentIndexP1P6();
-        state = ActiveIncidentIndexState.Value;
-        state.SoftPairCount = SoftAvoidancePairs.Length;
-        state.SoftBodyCount = Bodies.Length;
-        state.SoftIsValid = 1;
-        ActiveIncidentIndexState.Value = state;
-    }
 
-    private void InvalidateSoftIncidentIndexP1P6()
-    {
-        ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
-        state.SoftIsValid = 0;
-        ActiveIncidentIndexState.Value = state;
-    }
 
-    private void BuildSoftIncidentIndexP1P6()
-    {
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-            SoftIncidentWriteCursors[bodyIndex] = 0;
-        for (int pairIndex = 0; pairIndex < SoftAvoidancePairs.Length; pairIndex++)
-        {
-            BodyPair pair = SoftAvoidancePairs[pairIndex];
-            SoftIncidentWriteCursors[pair.BodyA]++;
-            SoftIncidentWriteCursors[pair.BodyB]++;
-        }
-        int entries = 0;
-        SoftIncidentOffsets[0] = 0;
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-        {
-            entries += SoftIncidentWriteCursors[bodyIndex];
-            SoftIncidentOffsets[bodyIndex + 1] = entries;
-            SoftIncidentWriteCursors[bodyIndex] = SoftIncidentOffsets[bodyIndex];
-        }
-        SoftIncidentPairIndices.ResizeUninitialized(entries);
-        for (int pairIndex = 0; pairIndex < SoftAvoidancePairs.Length; pairIndex++)
-        {
-            BodyPair pair = SoftAvoidancePairs[pairIndex];
-            SoftIncidentPairIndices[SoftIncidentWriteCursors[pair.BodyA]++] = pairIndex;
-            SoftIncidentPairIndices[SoftIncidentWriteCursors[pair.BodyB]++] = pairIndex;
-        }
-    }
 
-    private void EnsureActiveConstraintIncidentIndexP1P6()
-    {
-        if (ContactPositionSolver != ContactPositionSolverMode.Jacobi)
-            return;
-        ulong fingerprint = 1469598103934665603UL;
-        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = TimestepContactPairs[pairIndex];
-            fingerprint = (fingerprint ^ (uint)pair.BodyA) * 1099511628211UL;
-            fingerprint = (fingerprint ^ (uint)pair.BodyB) * 1099511628211UL;
-        }
-        ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
-        if (state.IsValid != 0 &&
-            state.Fingerprint == fingerprint &&
-            state.PairCount == TimestepContactPairs.Length &&
-            state.BodyCount == Bodies.Length)
-            return;
 
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-            ActiveIncidentWriteCursors[bodyIndex] = 0;
-        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = TimestepContactPairs[pairIndex];
-            ActiveIncidentWriteCursors[pair.BodyA]++;
-            ActiveIncidentWriteCursors[pair.BodyB]++;
-        }
-        int entries = 0;
-        ActiveIncidentOffsets[0] = 0;
-        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
-        {
-            entries += ActiveIncidentWriteCursors[bodyIndex];
-            ActiveIncidentOffsets[bodyIndex + 1] = entries;
-            ActiveIncidentWriteCursors[bodyIndex] = ActiveIncidentOffsets[bodyIndex];
-        }
-        ActiveIncidentPairIndices.ResizeUninitialized(entries);
-        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = TimestepContactPairs[pairIndex];
-            ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyA]++] = pairIndex;
-            ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyB]++] = pairIndex;
-        }
-        state = ActiveIncidentIndexState.Value;
-        state.Fingerprint = fingerprint;
-        state.PairCount = TimestepContactPairs.Length;
-        state.BodyCount = Bodies.Length;
-        state.IsValid = 1;
-        ActiveIncidentIndexState.Value = state;
-    }
 
-    private void RebuildPersistentIncidentPairLookupIfNeededP1P6()
-    {
-        if (!EnablePersistentContactCache ||
-            !PersistentIncidentPairLookup.IsCreated ||
-            !PersistentIncidentLookupEpoch.IsCreated)
-            return;
-        uint epoch = IncrementalCacheState.Value.TopologyEpoch;
-        int requiredEntryCount = PersistentNeighborPairs.Length * 2;
-        if (requiredEntryCount > PersistentIncidentPairLookup.Capacity)
-        {
-            // Never publish a partial incident index. The repair caller detects
-            // the invalid epoch and takes the authoritative full-rebuild path.
-            PersistentIncidentPairLookup.Clear();
-            PersistentIncidentLookupEpoch.Value = uint.MaxValue;
-            return;
-        }
-        if (PersistentIncidentLookupEpoch.Value == epoch &&
-            PersistentIncidentPairLookup.Count() == requiredEntryCount)
-            return;
-        PersistentIncidentPairLookup.Clear();
-        for (int pairIndex = 0; pairIndex < PersistentNeighborPairs.Length; pairIndex++)
-        {
-            StableEntityPairKey key = PersistentNeighborPairs[pairIndex].Key;
-            PersistentIncidentPairLookup.Add(key.EntityA, pairIndex);
-            PersistentIncidentPairLookup.Add(key.EntityB, pairIndex);
-        }
-        PersistentIncidentLookupEpoch.Value = epoch;
-    }
 
-    private static float3 CalculateBaseVelocity(
-        CrowdBodySnapshot snapshot,
-        CrowdNavigationState navigation,
-        CrowdMotionIntent intent,
-        CrowdBodyStepState step,
-        float deltaTime,
-        float3 gridOrigin,
-        float cellRadius)
-    {
-        float3 totalForce = intent.SteeringVelocityError;
-        if (navigation.IsBlocked != 0 && math.lengthsq(totalForce) < 0.1f)
-        {
-            float3 center = gridOrigin + new float3(
-                navigation.Cell.x * cellRadius * 2f + cellRadius,
-                snapshot.Position.y,
-                navigation.Cell.y * cellRadius * 2f + cellRadius);
-            float3 escape = step.SolvedPosition - center;
-            escape.y = 0f;
-            totalForce += math.normalizesafe(escape, new float3(1f, 0f, 0f)) *
-                          snapshot.MoveSpeed * 5f;
-        }
-        if (math.lengthsq(totalForce) > snapshot.MaxAcceleration * snapshot.MaxAcceleration)
-            totalForce = math.normalizesafe(totalForce) * snapshot.MaxAcceleration;
-        return step.IntegratedVelocity + totalForce * deltaTime;
-    }
 
-    private static bool Contains(float2 outerMin, float2 outerMax, float2 innerMin, float2 innerMax)
-    {
-        const float tolerance = 0.00001f;
-        return math.all(innerMin >= outerMin - tolerance) &&
-               math.all(innerMax <= outerMax + tolerance);
-    }
 
-    private static float3 DeterministicPairNormal(int a, int b)
-    {
-        return DeterministicFallbackNormal(a, b);
-    }
 
-    private static void CalculateInteractionBounds(
-        CrowdBodySnapshot snapshot,
-        CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
-        float predictiveSkin,
-        float margin,
-        float softShell,
-        float softResponseRate,
-        SoftAvoidanceVelocitySolverMode softSolverMode,
-        float rvoTimeHorizon,
-        out float2 min,
-        out float2 max)
-    {
-        CalculatePathBounds(
-            evidence,
-            step,
-            softShell,
-            softResponseRate,
-            softSolverMode,
-            rvoTimeHorizon,
-            out float2 pathMin,
-            out float2 pathMax);
-        float contactPadding = math.max(0f, predictiveSkin) +
-                               math.max(0f, margin) * 2f;
-        float avoidancePadding = math.max(0f, softShell) * 0.5f;
-        float extent = math.max(0f, snapshot.Radius) +
-                       math.max(contactPadding, avoidancePadding);
-        min = pathMin - extent;
-        max = pathMax + extent;
-    }
 
-    private static void CalculateValidationBounds(
-        CrowdBodySnapshot snapshot,
-        CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
-        float predictiveSkin,
-        float margin,
-        float softShell,
-        float softResponseRate,
-        SoftAvoidanceVelocitySolverMode softSolverMode,
-        float rvoTimeHorizon,
-        out float2 min,
-        out float2 max)
-    {
-        CalculatePathBounds(
-            evidence,
-            step,
-            softShell,
-            softResponseRate,
-            softSolverMode,
-            rvoTimeHorizon,
-            out float2 pathMin,
-            out float2 pathMax);
-        float contactPadding = math.max(0f, predictiveSkin) + math.max(0f, margin);
-        float avoidancePadding = math.max(0f, softShell) * 0.5f;
-        float extent = math.max(0f, snapshot.Radius) +
-                       math.max(contactPadding, avoidancePadding);
-        min = pathMin - extent;
-        max = pathMax + extent;
-    }
 
-    private static void CalculatePathBounds(
-        CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
-        float softShell,
-        float softResponseRate,
-        SoftAvoidanceVelocitySolverMode softSolverMode,
-        float rvoTimeHorizon,
-        out float2 min,
-        out float2 max)
-    {
-        min = math.min(
-            evidence.TrajectoryStart.xz,
-            math.min(
-                evidence.BaselineEnd.xz,
-                math.min(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
-        max = math.max(
-            evidence.TrajectoryStart.xz,
-            math.max(
-                evidence.BaselineEnd.xz,
-                math.max(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
-        if (softSolverMode != SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
-            softShell <= 0f || softResponseRate <= 0f)
-            return;
-        float2 horizonEnd = step.SolvedPosition.xz +
-                            step.BaseVelocity.xz * math.max(0f, rvoTimeHorizon);
-        min = math.min(min, horizonEnd);
-        max = math.max(max, horizonEnd);
-    }
-
-    private static bool SoftOutputInsideEnvelope(
-        CrowdBodySnapshot snapshot,
-        CrowdNavigationState navigation,
-        CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
-        float3 avoidance,
-        float responseRate,
-        float settledMultiplier,
-        float deltaTime,
-        float predictiveSkin,
-        float margin,
-        float softShell)
-    {
-        float response = math.max(0f, responseRate);
-        if ((navigation.IsSettled != 0))
-            response *= math.max(0f, settledMultiplier);
-        float3 velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
-            step.BaseVelocity,
-            avoidance,
-            response,
-            deltaTime,
-            snapshot.MoveSpeed);
-        if ((navigation.IsSettled != 0))
-            velocity *= math.pow(0.8f, deltaTime * 60f);
-        if (math.lengthsq(velocity) > snapshot.MoveSpeed * snapshot.MoveSpeed)
-            velocity = math.normalizesafe(velocity) * snapshot.MoveSpeed;
-        float3 end = step.SolvedPosition + velocity * deltaTime;
-        float contactPadding = math.max(0f, predictiveSkin) + math.max(0f, margin);
-        float avoidancePadding = math.max(0f, softShell) * 0.5f;
-        float extent = math.max(0f, snapshot.Radius) + math.max(contactPadding, avoidancePadding);
-        return Contains(
-            evidence.InteractionEnvelopeMin,
-            evidence.InteractionEnvelopeMax,
-            end.xz - extent,
-            end.xz + extent);
-    }
 }
 }

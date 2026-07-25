@@ -156,6 +156,7 @@ internal struct ContactFrameResources
     public NativeArray<uint> PersistentSpatialVisitStampByProxy;
     public NativeReference<uint> PersistentSpatialVisitStamp;
     public NativeReference<ParallelJacobiExecutionState> ParallelJacobiRuntimeState;
+    public NativeReference<SerialContactPipelineControlState> SerialControlState;
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
     public NativeReference<ParallelJacobiIterationTelemetry> ParallelJacobiIterationState;
@@ -214,6 +215,7 @@ internal struct ContactFrameResources
             PersistentSpatialVisitStampByProxy = new NativeArray<uint>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             PersistentSpatialVisitStamp = new NativeReference<uint>(Allocator.TempJob),
             ParallelJacobiRuntimeState = useParallelJacobi ? new NativeReference<ParallelJacobiExecutionState>(Allocator.TempJob) : default,
+            SerialControlState = new NativeReference<SerialContactPipelineControlState>(Allocator.TempJob),
 #if RTS_CONTACT_DIAGNOSTICS
             PersistentClassificationTelemetry = useParallelJacobi
                 ? new NativeReference<PersistentClassificationTelemetryState>(Allocator.TempJob)
@@ -271,6 +273,7 @@ internal struct ContactFrameResources
         combined = Combine(combined, PersistentSpatialVisitStampByProxy.Dispose(finalReader));
         combined = Combine(combined, PersistentSpatialVisitStamp.Dispose(finalReader));
         if (ParallelJacobiRuntimeState.IsCreated) combined = Combine(combined, ParallelJacobiRuntimeState.Dispose(finalReader));
+        if (SerialControlState.IsCreated) combined = Combine(combined, SerialControlState.Dispose(finalReader));
 #if RTS_CONTACT_DIAGNOSTICS
         if (PersistentClassificationTelemetry.IsCreated) combined = Combine(combined, PersistentClassificationTelemetry.Dispose(finalReader));
         if (ParallelJacobiIterationState.IsCreated) combined = Combine(combined, ParallelJacobiIterationState.Dispose(finalReader));

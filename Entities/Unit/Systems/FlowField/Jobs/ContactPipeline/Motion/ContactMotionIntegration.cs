@@ -6,7 +6,7 @@ namespace RTS.Unit.FlowField.Jobs
 /// <summary>
 /// Frame-local motion prediction and post-solve velocity reconstruction.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct MotionIntegrationJob
 {
     private void PredictUnconstrainedPositions(float substepDeltaTime)
     {
@@ -60,7 +60,9 @@ public partial struct SolveXpbdUnitContactsJob
             CrowdNavigationState navigation = NavigationStates[bodyIndex];
             CrowdMotionIntent intent = MotionIntents[bodyIndex];
             CrowdBodyStepState step = StepStates[bodyIndex];
-            step.BaseVelocity = CalculateBaseVelocityForSubstep(
+            step.BaseVelocity = ContactPipelineMath.CalculateBaseVelocityForSubstep(
+                Grid,
+                EnvironmentGeometry,
                 body,
                 navigation,
                 intent,
@@ -68,37 +70,6 @@ public partial struct SolveXpbdUnitContactsJob
                 substepDeltaTime);
             StepStates[bodyIndex] = step;
         }
-    }
-
-    private float3 CalculateBaseVelocityForSubstep(
-        CrowdBodySnapshot body,
-        CrowdNavigationState navigation,
-        CrowdMotionIntent intent,
-        CrowdBodyStepState step,
-        float substepDeltaTime)
-    {
-        float3 steeringVelocityError = intent.SteeringVelocityError;
-        if (IsObstacleCell(navigation.Cell) &&
-            math.lengthsq(steeringVelocityError) < 0.1f)
-        {
-            float3 cellCenter = ObstacleCellCenter(navigation.Cell, body.Position.y);
-            float3 escapeDirection = step.SolvedPosition - cellCenter;
-            escapeDirection.y = 0f;
-            escapeDirection = math.normalizesafe(
-                escapeDirection,
-                new float3(1f, 0f, 0f));
-            steeringVelocityError += escapeDirection * body.MoveSpeed * 5f;
-        }
-
-        if (math.lengthsq(steeringVelocityError) >
-            body.MaxAcceleration * body.MaxAcceleration)
-        {
-            steeringVelocityError = math.normalizesafe(steeringVelocityError) *
-                                    body.MaxAcceleration;
-        }
-
-        return step.IntegratedVelocity +
-               steeringVelocityError * substepDeltaTime;
     }
 
     private void ReconstructVelocities(

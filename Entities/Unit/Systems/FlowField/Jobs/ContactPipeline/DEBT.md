@@ -10,25 +10,24 @@
   reissue certificates through the certifier path.
 - The staged P1-P6 path shares the same compact-view commit/signing boundary and
   routes solver-correction escapes through the common certificate guard.
-- `BaseFlowMovementSystem` is a small composition root; historical solver ABI
-  expansion is isolated in `BaseFlowMovementComposition`.
-- Body, navigation and motion-intent data are physically composed from explicit
-  contracts inside the compatibility frame state; complete `FlowFieldCell` values
-  are no longer retained there.
+- `BaseFlowMovementSystem` is a small composition root; focused stage construction
+  is currently isolated in `BaseFlowMovementComposition`.
+- The shared frame-state compatibility record has been deleted. Body snapshot,
+  navigation, intent, motion evidence, substep state and result are independent arrays.
 - Pure `BodyPair` interaction views are physically separated from direct-storage `ContactConstraint` solver records.
 - Serial and P1-P6 navigation/soft-wall/hard-wall code use separate navigation and
   obstacle semantics over the current shared grid storage.
-- Architecture contracts are protected by a dedicated static CI workflow, including
-  forwarding-property `ref/out` checks after the contact-pair storage split.
+- The all-capability `SolveXpbdUnitContactsJob` and `CrowdEnvironmentAccess` partial
+  have been deleted. Certification, motion, soft avoidance and constraint solving are
+  scheduled as focused jobs; the scheduler itself is never scheduled.
+- Architecture contracts are protected by a dedicated static CI workflow.
 
 ## Remaining capability-boundary debt
 
-- `SolveXpbdUnitContactsJob` remains a historical compatibility super-struct. Its
-  partial methods can still see candidate, certified, motion, solver and diagnostics
-  fields even though lower-stage source files no longer use candidate state.
-- `BaseFlowMovementComposition` still expands individual Native containers into
-  that compatibility ABI. It should shrink into certifier, soft, motion, assembly
-  and solver-specific contexts without adding synchronization points.
+- `BaseFlowMovementComposition` and `ContactPipelineResources` are now the remaining
+  construction/resource ownership files scheduled for the next hard cutover. They
+  must be replaced by focused persistent, certification, soft, motion and solver
+  resource owners rather than renamed aggregate bags.
 - P1-P6 jobs still carry raw grid storage fields because Unity job safety requires
   Native containers to remain direct job fields. Their interpretation is now routed
   through `GridObstacleView`; a future backend split may change storage without
@@ -38,8 +37,8 @@
   richest on the serial path. Parallel compaction should eventually emit the same
   reason-coded evidence without concurrent list writes.
 - `CertifiedInteractionProductDescriptor` is currently a container-free scope
-  descriptor. Consumer-specific read-only context types should replace direct
-  NativeList fields in the solver ABI.
+  descriptor. Consumer-specific read-only certified views should replace the final
+  direct `NativeList` fields passed to focused stages.
 
 ## Performance debt
 

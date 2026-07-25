@@ -10,11 +10,8 @@ namespace RTS.Unit.FlowField.Jobs
 /// Persistent containers remain candidate data; lower stages consume only the
 /// compact views whose scope is described by InteractionCertificate.
 /// </summary>
-public partial struct SolveXpbdUnitContactsJob
+public partial struct InteractionCertificationJob
 {
-    public NativeReference<InteractionCertificate> InteractionCertificate;
-    public NativeList<InteractionCertificateViolation> InteractionCertificateViolations;
-
     private uint CalculateBodySetFingerprint()
     {
         uint fingerprint = 2166136261u;
