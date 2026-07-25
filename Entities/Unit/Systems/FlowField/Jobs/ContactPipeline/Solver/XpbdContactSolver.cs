@@ -24,9 +24,9 @@ internal struct ContactConstraintEvaluation
     public byte NewlyActivated;
 }
 
-public static class XpbdContactConstraintMath
+internal static class XpbdContactConstraintMath
 {
-    public static ContactConstraintEvaluation Evaluate(
+    internal static ContactConstraintEvaluation Evaluate(
         ref ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
