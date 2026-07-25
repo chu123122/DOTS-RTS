@@ -1,13 +1,14 @@
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 using RTS.Unit.FlowField.Jobs;
 
-namespace RTS.Unit.FlowField.Systems
+namespace RTS.Unit.FlowField.Diagnostics
 {
-public abstract partial class BaseFlowMovementSystem
+internal static class SimulationDebuggerSpatialReadback
 {
 #if RTS_CONTACT_DIAGNOSTICS
     private struct SimulationDebuggerCellAccumulator
@@ -27,10 +28,13 @@ public abstract partial class BaseFlowMovementSystem
     }
 #endif
 
-    private void CaptureSpatialDiagnostics(
+    internal static void Capture(
         SimulationDebuggerFrameSnapshot snapshot,
         FlowFieldGrid gridComponent,
-        SimulationDebuggerCaptureMask captureMask)
+        SimulationDebuggerCaptureMask captureMask,
+        EntityManager entityManager,
+        Entity diagnosticsEntity,
+        NativeList<PersistentSweptProxy> proxies)
     {
 #if RTS_CONTACT_DIAGNOSTICS
         bool captureCells = (captureMask & (
@@ -52,14 +56,14 @@ public abstract partial class BaseFlowMovementSystem
         var cells = new Dictionary<int, SimulationDebuggerCellAccumulator>();
 
         if (captureCells &&
-            _incrementalDiagnosticsEntity != Entity.Null &&
-            EntityManager.Exists(_incrementalDiagnosticsEntity) &&
-            EntityManager.HasBuffer<Stage3ContactHeatSample>(
-                _incrementalDiagnosticsEntity))
+            diagnosticsEntity != Entity.Null &&
+            entityManager.Exists(diagnosticsEntity) &&
+            entityManager.HasBuffer<Stage3ContactHeatSample>(
+                diagnosticsEntity))
         {
             DynamicBuffer<Stage3ContactHeatSample> heatSamples =
-                EntityManager.GetBuffer<Stage3ContactHeatSample>(
-                    _incrementalDiagnosticsEntity);
+                entityManager.GetBuffer<Stage3ContactHeatSample>(
+                    diagnosticsEntity);
             for (int i = 0; i < heatSamples.Length; i++)
             {
                 Stage3ContactHeatSample sample = heatSamples[i];
@@ -93,11 +97,11 @@ public abstract partial class BaseFlowMovementSystem
             }
         }
 
-        if (_candidateStore.SweptProxies.IsCreated)
+        if (proxies.IsCreated)
         {
-            for (int i = 0; i < _candidateStore.SweptProxies.Length; i++)
+            for (int i = 0; i < proxies.Length; i++)
             {
-                PersistentSweptProxy proxy = _candidateStore.SweptProxies[i];
+                PersistentSweptProxy proxy = proxies[i];
                 if (captureProxies)
                 {
                     float minimumSlack = CalculateMinimumProxySlack(proxy);

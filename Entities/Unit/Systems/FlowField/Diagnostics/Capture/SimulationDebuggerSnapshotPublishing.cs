@@ -74,7 +74,13 @@ public abstract partial class BaseFlowMovementSystem
             snapshot.SubstepCount,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
 
-        CaptureSpatialDiagnostics(snapshot, gridComponent, captureMask);
+        SimulationDebuggerSpatialReadback.Capture(
+            snapshot,
+            gridComponent,
+            captureMask,
+            EntityManager,
+            _incrementalDiagnosticsEntity,
+            _candidateStore.SweptProxies);
         CaptureSelectedEntityDetails(
             snapshot,
             completed.SelectedEntity,

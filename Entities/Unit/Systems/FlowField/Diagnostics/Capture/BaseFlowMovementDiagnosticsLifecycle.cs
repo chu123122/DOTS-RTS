@@ -45,6 +45,7 @@ public abstract partial class BaseFlowMovementSystem
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit;
     private NativeReference<byte> _simulationDebuggerSelectedUnitValid;
     private Entity _incrementalDiagnosticsEntity;
+    private EntityQuery _legacyDiagnosticSelectionQuery;
 #else
     private NativeList<SimulationDebuggerPairSample> _simulationDebuggerSelectedPairs { get => default; set { } }
     private NativeReference<SimulationDebuggerUnitSample> _simulationDebuggerSelectedUnit { get => default; set { } }
@@ -58,15 +59,13 @@ public abstract partial class BaseFlowMovementSystem
         _simulationDebuggerSelectedPairs = new NativeList<SimulationDebuggerPairSample>(64, Allocator.Persistent);
         _simulationDebuggerSelectedUnit = new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
         _simulationDebuggerSelectedUnitValid = new NativeReference<byte>(Allocator.Persistent);
+        _legacyDiagnosticSelectionQuery = GetEntityQuery(
+            ComponentType.ReadOnly<Stage3ContactDiagnosticSelection>());
         _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
             typeof(IncrementalContactPipelineSnapshot),
             typeof(PredictiveDiscContactStatistics),
             typeof(ShadowNeighborCacheStatistics),
-            typeof(Stage3ContactDiagnosticSelection),
             typeof(Stage3SelectedBodyDiagnostic));
-        EntityManager.SetComponentData(
-            _incrementalDiagnosticsEntity,
-            new Stage3ContactDiagnosticSelection { SelectedEntity = Entity.Null });
         EntityManager.AddBuffer<Stage3ContactIterationDiagnostic>(
             _incrementalDiagnosticsEntity);
         EntityManager.AddBuffer<Stage3ContactPairDiagnostic>(
@@ -90,38 +89,43 @@ public abstract partial class BaseFlowMovementSystem
     {
 #if RTS_CONTACT_DIAGNOSTICS
         Entity selected = SimulationDebuggerRuntime.SelectedEntityFor(worldId);
-        if (SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection selection) && selection.SelectedEntity != Entity.Null)
+        int legacySelectionCount =
+            _legacyDiagnosticSelectionQuery.CalculateEntityCount();
+        if (legacySelectionCount == 0)
+            return selected;
+
+        using NativeArray<Stage3ContactDiagnosticSelection> legacySelections =
+            _legacyDiagnosticSelectionQuery
+                .ToComponentDataArray<Stage3ContactDiagnosticSelection>(
+                    Allocator.Temp);
+        Entity legacySelected = Entity.Null;
+        for (int i = 0; i < legacySelections.Length; i++)
         {
-            selected = selection.SelectedEntity;
-            SimulationDebuggerRuntime.SetSelectedEntityFor(worldId, selected);
+            Entity candidate = legacySelections[i].SelectedEntity;
+            if (candidate == Entity.Null)
+                continue;
+            if (legacySelected != Entity.Null && candidate != legacySelected)
+                return selected;
+            legacySelected = candidate;
         }
+        if (legacySelected == Entity.Null)
+            return selected;
+
+        selected = legacySelected;
+        SimulationDebuggerRuntime.SetSelectedEntityFor(worldId, selected);
         return selected;
 #else
         return Entity.Null;
 #endif
     }
 
-    private static bool ShouldCaptureParallelSelectedPairs(
-        bool useParallelJacobi,
-        Entity selectedEntity,
-        SimulationDebuggerCaptureMask captureMask)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        return useParallelJacobi && selectedEntity != Entity.Null &&
-               (captureMask & SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-               (captureMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0;
-#else
-        return false;
-#endif
-    }
-
-    private static ContactDiagnosticsFrameResources CreateContactDiagnosticsFrameResources(int unitCount, UnitContactSolverSettings settings, bool captureParallelSelectedPairs)
+    private static ContactDiagnosticsFrameResources CreateContactDiagnosticsFrameResources(int unitCount, UnitContactSolverSettings settings)
     {
         ContactDiagnosticsFrameResources scratch = default;
 #if RTS_CONTACT_DIAGNOSTICS
         scratch.IncrementalOracleContactPairs = new NativeList<BodyPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
-        scratch.ParallelPairCandidates = captureParallelSelectedPairs ? new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob) : default;
-        scratch.ParallelPairScratch = captureParallelSelectedPairs ? new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob) : default;
+        scratch.ParallelPairCandidates = new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob);
+        scratch.ParallelPairScratch = new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob);
         scratch.Iterations = new NativeList<Stage3ContactIterationDiagnostic>(math.max(settings.SubstepCount * settings.IterationCount, 1), Allocator.TempJob);
         scratch.Pairs = new NativeList<Stage3ContactPairDiagnostic>(math.max(unitCount * 2, 1), Allocator.TempJob);
         scratch.SelectedBody = new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);

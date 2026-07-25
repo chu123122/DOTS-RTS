@@ -419,6 +419,27 @@ public static class LocalGameplayModeValidation
             Require(
                 entityManager.GetComponentData<LocalTransform>(unit).Position.x > 1f,
                 "Movement system did not run without diagnostic singleton components.");
+
+#if RTS_CONTACT_DIAGNOSTICS
+            Entity legacySelectionA =
+                entityManager.CreateEntity(typeof(Stage3ContactDiagnosticSelection));
+            Entity legacySelectionB =
+                entityManager.CreateEntity(typeof(Stage3ContactDiagnosticSelection));
+            entityManager.SetComponentData(
+                legacySelectionA,
+                new Stage3ContactDiagnosticSelection { SelectedEntity = unit });
+            entityManager.SetComponentData(
+                legacySelectionB,
+                new Stage3ContactDiagnosticSelection { SelectedEntity = unit });
+
+            world.SetTime(new Unity.Core.TimeData(1.1d, 0.1f));
+            system.Update();
+            entityManager.CompleteAllTrackedJobs();
+            Require(
+                SimulationDebuggerRuntime.SelectedEntityFor(
+                    unchecked((ulong)world.Unmanaged.SequenceNumber)) == unit,
+                "Duplicate compatible legacy selections were not bridged to the World runtime.");
+#endif
         }
         finally
         {
