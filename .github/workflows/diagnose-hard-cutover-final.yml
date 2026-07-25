@@ -18,29 +18,28 @@ jobs:
           fetch-depth: 1
       - name: Collect payload statistics
         run: |
-          set -euo pipefail
-          {
-            find .github/cutover/final -type f -name '*.b64' -print0 \
-              | sort -z \
-              | while IFS= read -r -d '' file; do
-                  printf '%s ' "$file"
-                  wc -c < "$file" | tr -d '\n'
-                  printf ' '
-                  sha256sum "$file" | cut -d' ' -f1
-                done
-            for phase in phase3 phase4 phase5; do
-              find ".github/cutover/final/${phase}" -type f -name '*.b64' -print0 \
-                | sort -z \
-                | xargs -0 cat > "/tmp/${phase}.b64"
-              printf '/tmp/%s.b64 ' "$phase"
-              wc -c < "/tmp/${phase}.b64" | tr -d '\n'
-              printf ' '
-              sha256sum "/tmp/${phase}.b64" | cut -d' ' -f1
-            done
-          } > /tmp/payload-stats.txt
-          cat /tmp/payload-stats.txt
+          python3 - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          root = Path('.github/cutover/final')
+          lines = []
+          for path in sorted(root.rglob('*.b64')):
+              data = path.read_bytes()
+              lines.append(f'{path} {len(data)} {sha256(data).hexdigest()}')
+
+          for phase in ('phase3', 'phase4', 'phase5'):
+              data = b''.join(path.read_bytes() for path in sorted((root / phase).glob('*.b64')))
+              lines.append(f'/tmp/{phase}.b64 {len(data)} {sha256(data).hexdigest()}')
+
+          output = Path('/tmp/payload-stats.txt')
+          output.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          print(output.read_text(encoding='utf-8'))
+          PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: final-cutover-payload-stats
           path: /tmp/payload-stats.txt
+          if-no-files-found: error
           retention-days: 1
