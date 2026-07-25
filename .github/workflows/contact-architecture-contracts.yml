@@ -25,11 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: codex/simulation-integration
           fetch-depth: 1
       - name: Validate candidate-certifier-consumer boundaries
         run: python3 .github/scripts/validate_contact_architecture.py
       - name: Apply staged phase-one hard cutover
-        if: github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         run: |
           if [ ! -f Entities/Unit/Systems/FlowField/Jobs/FlowMovementFrameState.cs ]; then
             echo "Phase one already applied"
