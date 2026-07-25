@@ -96,7 +96,7 @@ public partial struct InteractionCertificationJob
 
 
     [BurstCompile]
-    private struct EvaluatePersistentPairClassificationsP1P6Job : IJobParallelForDefer
+    internal struct EvaluatePersistentPairClassificationsP1P6Job : IJobParallelForDefer
     {
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
