@@ -112,8 +112,10 @@ jobs:
           flow = Path('Entities/Unit/Systems/FlowField')
           pipeline = flow / 'Jobs/ContactPipeline'
           ownership = {
-              'public struct UnitCollisionPair':
-                  pipeline / 'Core/ContactPairTypes.cs',
+              'public struct BodyPair':
+                  pipeline / 'Core/BodyPair.cs',
+              'public struct ContactConstraint':
+                  pipeline / 'Core/ContactConstraint.cs',
               'public struct SweptDiscCellEntry':
                   pipeline / 'BroadPhase/SweptDiscTypes.cs',
               'public struct IncrementalContactCacheState':
