@@ -11,7 +11,7 @@ internal static class ContactIterationDiagnostics
         NativeArray<CrowdBodySnapshot> bodies,
         NativeArray<CrowdBodyStepState> stepStates,
         NativeList<ContactConstraint> constraints,
-        NativeList<Stage3ContactIterationDiagnostic> diagnostics,
+        NativeList<ContactIterationDiagnostic> diagnostics,
         int substepIndex,
         int iterationIndex,
         float maxViolationBeforeSolve,
@@ -72,7 +72,7 @@ internal static class ContactIterationDiagnostics
                 predictiveActivatedCount++;
         }
 
-        diagnostics.Add(new Stage3ContactIterationDiagnostic
+        diagnostics.Add(new ContactIterationDiagnostic
         {
             SubstepIndex = substepIndex,
             IterationIndex = iterationIndex,

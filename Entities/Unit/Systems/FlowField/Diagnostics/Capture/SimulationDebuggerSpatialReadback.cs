@@ -58,15 +58,15 @@ internal static class SimulationDebuggerSpatialReadback
         if (captureCells &&
             diagnosticsEntity != Entity.Null &&
             entityManager.Exists(diagnosticsEntity) &&
-            entityManager.HasBuffer<Stage3ContactHeatSample>(
+            entityManager.HasBuffer<ContactHeatSample>(
                 diagnosticsEntity))
         {
-            DynamicBuffer<Stage3ContactHeatSample> heatSamples =
-                entityManager.GetBuffer<Stage3ContactHeatSample>(
+            DynamicBuffer<ContactHeatSample> heatSamples =
+                entityManager.GetBuffer<ContactHeatSample>(
                     diagnosticsEntity);
             for (int i = 0; i < heatSamples.Length; i++)
             {
-                Stage3ContactHeatSample sample = heatSamples[i];
+                ContactHeatSample sample = heatSamples[i];
                 if (!TryResolveDiagnosticCell(
                         sample.Position,
                         gridComponent,

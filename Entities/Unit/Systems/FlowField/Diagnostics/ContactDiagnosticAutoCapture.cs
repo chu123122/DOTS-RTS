@@ -5,7 +5,7 @@ using RTS.Unit.FlowField.Systems;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
-public sealed class Stage3ContactDiagnosticAutoCapture
+public sealed class ContactDiagnosticAutoCapture
 {
     public const int DefaultRoundCount = 3;
     public const int RunsPerRound = 3;

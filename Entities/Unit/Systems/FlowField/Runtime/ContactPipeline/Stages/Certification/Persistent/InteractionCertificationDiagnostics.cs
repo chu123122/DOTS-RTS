@@ -7,7 +7,7 @@ public partial struct InteractionCertificationJob
 #if RTS_CONTACT_DIAGNOSTICS
     private void AddSelectedPairDiagnostic(
         ContactConstraint pair,
-        Stage3ContactDiagnosticPairKind kind,
+        ContactDiagnosticPairKind kind,
         float closestTime,
         float minimumDistance,
         float radiusSum,
@@ -42,7 +42,7 @@ public partial struct InteractionCertificationJob
             otherEvidence.BaselineEnd,
             closestTime);
 
-        PairDiagnostics.Add(new Stage3ContactPairDiagnostic
+        PairDiagnostics.Add(new ContactPairDiagnostic
         {
             OtherEntity = otherSnapshot.Entity,
             Kind = kind,

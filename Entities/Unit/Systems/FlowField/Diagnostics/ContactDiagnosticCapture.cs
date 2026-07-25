@@ -11,10 +11,12 @@ using RTS.Unit.FlowField.Systems;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 
-public sealed class Stage3ContactDiagnosticCaptureSession
+public sealed class ContactDiagnosticCaptureSession
 {
+    // Persisted schema id is retained so existing v2/v3 analysis remains valid.
+    private const string LegacyCaptureFormat = "Stage3ContactDiagnostic/v3";
     private const int MaxSamples = 2000;
-    private readonly List<Stage3ContactDiagnosticCaptureSample> _samples = new(MaxSamples);
+    private readonly List<ContactDiagnosticCaptureSample> _samples = new(MaxSamples);
     private double _startSimulationTime;
     private double _nextSampleTime;
     private float _duration;
@@ -59,7 +61,7 @@ public sealed class Stage3ContactDiagnosticCaptureSession
         FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         ShadowNeighborCacheStatistics shadow,
-        DynamicBuffer<Stage3ContactIterationDiagnostic> iterations)
+        DynamicBuffer<ContactIterationDiagnostic> iterations)
     {
         if (!Active || _samples.Count >= MaxSamples)
             return;
@@ -71,14 +73,14 @@ public sealed class Stage3ContactDiagnosticCaptureSession
         var residualAfter = new List<float>(settings.IterationCount);
         for (int i = 0; i < iterations.Length; i++)
         {
-            Stage3ContactIterationDiagnostic iteration = iterations[i];
+            ContactIterationDiagnostic iteration = iterations[i];
             if (iteration.SubstepIndex != lastSubstep)
                 continue;
             residualBefore.Add(iteration.MaxConstraintViolationBeforeSolve);
             residualAfter.Add(iteration.MaxConstraintViolation);
         }
 
-        _samples.Add(new Stage3ContactDiagnosticCaptureSample
+        _samples.Add(new ContactDiagnosticCaptureSample
         {
             SimulationTime = simulationTime,
             CaptureTime = (float)(simulationTime - _startSimulationTime),
@@ -177,17 +179,17 @@ public sealed class Stage3ContactDiagnosticCaptureSession
         Active = false;
         string outputDirectory = Path.Combine(
             Application.persistentDataPath,
-            "Stage3ContactDiagnostics");
+            "ContactDiagnostics");
         Directory.CreateDirectory(outputDirectory);
         string labelSegment = string.IsNullOrEmpty(_runLabel)
             ? string.Empty
             : $"{_runLabel}-";
         string outputPath = Path.Combine(
             outputDirectory,
-            $"stage3-contact-{labelSegment}{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
-        var document = new Stage3ContactDiagnosticCaptureDocument
+            $"contact-diagnostic-{labelSegment}{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
+        var document = new ContactDiagnosticCaptureDocument
         {
-            Format = "Stage3ContactDiagnostic/v3",
+            Format = LegacyCaptureFormat,
             RunLabel = _runLabel,
             CapturedAtUtc = DateTime.UtcNow.ToString("O"),
             RequestedDurationSeconds = _duration,
@@ -218,7 +220,7 @@ public sealed class Stage3ContactDiagnosticCaptureSession
 }
 
 [Serializable]
-public sealed class Stage3ContactDiagnosticCaptureDocument
+public sealed class ContactDiagnosticCaptureDocument
 {
     public string Format;
     public string RunLabel;
@@ -226,11 +228,11 @@ public sealed class Stage3ContactDiagnosticCaptureDocument
     public float RequestedDurationSeconds;
     public float SampleIntervalSeconds;
     public int SampleCount;
-    public Stage3ContactDiagnosticCaptureSample[] Samples;
+    public ContactDiagnosticCaptureSample[] Samples;
 }
 
 [Serializable]
-public sealed class Stage3ContactDiagnosticCaptureSample
+public sealed class ContactDiagnosticCaptureSample
 {
     public double SimulationTime;
     public float CaptureTime;

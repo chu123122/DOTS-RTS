@@ -38,9 +38,16 @@ def preprocess(source: str, enabled: bool) -> str:
 
 contracts = PIPE / "Observability/Contracts"
 for name in ("ContactPipelineTelemetry.cs", "IncrementalContactPipelineDiagnostics.cs",
-             "Stage3ContactDiagnosticComponents.cs", "SimulationDebuggerContracts.cs",
+             "ContactDiagnosticContracts.cs", "SimulationDebuggerContracts.cs",
              "ParallelSimulationDebuggerPairCapture.cs"):
     read(contracts / name)
+
+for path in FLOW.rglob("*.cs"):
+    source = read(path).replace('"Stage3ContactDiagnostic/v3"', '""')
+    if "Stage3" in source:
+        fail(f"Retired Stage3 code identifier remains: {path}")
+    if "Stage3" in path.name:
+        fail(f"Retired Stage3 source filename remains: {path}")
 
 runtime_source = "\n".join(read(path) for path in PIPE.rglob("*.cs"))
 release = preprocess(runtime_source, False)
@@ -51,7 +58,7 @@ for token in ("Statistics.Value", "IncrementalStatistics.Value",
 
 resources = "\n".join(read(path) for path in (PIPE / "State").rglob("*.cs"))
 release_resources = preprocess(resources, False)
-for token in ("PersistentClassificationTelemetryState", "Stage3ContactHeatSample"):
+for token in ("PersistentClassificationTelemetryState", "ContactHeatSample"):
     if token in release_resources:
         fail(f"Diagnostics allocation survives gameplay resources: {token}")
 
@@ -67,12 +74,12 @@ if "SimulationDebuggerSpatialReadback.Capture(" not in publishing:
     fail("Snapshot publication bypasses explicit spatial readback")
 if "_candidateStore" in spatial:
     fail("Spatial readback reaches through the candidate-store owner")
-if "SystemAPI.TryGetSingleton(out Stage3ContactDiagnosticSelection" in lifecycle:
+if "SystemAPI.TryGetSingleton(out ContactDiagnosticSelection" in lifecycle:
     fail("Legacy diagnostic selection still assumes singleton ownership")
 diagnostics_entity_creation = lifecycle.split(
     "_incrementalDiagnosticsEntity = EntityManager.CreateEntity(", 1)[1].split(
         ");", 1)[0]
-if "Stage3ContactDiagnosticSelection" in diagnostics_entity_creation:
+if "ContactDiagnosticSelection" in diagnostics_entity_creation:
     fail("Per-system publication entity still owns the World selection control")
 
 for path in (FLOW / "Diagnostics/Presentation", FLOW / "Diagnostics/Recording",

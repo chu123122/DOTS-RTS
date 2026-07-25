@@ -161,7 +161,7 @@ public partial struct InteractionCertificationJob
                 {
                     AddSelectedPairDiagnostic(
                         pair,
-                        Stage3ContactDiagnosticPairKind.BroadPhaseRejected,
+                        ContactDiagnosticPairKind.BroadPhaseRejected,
                         closestTime,
                         math.sqrt(minDistanceSq),
                         radiusSum,

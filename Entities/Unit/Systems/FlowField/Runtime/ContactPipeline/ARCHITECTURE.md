@@ -128,8 +128,8 @@ Jacobi implementation. `ValidateConsumerViewsSerial` and
 - **Control plane** supplies next-step debugger/experiment commands at the
   composition boundary. It is separate from observation even where legacy files
   remain under the Diagnostics directory. Per-World `SimulationDebuggerRuntime`
-  owns unit selection; `Stage3ContactDiagnosticSelection` is a compatibility
-  input only and is never attached to a per-system publication entity.
+  owns unit selection; `ContactDiagnosticSelection` is an optional ECS control
+  input and is never attached to a per-system publication entity.
 
 ## Data contracts
 

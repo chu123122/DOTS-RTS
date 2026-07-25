@@ -8,7 +8,7 @@ using RTS.Unit.FlowField.Systems;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 
-public enum Stage3ContactDiagnosticPairKind : byte
+public enum ContactDiagnosticPairKind : byte
 {
     BroadPhaseRejected,
     Regular,
@@ -19,7 +19,7 @@ public enum Stage3ContactDiagnosticPairKind : byte
 /// <summary>
 /// 中键选择只写入该诊断状态，不改变游戏使用的 UnitSelected。
 /// </summary>
-public struct Stage3ContactDiagnosticSelection : IComponentData
+public struct ContactDiagnosticSelection : IComponentData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public Entity SelectedEntity;
@@ -35,7 +35,7 @@ public struct Stage3ContactDiagnosticSelection : IComponentData
 /// DynamicBuffer signatures remain source compatible without allocating the
 /// full diagnostic record per iteration.
 /// </summary>
-public struct Stage3ContactIterationDiagnostic : IBufferElementData
+public struct ContactIterationDiagnostic : IBufferElementData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public int SubstepIndex;
@@ -74,11 +74,11 @@ public struct Stage3ContactIterationDiagnostic : IBufferElementData
 /// <summary>
 /// 当前诊断单位在本 timestep ContactSet 中保留的 Pair 及其激活生命周期。
 /// </summary>
-public struct Stage3ContactPairDiagnostic : IBufferElementData
+public struct ContactPairDiagnostic : IBufferElementData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public Entity OtherEntity;
-    public Stage3ContactDiagnosticPairKind Kind;
+    public ContactDiagnosticPairKind Kind;
     public byte WasActivated;
     public byte WasAddedByFallback;
     public int FirstActivatedSubstep;
@@ -94,7 +94,7 @@ public struct Stage3ContactPairDiagnostic : IBufferElementData
 #else
     private byte _disabledStorage;
     public Entity OtherEntity { get => Entity.Null; set { } }
-    public Stage3ContactDiagnosticPairKind Kind { get => default; set { } }
+    public ContactDiagnosticPairKind Kind { get => default; set { } }
     public byte WasActivated { get => default; set { } }
     public byte WasAddedByFallback { get => default; set { } }
     public int FirstActivatedSubstep { get => default; set { } }
@@ -113,7 +113,7 @@ public struct Stage3ContactPairDiagnostic : IBufferElementData
 /// <summary>
 /// 当前诊断单位的 substep 求解结果，以及当前 ContactSet 对应的 timestep 轨迹和包围盒。
 /// </summary>
-public struct Stage3SelectedBodyDiagnostic : IComponentData
+public struct SelectedBodyContactDiagnostic : IComponentData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public byte IsValid;
@@ -168,7 +168,7 @@ public struct Stage3SelectedBodyDiagnostic : IComponentData
 /// <summary>
 /// 常规热力图使用的每单位 timestep 汇总；不携带完整 Pair 列表。
 /// </summary>
-public struct Stage3ContactHeatSample : IBufferElementData
+public struct ContactHeatSample : IBufferElementData
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public Entity Entity;
@@ -192,7 +192,7 @@ public struct Stage3ContactHeatSample : IBufferElementData
 #endif
 }
 
-public static class Stage3ContactDiagnosticReadback
+public static class ContactDiagnosticReadback
 {
     public static bool Required(UnitContactSolverSettings settings)
     {

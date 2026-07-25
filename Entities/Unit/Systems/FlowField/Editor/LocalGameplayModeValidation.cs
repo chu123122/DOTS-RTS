@@ -422,15 +422,15 @@ public static class LocalGameplayModeValidation
 
 #if RTS_CONTACT_DIAGNOSTICS
             Entity legacySelectionA =
-                entityManager.CreateEntity(typeof(Stage3ContactDiagnosticSelection));
+                entityManager.CreateEntity(typeof(ContactDiagnosticSelection));
             Entity legacySelectionB =
-                entityManager.CreateEntity(typeof(Stage3ContactDiagnosticSelection));
+                entityManager.CreateEntity(typeof(ContactDiagnosticSelection));
             entityManager.SetComponentData(
                 legacySelectionA,
-                new Stage3ContactDiagnosticSelection { SelectedEntity = unit });
+                new ContactDiagnosticSelection { SelectedEntity = unit });
             entityManager.SetComponentData(
                 legacySelectionB,
-                new Stage3ContactDiagnosticSelection { SelectedEntity = unit });
+                new ContactDiagnosticSelection { SelectedEntity = unit });
 
             world.SetTime(new Unity.Core.TimeData(1.1d, 0.1f));
             system.Update();

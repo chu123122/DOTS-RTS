@@ -16,9 +16,9 @@ public struct SerialContactPipelineLifecycleJob : IJob
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
+    public NativeList<ContactIterationDiagnostic> IterationDiagnostics;
+    public NativeList<ContactPairDiagnostic> PairDiagnostics;
+    public NativeReference<SelectedBodyContactDiagnostic> SelectedBodyDiagnostic;
     public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
 #endif
 

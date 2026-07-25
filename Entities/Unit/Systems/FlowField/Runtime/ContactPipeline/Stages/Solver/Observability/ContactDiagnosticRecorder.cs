@@ -111,7 +111,7 @@ public partial struct ConstraintSolverJob
                 predictiveActivatedCount++;
         }
 
-        IterationDiagnostics.Add(new Stage3ContactIterationDiagnostic
+        IterationDiagnostics.Add(new ContactIterationDiagnostic
         {
             SubstepIndex = substepIndex,
             IterationIndex = iterationIndex,
@@ -198,7 +198,7 @@ public partial struct ConstraintSolverJob
         CrowdMotionIntent selectedIntent = MotionIntents[selectedBodyIndex];
         CrowdMotionEvidence selectedEvidence = MotionEvidence[selectedBodyIndex];
         CrowdBodyStepState selectedStep = StepStates[selectedBodyIndex];
-        var selectedDiagnostic = new Stage3SelectedBodyDiagnostic
+        var selectedDiagnostic = new SelectedBodyContactDiagnostic
         {
             IsValid = 1,
             SubstepIndex = substepIndex,
@@ -264,16 +264,16 @@ public partial struct ConstraintSolverJob
                 math.lengthsq(endDelta) >= radiusSum * radiusSum &&
                 minDistance <= radiusSum;
 
-            Stage3ContactDiagnosticPairKind kind;
+            ContactDiagnosticPairKind kind;
             if (potentialPredictive)
             {
                 kind = EnablePredictiveContacts
-                    ? Stage3ContactDiagnosticPairKind.Predictive
-                    : Stage3ContactDiagnosticPairKind.PredictiveDisabled;
+                    ? ContactDiagnosticPairKind.Predictive
+                    : ContactDiagnosticPairKind.PredictiveDisabled;
             }
             else
             {
-                kind = Stage3ContactDiagnosticPairKind.Regular;
+                kind = ContactDiagnosticPairKind.Regular;
             }
 
             AddSelectedPairDiagnostic(
@@ -288,7 +288,7 @@ public partial struct ConstraintSolverJob
 
     private void AddSelectedPairDiagnostic(
         ContactConstraint pair,
-        Stage3ContactDiagnosticPairKind kind,
+        ContactDiagnosticPairKind kind,
         float closestTime,
         float minimumDistance,
         float radiusSum,
@@ -319,7 +319,7 @@ public partial struct ConstraintSolverJob
             otherEvidence.BaselineEnd,
             closestTime);
 
-        PairDiagnostics.Add(new Stage3ContactPairDiagnostic
+        PairDiagnostics.Add(new ContactPairDiagnostic
         {
             OtherEntity = otherSnapshot.Entity,
             Kind = kind,

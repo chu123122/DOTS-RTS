@@ -63,10 +63,10 @@ public partial struct ConstraintSolverJob : IJob
     public Entity DiagnosticSelectedEntity;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<Stage3ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<Stage3ContactPairDiagnostic> PairDiagnostics;
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodyDiagnostic;
-    public NativeArray<Stage3ContactHeatSample> HeatSamples;
+    public NativeList<ContactIterationDiagnostic> IterationDiagnostics;
+    public NativeList<ContactPairDiagnostic> PairDiagnostics;
+    public NativeReference<SelectedBodyContactDiagnostic> SelectedBodyDiagnostic;
+    public NativeArray<ContactHeatSample> HeatSamples;
     public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
     public int SimulationDebuggerMaximumPairs;
     public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze Stage3ContactDiagnostic/v2-v3 OFF/ON captures and judge the trend."""
+"""Analyze legacy v2-v3 contact diagnostic OFF/ON captures and judge the trend."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ DEFAULT_DIRECTORY = (
     / "LocalLow"
     / "DefaultCompany"
     / "RTS"
-    / "Stage3ContactDiagnostics"
+    / "ContactDiagnostics"
 )
 RUN_LABEL_PATTERN = re.compile(
     r"^fat-aabb-r(?P<round>\d+)"
@@ -440,7 +440,7 @@ def self_test() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="分析 Stage3ContactDiagnostic/v2-v3 Fat AABB OFF/ON 趋势。"
+        description="分析兼容的 v2-v3 Contact Diagnostic Fat AABB OFF/ON 趋势。"
     )
     parser.add_argument("directory", nargs="?", type=Path, default=DEFAULT_DIRECTORY)
     parser.add_argument("--min-reuse-rate", type=float, default=0.80)

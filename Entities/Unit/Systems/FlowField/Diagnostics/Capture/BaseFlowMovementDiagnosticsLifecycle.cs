@@ -13,20 +13,20 @@ internal struct ContactDiagnosticsFrameResources
     public NativeList<BodyPair> IncrementalOracleContactPairs;
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelPairCandidates;
     public NativeList<SimulationDebuggerPairSample> ParallelPairScratch;
-    public NativeList<Stage3ContactIterationDiagnostic> Iterations;
-    public NativeList<Stage3ContactPairDiagnostic> Pairs;
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBody;
-    public NativeArray<Stage3ContactHeatSample> HeatSamples;
+    public NativeList<ContactIterationDiagnostic> Iterations;
+    public NativeList<ContactPairDiagnostic> Pairs;
+    public NativeReference<SelectedBodyContactDiagnostic> SelectedBody;
+    public NativeArray<ContactHeatSample> HeatSamples;
     public NativeReference<PredictiveDiscContactStatistics> ContactStatistics;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
 #else
     public NativeList<BodyPair> IncrementalOracleContactPairs { get => default; set { } }
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelPairCandidates { get => default; set { } }
     public NativeList<SimulationDebuggerPairSample> ParallelPairScratch { get => default; set { } }
-    public NativeList<Stage3ContactIterationDiagnostic> Iterations { get => default; set { } }
-    public NativeList<Stage3ContactPairDiagnostic> Pairs { get => default; set { } }
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBody { get => default; set { } }
-    public NativeArray<Stage3ContactHeatSample> HeatSamples { get => default; set { } }
+    public NativeList<ContactIterationDiagnostic> Iterations { get => default; set { } }
+    public NativeList<ContactPairDiagnostic> Pairs { get => default; set { } }
+    public NativeReference<SelectedBodyContactDiagnostic> SelectedBody { get => default; set { } }
+    public NativeArray<ContactHeatSample> HeatSamples { get => default; set { } }
     public NativeReference<PredictiveDiscContactStatistics> ContactStatistics { get => default; set { } }
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics { get => default; set { } }
 #endif
@@ -60,17 +60,17 @@ public abstract partial class BaseFlowMovementSystem
         _simulationDebuggerSelectedUnit = new NativeReference<SimulationDebuggerUnitSample>(Allocator.Persistent);
         _simulationDebuggerSelectedUnitValid = new NativeReference<byte>(Allocator.Persistent);
         _legacyDiagnosticSelectionQuery = GetEntityQuery(
-            ComponentType.ReadOnly<Stage3ContactDiagnosticSelection>());
+            ComponentType.ReadOnly<ContactDiagnosticSelection>());
         _incrementalDiagnosticsEntity = EntityManager.CreateEntity(
             typeof(IncrementalContactPipelineSnapshot),
             typeof(PredictiveDiscContactStatistics),
             typeof(ShadowNeighborCacheStatistics),
-            typeof(Stage3SelectedBodyDiagnostic));
-        EntityManager.AddBuffer<Stage3ContactIterationDiagnostic>(
+            typeof(SelectedBodyContactDiagnostic));
+        EntityManager.AddBuffer<ContactIterationDiagnostic>(
             _incrementalDiagnosticsEntity);
-        EntityManager.AddBuffer<Stage3ContactPairDiagnostic>(
+        EntityManager.AddBuffer<ContactPairDiagnostic>(
             _incrementalDiagnosticsEntity);
-        EntityManager.AddBuffer<Stage3ContactHeatSample>(
+        EntityManager.AddBuffer<ContactHeatSample>(
             _incrementalDiagnosticsEntity);
 #endif
     }
@@ -94,9 +94,9 @@ public abstract partial class BaseFlowMovementSystem
         if (legacySelectionCount == 0)
             return selected;
 
-        using NativeArray<Stage3ContactDiagnosticSelection> legacySelections =
+        using NativeArray<ContactDiagnosticSelection> legacySelections =
             _legacyDiagnosticSelectionQuery
-                .ToComponentDataArray<Stage3ContactDiagnosticSelection>(
+                .ToComponentDataArray<ContactDiagnosticSelection>(
                     Allocator.Temp);
         Entity legacySelected = Entity.Null;
         for (int i = 0; i < legacySelections.Length; i++)
@@ -126,10 +126,10 @@ public abstract partial class BaseFlowMovementSystem
         scratch.IncrementalOracleContactPairs = new NativeList<BodyPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
         scratch.ParallelPairCandidates = new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob);
         scratch.ParallelPairScratch = new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob);
-        scratch.Iterations = new NativeList<Stage3ContactIterationDiagnostic>(math.max(settings.SubstepCount * settings.IterationCount, 1), Allocator.TempJob);
-        scratch.Pairs = new NativeList<Stage3ContactPairDiagnostic>(math.max(unitCount * 2, 1), Allocator.TempJob);
-        scratch.SelectedBody = new NativeReference<Stage3SelectedBodyDiagnostic>(Allocator.TempJob);
-        scratch.HeatSamples = new NativeArray<Stage3ContactHeatSample>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
+        scratch.Iterations = new NativeList<ContactIterationDiagnostic>(math.max(settings.SubstepCount * settings.IterationCount, 1), Allocator.TempJob);
+        scratch.Pairs = new NativeList<ContactPairDiagnostic>(math.max(unitCount * 2, 1), Allocator.TempJob);
+        scratch.SelectedBody = new NativeReference<SelectedBodyContactDiagnostic>(Allocator.TempJob);
+        scratch.HeatSamples = new NativeArray<ContactHeatSample>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory);
         scratch.ContactStatistics = new NativeReference<PredictiveDiscContactStatistics>(Allocator.TempJob);
         scratch.IncrementalStatistics = new NativeReference<IncrementalContactPipelineStatistics>(Allocator.TempJob);
 #endif

@@ -18,7 +18,7 @@ public partial struct ConstraintSolverJob
             CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
             CrowdBodyStepState stateStep = StepStates[bodyIndex];
-            HeatSamples[bodyIndex] = new Stage3ContactHeatSample
+            HeatSamples[bodyIndex] = new ContactHeatSample
             {
                 Entity = stateSnapshot.Entity,
                 Position = stateStep.SolvedPosition,
@@ -37,7 +37,7 @@ public partial struct ConstraintSolverJob
 
     private void AccumulateHeatPair(int bodyIndex, ContactConstraint pair)
     {
-        Stage3ContactHeatSample sample = HeatSamples[bodyIndex];
+        ContactHeatSample sample = HeatSamples[bodyIndex];
         sample.ContactPairDegree++;
         if (pair.WasActivatedThisTimestep != 0)
             sample.ActivePairDegree++;

@@ -149,7 +149,7 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
         {
             EntityManager entityManager = world.EntityManager;
             EntityQuery query = entityManager.CreateEntityQuery(
-                ComponentType.ReadWrite<Stage3ContactDiagnosticSelection>());
+                ComponentType.ReadWrite<ContactDiagnosticSelection>());
             try
             {
                 if (query.CalculateEntityCount() > 0)
@@ -161,8 +161,8 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
                         for (int i = 0; i < selectionEntities.Length; i++)
                         {
                             Entity selectionEntity = selectionEntities[i];
-                            Stage3ContactDiagnosticSelection value =
-                                entityManager.GetComponentData<Stage3ContactDiagnosticSelection>(
+                            ContactDiagnosticSelection value =
+                                entityManager.GetComponentData<ContactDiagnosticSelection>(
                                     selectionEntity);
                             value.SelectedEntity = selected;
                             entityManager.SetComponentData(selectionEntity, value);

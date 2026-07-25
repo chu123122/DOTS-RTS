@@ -12,18 +12,18 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 {
     [ReadOnly] public NativeReference<PredictiveDiscContactStatistics> Source;
-    [ReadOnly] public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource;
-    [ReadOnly] public NativeList<Stage3ContactIterationDiagnostic> IterationSource;
-    [ReadOnly] public NativeList<Stage3ContactPairDiagnostic> PairSource;
-    [ReadOnly] public NativeArray<Stage3ContactHeatSample> HeatSource;
+    [ReadOnly] public NativeReference<SelectedBodyContactDiagnostic> SelectedBodySource;
+    [ReadOnly] public NativeList<ContactIterationDiagnostic> IterationSource;
+    [ReadOnly] public NativeList<ContactPairDiagnostic> PairSource;
+    [ReadOnly] public NativeArray<ContactHeatSample> HeatSource;
 
     public void Execute(
         ref PredictiveDiscContactStatistics destination,
         ref ShadowNeighborCacheStatistics shadowDestination,
-        ref Stage3SelectedBodyDiagnostic selectedBodyDestination,
-        DynamicBuffer<Stage3ContactIterationDiagnostic> iterationDestination,
-        DynamicBuffer<Stage3ContactPairDiagnostic> pairDestination,
-        DynamicBuffer<Stage3ContactHeatSample> heatDestination)
+        ref SelectedBodyContactDiagnostic selectedBodyDestination,
+        DynamicBuffer<ContactIterationDiagnostic> iterationDestination,
+        DynamicBuffer<ContactPairDiagnostic> pairDestination,
+        DynamicBuffer<ContactHeatSample> heatDestination)
     {
         destination = Source.Value;
         // The legacy shadow broad-phase is retired. Keep its compatibility
@@ -49,22 +49,22 @@ public struct PublishPredictiveDiscContactStatisticsJob : IJob
 {
     private byte _disabledStorage;
     public NativeReference<PredictiveDiscContactStatistics> Source { get => default; set { } }
-    public NativeReference<Stage3SelectedBodyDiagnostic> SelectedBodySource
+    public NativeReference<SelectedBodyContactDiagnostic> SelectedBodySource
     {
         get => default;
         set { }
     }
-    public NativeList<Stage3ContactIterationDiagnostic> IterationSource
+    public NativeList<ContactIterationDiagnostic> IterationSource
     {
         get => default;
         set { }
     }
-    public NativeList<Stage3ContactPairDiagnostic> PairSource
+    public NativeList<ContactPairDiagnostic> PairSource
     {
         get => default;
         set { }
     }
-    public NativeArray<Stage3ContactHeatSample> HeatSource
+    public NativeArray<ContactHeatSample> HeatSource
     {
         get => default;
         set { }
