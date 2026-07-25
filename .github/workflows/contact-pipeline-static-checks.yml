@@ -103,49 +103,8 @@ jobs:
                   'Sleeping policy introduced without a dedicated design stage')
           PY
 
-      - name: Validate type ownership and temporary artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          flow = Path('Entities/Unit/Systems/FlowField')
-          pipeline = flow / 'Jobs/ContactPipeline'
-          ownership = {
-              'public struct BodyPair':
-                  pipeline / 'Core/BodyPair.cs',
-              'public struct ContactConstraint':
-                  pipeline / 'Core/ContactConstraint.cs',
-              'public struct SweptDiscCellEntry':
-                  pipeline / 'BroadPhase/SweptDiscTypes.cs',
-              'public struct IncrementalContactCacheState':
-                  pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs',
-              'public struct IncrementalContactPipelineStatistics':
-                  flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs'
-          }
-          for symbol, expected_path in ownership.items():
-              paths = [
-                  path for path in flow.rglob('*.cs')
-                  if symbol in path.read_text(encoding='utf-8')
-              ]
-              if paths != [expected_path]:
-                  raise SystemExit(f'{symbol} ownership mismatch: {paths}')
-          runtime_types = (
-              pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs'
-          ).read_text(encoding='utf-8')
-          telemetry = (
-              flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs'
-          ).read_text(encoding='utf-8')
-          if 'Nanoseconds' in runtime_types or 'OraclePairCount' in runtime_types:
-              raise SystemExit('Telemetry leaked into authoritative runtime state')
-          if 'IncrementalContactCacheState' in telemetry:
-              raise SystemExit('Runtime cache state leaked into telemetry schema')
-          temp = list(Path('.github/workflows').glob(
-              'refactor-contact-pipeline-phase*.yml'))
-          temp += list(Path('.github/workflows').glob('audit-*.yml'))
-          if temp:
-              raise SystemExit('Temporary workflows remain: ' + repr(temp))
-          PY
+      - name: Validate final type ownership contracts
+        run: python .github/scripts/validate_contact_type_ownership.py
 
       - name: Validate diagnostics source layout
         shell: bash
