@@ -1,6 +1,10 @@
 # Known contact-pipeline debt
 
-## Completed architecture boundary work
+## Completed hard-cutover architecture work
+
+The phase 1-5 migrations are terminal cutovers: no forwarding frame/pair wrapper,
+all-capability solver type, aggregate resource bag or retired compatibility directory
+remains in the production tree.
 
 - Scheduled `SimulationStepId` is independent from persistent `CacheGeneration`.
 - Persistent containers are documented and guarded as certifier-owned candidate state.
