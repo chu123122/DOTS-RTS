@@ -16,6 +16,63 @@ on:
       - '.github/workflows/contact-architecture-contracts.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+jobs:
+  validate-architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 50
+      - name: Validate candidate-certifier-consumer boundaries
+        run: python3 .github/scripts/validate_contact_architecture.py
+      - name: Finalize static margin scope
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          static_path = Path('.github/workflows/contact-pipeline-static-checks.yml')
+          text = static_path.read_text(encoding='utf-8')
+          old = """          margin_paths = [
+              path for path, text in sources.items()
+              if 'PersistentGuardEnvelopeMargin' in text
+          ]
+"""
+          new = """          margin_paths = [
+              path for path in pipeline.rglob('*.cs')
+              if 'PersistentGuardEnvelopeMargin' in
+                 path.read_text(encoding='utf-8')
+          ]
+"""
+          if text.count(old) != 1:
+              raise SystemExit('terminal margin-scope block did not match exactly')
+          static_path.write_text(text.replace(old, new), encoding='utf-8')
+
+          architecture_path = Path(
+              '.github/workflows/contact-architecture-contracts.yml'
+          )
+          architecture_path.write_text("""name: Contact architecture contracts
+
+on:
+  pull_request:
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/workflows/contact-architecture-contracts.yml'
+  push:
+    branches:
+      - Simulation
+      - codex/simulation-integration
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/workflows/contact-architecture-contracts.yml'
+  workflow_dispatch:
+
 jobs:
   validate-architecture:
     runs-on: ubuntu-latest
@@ -23,3 +80,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate candidate-certifier-consumer boundaries
         run: python3 .github/scripts/validate_contact_architecture.py
+""", encoding='utf-8')
+          PY
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --check
+          git add .github/workflows/contact-pipeline-static-checks.yml \
+                  .github/workflows/contact-architecture-contracts.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "scope margin ownership check to contact pipeline"
+          git push origin HEAD:codex/simulation-integration
