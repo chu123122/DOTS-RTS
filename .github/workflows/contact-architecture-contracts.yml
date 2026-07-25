@@ -16,52 +16,10 @@ on:
       - '.github/workflows/contact-architecture-contracts.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   validate-architecture:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: codex/simulation-integration
-          fetch-depth: 1
-      - name: Validate current architecture
+      - name: Validate candidate-certifier-consumer boundaries
         run: python3 .github/scripts/validate_contact_architecture.py
-      - name: Detect pending phase one
-        id: cutover
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -f Entities/Unit/Systems/FlowField/Jobs/FlowMovementFrameState.cs ]; then
-            echo "pending=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "pending=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Decode phase one patch
-        if: steps.cutover.outputs.pending == 'true'
-        run: cat .github/cutover/phase-1/chunk-*.b64 | base64 -d | gzip -d > /tmp/phase-1.patch
-      - name: Apply phase one patch
-        if: steps.cutover.outputs.pending == 'true'
-        run: git apply --index /tmp/phase-1.patch
-      - name: Validate pipeline audit
-        if: steps.cutover.outputs.pending == 'true'
-        run: python3 .github/scripts/validate_contact_pipeline_audit.py
-      - name: Validate diagnostics
-        if: steps.cutover.outputs.pending == 'true'
-        run: python3 .github/scripts/validate_contact_diagnostics.py
-      - name: Validate hard-cutover architecture
-        if: steps.cutover.outputs.pending == 'true'
-        run: python3 .github/scripts/validate_contact_architecture.py
-      - name: Validate staged diff
-        if: steps.cutover.outputs.pending == 'true'
-        run: git diff --cached --check
-      - name: Commit phase one
-        if: steps.cutover.outputs.pending == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "hard cutover crowd body data"
-      - name: Push phase one
-        if: steps.cutover.outputs.pending == 'true'
-        run: git push origin HEAD:codex/simulation-integration
