@@ -29,6 +29,7 @@ jobs:
           fetch-depth: 1
       - name: Validate candidate-certifier-consumer boundaries
         run: python3 .github/scripts/validate_contact_architecture.py
+      # The complete phase-one payload is staged under .github/cutover/phase-1.
       - name: Apply staged phase-one hard cutover
         if: github.event_name == 'pull_request'
         run: |
