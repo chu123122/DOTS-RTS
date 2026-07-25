@@ -11,6 +11,7 @@ namespace RTS.Unit.FlowField.Jobs
 public struct SerialContactPipelineLifecycleJob : IJob
 {
     public ContactPipelineConfiguration Configuration;
+    private bool EnableDiagnostics => Configuration.EnableDiagnostics;
     public NativeReference<SerialContactPipelineControlState> SerialControl;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
 #if RTS_CONTACT_DIAGNOSTICS
@@ -34,15 +35,18 @@ public struct SerialContactPipelineLifecycleJob : IJob
 #endif
         };
 #if RTS_CONTACT_DIAGNOSTICS
-        if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
-        if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
-        if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
-        if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
-        IncrementalStatistics.Value = default;
-        Statistics.Value = new PredictiveDiscContactStatistics
+        if (EnableDiagnostics)
         {
-            TimestepContactSetFirstEscapeSubstep = -1
-        };
+            if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
+            if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
+            if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
+            if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
+            IncrementalStatistics.Value = default;
+            Statistics.Value = new PredictiveDiscContactStatistics
+            {
+                TimestepContactSetFirstEscapeSubstep = -1
+            };
+        }
 #endif
         ActiveIncidentIndexState.Value = default;
     }

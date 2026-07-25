@@ -56,18 +56,21 @@ public partial struct SoftAvoidanceJob
 #endif
         )
     {
+        // Deferred jobs capture list lengths at schedule time and must see the
+        // correct Capacity before this job begins. Resize unconditionally so that
+        // the downstream EvaluateSoftAvoidancePairsJob never writes into a
+        // zero-length array even when the runtime state is not yet valid.
+        EnsureSoftIncidentIndexP1P6();
+        SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
+
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
-
-        EnsureSoftIncidentIndexP1P6();
-        SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
 #if RTS_CONTACT_DIAGNOSTICS
         blockStatistics.ResizeUninitialized(
             (SoftAvoidancePairs.Length + CrowdContactPipelineScheduler.SoftPairBatchSize - 1) / CrowdContactPipelineScheduler.SoftPairBatchSize);
-#if RTS_CONTACT_DIAGNOSTICS
-        runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-#endif
+        if (EnableDiagnostics)
+            runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
 #endif
         runtimeState.Value = runtime;
     }
@@ -79,6 +82,8 @@ public partial struct SoftAvoidanceJob
         NativeArray<int> escapeCountsByBlock,
         int escapeBlockCount)
     {
+        if (!EnableDiagnostics)
+            return;
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;

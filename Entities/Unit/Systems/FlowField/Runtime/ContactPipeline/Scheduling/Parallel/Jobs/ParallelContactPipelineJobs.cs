@@ -316,9 +316,13 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         public NativeArray<byte> DirtyFlagsByBody;
         [NativeDisableParallelForRestriction]
         public NativeArray<CrowdBodySnapshot> Bodies;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdNavigationState> NavigationStates;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionIntent> MotionIntents;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdBodyStepState> StepStates;
         [NativeDisableParallelForRestriction]
         public NativeArray<ParallelBodyStageResult> BodyStatistics;

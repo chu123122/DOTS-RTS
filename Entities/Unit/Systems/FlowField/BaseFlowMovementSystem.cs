@@ -64,13 +64,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         UnitContactSolverSettings contactSolverSettings =
             SystemAPI.GetSingleton<UnitContactSolverSettings>();
 
-        PublishSimulationDebuggerSnapshot(worldId, gridComponent);
-        ApplySimulationDebuggerRuntimeOverrides(
-            ref flowFieldSettings,
-            ref contactSolverSettings);
-        IncrementalContactPipelineExperimentRuntime.Apply(
-            worldId,
-            ref contactSolverSettings);
+        if (contactSolverSettings.EnableDiagnostics)
+        {
+            PublishSimulationDebuggerSnapshot(worldId, gridComponent);
+            ApplySimulationDebuggerRuntimeOverrides(
+                ref flowFieldSettings,
+                ref contactSolverSettings);
+            IncrementalContactPipelineExperimentRuntime.Apply(
+                worldId,
+                ref contactSolverSettings);
+        }
 
         bool effectiveTimestepContactSetCache =
             contactSolverSettings.EnableTimestepContactSetCache;

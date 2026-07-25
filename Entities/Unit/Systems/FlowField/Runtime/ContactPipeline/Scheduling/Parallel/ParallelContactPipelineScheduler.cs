@@ -30,22 +30,29 @@ public partial struct CrowdContactPipelineScheduler
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
 #if RTS_CONTACT_DIAGNOSTICS
-        bool captureSelectedPairs =
-            Configuration.EnableDiagnostics && DiagnosticSelectedEntity != Entity.Null &&
-            (SimulationDebuggerCaptureMask &
-             SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-            (SimulationDebuggerCaptureMask &
-             SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+        bool captureSelectedPairs = false;
+        if (EnableDiagnostics)
+        {
+            captureSelectedPairs = DiagnosticSelectedEntity != Entity.Null &&
+                (SimulationDebuggerCaptureMask &
+                 SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
+                (SimulationDebuggerCaptureMask &
+                 SimulationDebuggerCaptureMask.SelectedPairs) != 0;
+        }
 #endif
         int escapeBlockCount =
             (Bodies.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
         if (substepDeltaTime <= 0f)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
-            finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
-            finalizeEmptyPipeline.RuntimeState = runtimeState;
-            return finalizeEmptyPipeline.Schedule(handle);
+            if (EnableDiagnostics)
+            {
+                ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
+                finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+                finalizeEmptyPipeline.RuntimeState = runtimeState;
+                return finalizeEmptyPipeline.Schedule(handle);
+            }
+            return handle;
 #else
             return handle;
 #endif
@@ -318,11 +325,14 @@ public partial struct CrowdContactPipelineScheduler
                 handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            handle = new ReduceSoftAvoidanceBlocksJob
+            if (EnableDiagnostics)
             {
-                Contributions = SoftPairContributions.AsDeferredJobArray(),
-                Blocks = blockStatistics.AsDeferredJobArray()
-            }.Schedule(blockStatistics, 1, handle);
+                handle = new ReduceSoftAvoidanceBlocksJob
+                {
+                    Contributions = SoftPairContributions.AsDeferredJobArray(),
+                    Blocks = blockStatistics.AsDeferredJobArray()
+                }.Schedule(blockStatistics, 1, handle);
+            }
 #endif
 
             handle = new GatherSoftAvoidanceBodiesJob
@@ -348,20 +358,23 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            handle = new ReduceP1P6SoftEscapeBlocksJob
+            if (EnableDiagnostics)
             {
-                EscapeFlags = EnvelopeEscapeFlags,
-                EscapeCountsByBlock = DirtyBodyBlockOffsets,
-                BodyCount = Bodies.Length
-            }.Schedule(escapeBlockCount, 1, handle);
+                handle = new ReduceP1P6SoftEscapeBlocksJob
+                {
+                    EscapeFlags = EnvelopeEscapeFlags,
+                    EscapeCountsByBlock = DirtyBodyBlockOffsets,
+                    BodyCount = Bodies.Length
+                }.Schedule(escapeBlockCount, 1, handle);
 
-            SoftAvoidanceJob finalizeSoft = SoftAvoidance;
-            finalizeSoft.Operation = SoftAvoidanceOperation.FinalizeParallel;
-            finalizeSoft.RuntimeState = runtimeState;
-            finalizeSoft.BlockStatistics = blockStatistics;
-            finalizeSoft.EscapeCountsByBlock = DirtyBodyBlockOffsets;
-            finalizeSoft.EscapeBlockCount = escapeBlockCount;
-            handle = finalizeSoft.Schedule(handle);
+                SoftAvoidanceJob finalizeSoft = SoftAvoidance;
+                finalizeSoft.Operation = SoftAvoidanceOperation.FinalizeParallel;
+                finalizeSoft.RuntimeState = runtimeState;
+                finalizeSoft.BlockStatistics = blockStatistics;
+                finalizeSoft.EscapeCountsByBlock = DirtyBodyBlockOffsets;
+                finalizeSoft.EscapeBlockCount = escapeBlockCount;
+                handle = finalizeSoft.Schedule(handle);
+            }
 #endif
 
             handle = new PredictUnconstrainedBodiesJob
@@ -499,6 +512,7 @@ public partial struct CrowdContactPipelineScheduler
 #if RTS_CONTACT_DIAGNOSTICS
                 if (captureSelectedPairs)
                 {
+                    JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
                     handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
                     {
                         Alpha = Configuration.Compliance /
@@ -522,6 +536,7 @@ public partial struct CrowdContactPipelineScheduler
                 else
 #endif
                 {
+                    JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
                     handle = new EvaluateParallelJacobiPairsJob
                     {
                         Alpha = Configuration.Compliance /
@@ -540,11 +555,12 @@ public partial struct CrowdContactPipelineScheduler
                 }
 
 #if RTS_CONTACT_DIAGNOSTICS
-                handle = new ReduceParallelJacobiBlocksJob
-                {
-                    Corrections = JacobiPairCorrections.AsDeferredJobArray(),
-                    Blocks = blockStatistics.AsDeferredJobArray()
-                }.Schedule(blockStatistics, 1, handle);
+                if (EnableDiagnostics)
+                    handle = new ReduceParallelJacobiBlocksJob
+                    {
+                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                        Blocks = blockStatistics.AsDeferredJobArray()
+                    }.Schedule(blockStatistics, 1, handle);
 #endif
 
 #if RTS_CONTACT_DIAGNOSTICS
@@ -612,10 +628,13 @@ public partial struct CrowdContactPipelineScheduler
             }
 
 #if RTS_CONTACT_DIAGNOSTICS
-            ConstraintSolverJob beginFinalizeSubstep = ConstraintSolver;
-            beginFinalizeSubstep.Operation = ConstraintSolverOperation.BeginParallelFinalizeSubstep;
-            beginFinalizeSubstep.RuntimeState = runtimeState;
-            handle = beginFinalizeSubstep.Schedule(handle);
+            if (EnableDiagnostics)
+            {
+                ConstraintSolverJob beginFinalizeSubstep = ConstraintSolver;
+                beginFinalizeSubstep.Operation = ConstraintSolverOperation.BeginParallelFinalizeSubstep;
+                beginFinalizeSubstep.RuntimeState = runtimeState;
+                handle = beginFinalizeSubstep.Schedule(handle);
+            }
 #endif
 
             handle = new ReconstructVelocityBodiesJob
@@ -630,25 +649,32 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            handle = new ReduceP1P6VelocityBodyBlocksJob
+            if (EnableDiagnostics)
             {
-                BodyStatistics = ParallelBodyStatistics,
-                BodyCount = Bodies.Length
-            }.Schedule(escapeBlockCount, 1, handle);
+                handle = new ReduceP1P6VelocityBodyBlocksJob
+                {
+                    BodyStatistics = ParallelBodyStatistics,
+                    BodyCount = Bodies.Length
+                }.Schedule(escapeBlockCount, 1, handle);
 
-            ConstraintSolverJob finalizeVelocity = ConstraintSolver;
-            finalizeVelocity.Operation = ConstraintSolverOperation.FinalizeParallelVelocity;
-            finalizeVelocity.RuntimeState = runtimeState;
-            finalizeVelocity.BlockCount = escapeBlockCount;
-            handle = finalizeVelocity.Schedule(handle);
+                ConstraintSolverJob finalizeVelocity = ConstraintSolver;
+                finalizeVelocity.Operation = ConstraintSolverOperation.FinalizeParallelVelocity;
+                finalizeVelocity.RuntimeState = runtimeState;
+                finalizeVelocity.BlockCount = escapeBlockCount;
+                handle = finalizeVelocity.Schedule(handle);
+            }
 #endif
         }
 
 #if RTS_CONTACT_DIAGNOSTICS
-        ConstraintSolverJob finalizePipeline = ConstraintSolver;
-        finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
-        finalizePipeline.RuntimeState = runtimeState;
-        return finalizePipeline.Schedule(handle);
+        if (EnableDiagnostics)
+        {
+            ConstraintSolverJob finalizePipeline = ConstraintSolver;
+            finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizePipeline.RuntimeState = runtimeState;
+            return finalizePipeline.Schedule(handle);
+        }
+        return handle;
 #else
         return handle;
 #endif

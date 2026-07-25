@@ -41,8 +41,9 @@ public partial struct ConstraintSolverJob
             statistics.SoftAvoidanceNanoseconds / substepCount;
         statistics.AverageSpeedBeforeContact /= substepCount;
         statistics.AverageSpeedAfterContact /= substepCount;
-        statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
+        if (EnableDiagnostics)
+            statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
 
         incrementalStatistics.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;
@@ -86,7 +87,8 @@ public partial struct ConstraintSolverJob
                     incrementalStatistics.UniqueActivatedPairCount)
                 : 0f;
 
-        CaptureSimulationDebuggerSelectedUnit();
+        if (EnableDiagnostics)
+            CaptureSimulationDebuggerSelectedUnit();
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);
 #endif

@@ -27,7 +27,8 @@ public partial struct ConstraintSolverJob
 #endif
         ResetCorrectedBodyTracking();
 #if RTS_CONTACT_DIAGNOSTICS
-        iterationState.Value = iteration;
+        if (EnableDiagnostics)
+            iterationState.Value = iteration;
 #endif
     }
 
@@ -36,6 +37,8 @@ public partial struct ConstraintSolverJob
     private void BeginP1P6FinalizeSubstep(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
+        if (!EnableDiagnostics)
+            return;
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
@@ -53,6 +56,8 @@ public partial struct ConstraintSolverJob
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         int blockCount)
     {
+        if (!EnableDiagnostics)
+            return;
         if (runtimeState.Value.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();

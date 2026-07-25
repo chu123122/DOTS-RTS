@@ -15,6 +15,7 @@ namespace RTS.Unit.FlowField.Jobs
 public struct ParallelContactPipelineLifecycleJob : IJob
 {
     public ContactPipelineConfiguration Configuration;
+    private bool EnableDiagnostics => Configuration.EnableDiagnostics;
     public NativeReference<ParallelJacobiExecutionState> RuntimeState;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<int> PersistentProxyIndexByBody;
@@ -42,17 +43,20 @@ public struct ParallelContactPipelineLifecycleJob : IJob
             IsValid = 1
         };
 #if RTS_CONTACT_DIAGNOSTICS
-        runtime.SolverStartTimestamp =
-            Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp;
-        if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
-        if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
-        if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
-        if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
-        IncrementalStatistics.Value = default;
-        Statistics.Value = new PredictiveDiscContactStatistics
+        if (EnableDiagnostics)
         {
-            TimestepContactSetFirstEscapeSubstep = -1
-        };
+            runtime.SolverStartTimestamp =
+                Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp;
+            if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
+            if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
+            if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
+            if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
+            IncrementalStatistics.Value = default;
+            Statistics.Value = new PredictiveDiscContactStatistics
+            {
+                TimestepContactSetFirstEscapeSubstep = -1
+            };
+        }
 #endif
         ActiveIncidentIndexState.Value = default;
 

@@ -90,11 +90,13 @@ public partial struct ConstraintSolverJob
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
-        statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
+        if (EnableDiagnostics)
+            statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
 #endif
 #if RTS_CONTACT_DIAGNOSTICS
-        AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
+        if (EnableDiagnostics)
+            AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
 #endif
         SerialControl.Value = control;
         StoreContactStatistics(statistics);
@@ -130,8 +132,9 @@ public partial struct ConstraintSolverJob
         statistics.AverageSpeedBeforeContact /= math.max(1, SubstepCount);
         statistics.AverageSpeedAfterContact /= math.max(1, SubstepCount);
 #if RTS_CONTACT_DIAGNOSTICS
-        statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - control.SolverStartTimestamp);
+        if (EnableDiagnostics)
+            statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - control.SolverStartTimestamp);
 #endif
         incremental.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;
@@ -173,7 +176,8 @@ public partial struct ConstraintSolverJob
                     incremental.UniqueActivatedPairCount)
                 : 0f;
 #if RTS_CONTACT_DIAGNOSTICS
-        CaptureSimulationDebuggerSelectedUnit();
+        if (EnableDiagnostics)
+            CaptureSimulationDebuggerSelectedUnit();
 #endif
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);

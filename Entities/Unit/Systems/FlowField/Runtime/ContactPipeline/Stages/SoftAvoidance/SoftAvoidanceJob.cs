@@ -23,7 +23,7 @@ public partial struct SoftAvoidanceJob : IJob
     public SoftAvoidanceOperation Operation;
     public ContactPipelineConfiguration Configuration;
     public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-    public NativeArray<FlowFieldCell> Grid;
+    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
@@ -47,6 +47,7 @@ public partial struct SoftAvoidanceJob : IJob
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
     private SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver => Configuration.SoftAvoidanceVelocitySolver;
     private float RvoTimeHorizon => Configuration.RvoTimeHorizon;
+    private bool EnableDiagnostics => Configuration.EnableDiagnostics;
     private bool EnablePersistentContactCache => Configuration.EnablePersistentContactCache;
     private FlowGridGeometry EnvironmentGeometry => new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
     private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>

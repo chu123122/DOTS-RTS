@@ -68,7 +68,7 @@ public partial struct InteractionCertificationJob : IJob
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
-    public NativeArray<FlowFieldCell> Grid;
+    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
 
     public NativeArray<CrowdBodySnapshot> Bodies;
     public NativeArray<CrowdNavigationState> NavigationStates;

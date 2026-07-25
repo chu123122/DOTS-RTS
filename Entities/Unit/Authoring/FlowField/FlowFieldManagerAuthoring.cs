@@ -12,62 +12,61 @@ namespace RTS.Unit.Authoring.FlowField
 
 public class FlowFieldManagerAuthoring : MonoBehaviour
 {
-    public float cellRadius = 0.5f; 
+    [Header("诊断总开关")]
+    [Tooltip("开启后 Profiler 计时、统计累积、快照发布、O(N²) Oracle 全部运行；关闭后热点路径零开销。")]
+    public bool enableContactDiagnostics;
+
+    [Header("流场网格")]
+    [Tooltip("每个格子的边长（世界单位）。")]
+    public float cellRadius = 0.5f;
+    [Tooltip("网格尺寸（列 × 行）。")]
     public int2 gridSize = new int2(100, 100);
+    [Tooltip("网格左下角的世界坐标原点。")]
     public float3 gridOrigin;
 
-    [Header("Flow Field Visualization")]
+    [Header("流场可视化")]
     public bool showGrid = true;
     public bool showCost = true;
+    [Tooltip("在格子中心绘制 8 方向最佳路径箭头。")]
     public bool showDirections = true;
     [Range(4, 16)] public int pixelsPerCell = 8;
+    [Tooltip("可视化平面的不透明度。")]
     [Range(0f, 1f)] public float visualizationOpacity = 0.65f;
+    [Tooltip("可视化平面在世界 Y 轴上的高度偏移。")]
     public float visualizationHeightOffset = 0.05f;
 
-    [Header("Soft Avoidance")]
+    [Header("软避让")]
     [Tooltip("软避让速度缓冲的每秒响应率；0 表示不把避让速度写入预测速度。")]
     [FormerlySerializedAs("softAvoidanceWeight")]
     [Min(0f)] public float softAvoidanceResponseRate = 4f;
     [Tooltip("单位表面之间开始软避让的额外距离；实际激活距离为双方半径之和加该值。")]
     [Min(0f)] public float softAvoidanceShell = 0.2f;
+    [Tooltip("已到达目标单位的软避让强度倍率；>1 时更用力推开周围单位保持间距。")]
     [Min(0f)] public float settledSoftAvoidanceMultiplier = 1.5f;
-    [Tooltip("Surface 保留距离缓冲；RVO 使用相对速度和时间窗口求速度修正。")]
+    [Tooltip("预测引导 = 纯位置排斥；RVO 互惠避让 = 速度感知避障。")]
     public SoftAvoidanceVelocitySolverMode softAvoidanceVelocitySolver =
         SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer;
-    [Tooltip("RVO 预测未来碰撞的时间窗口（秒），不等同于 Fat AABB 缓存 TTL。")]
+    [Tooltip("RVO 预测未来碰撞的时间窗口（秒），选 RVO 时生效。")]
     [Min(0.01f)] public float rvoTimeHorizon = 0.5f;
 
-    [Header("Unit Contact XPBD")]
+    [Header("XPBD 接触求解")]
+    [Tooltip("每帧拆分的物理子步数。")]
     [Min(1)] public int contactSubsteps = 2;
+    [Tooltip("每个子步内 XPBD 约束迭代次数。")]
     [Min(1)] public int contactIterations = 4;
+    [Tooltip("XPBD 柔度参数；0 = 硬约束，越大越软。")]
     [Min(0f)] public float contactCompliance;
+    [Tooltip("预测碰撞检测时在圆盘半径外的膨胀厚度。")]
     [Min(0f)] public float predictiveContactSkin = 0.05f;
-    [Tooltip("关闭时只生成 substep 起点已经接触的实际 Pair，不再使用 swept path 提前生成 Pair。")]
+    [Tooltip("关闭时只生成子步起点已实际接触的 Pair，不沿 swept path 提前发现潜在碰撞。")]
     public bool enablePredictivePairGeneration = true;
-    [Tooltip("关闭时仍生成 swept candidate，但不会启用防换侧 Predictive 约束。")]
+    [Tooltip("关闭时仍生成 swept candidate Pair，但使用实时法线而非预计算的轨迹法线求解。")]
     public bool enablePredictiveContacts = true;
 
-    [Header("Contact Diagnostics")]
-    [Tooltip("开启逐 iteration 残差、位置修正、速度变化和选中单位 Pair 采集。")]
-    public bool enableContactDiagnostics;
-    [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
-    public bool visualizeSelectedContacts = true;
-    [Tooltip("常规视图显示接触负载热力图；中键选中后仍显示单位细节。")]
-    public bool visualizeContactHeatmap = true;
-    public ContactHeatmapMode contactHeatmapMode = ContactHeatmapMode.ContactLoad;
-    [Tooltip("中键选中诊断单位时使用的默认时间倍率。")]
-    [Range(0.025f, 1f)] public float diagnosticSlowMotionScale = 0.2f;
-    [Tooltip("按 F6 后自动采集并写出 JSON 的持续时间（秒）。")]
-    [Min(0.5f)] public float diagnosticCaptureDuration = 10f;
-    [Tooltip("JSON 采样间隔（秒），不会逐帧写磁盘。")]
-    [Min(0.05f)] public float diagnosticCaptureInterval = 0.1f;
-
-    [Header("Contact Cache")]
-    [Tooltip("在一个 timestep 的全部 substep 间复用接触视图。")]
+    [Header("接触缓存")]
+    [Tooltip("在一个 timestep 的全部子步间复用中层 InteractionSet 接触视图。")]
     public bool enableTimestepContactSetCache = true;
-
-    [Header("Persistent Contact Cache")]
-    [Tooltip("启用后跨 timestep 持久邻居拓扑会复用 guarded proxy 证书，避免重复的全量候选发现；每个子步仍执行接触激活。")]
+    [Tooltip("启用后跨帧持久邻居拓扑复用 guarded proxy 证书，避免每帧全量候选发现。")]
     [FormerlySerializedAs("enableShadowNeighborCacheTest")]
     [FormerlySerializedAs("enableFatAabbCache")]
     public bool enablePersistentContactCache;
@@ -75,8 +74,22 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [FormerlySerializedAs("shadowCacheMargin")]
     [FormerlySerializedAs("fatAabbCacheMargin")]
     [Min(0f)] public float persistentGuardEnvelopeMargin = 0.25f;
-    [Tooltip("整个 timestep ContactSet 预测轨迹之外的安全边界；逃出后执行完整回退。")]
+    [Tooltip("整个 timestep ContactSet 预测轨迹之外的安全边界；逃出后执行完整回退重建。")]
     [Min(0f)] public float timestepContactMargin = 0.25f;
+
+    [Header("调试显示")]
+    [Tooltip("显示中键选中单位的 swept capsule、AABB 和候选 Pair。")]
+    public bool visualizeSelectedContacts = true;
+    [Tooltip("常规视图显示接触负载热力图；中键选中后仍显示单位细节。")]
+    public bool visualizeContactHeatmap = true;
+    [Tooltip("热力图着色维度。")]
+    public ContactHeatmapMode contactHeatmapMode = ContactHeatmapMode.ContactLoad;
+    [Tooltip("中键选中诊断单位时使用的默认时间倍率。")]
+    [Range(0.025f, 1f)] public float diagnosticSlowMotionScale = 0.2f;
+    [Tooltip("按 F6 后自动采集并写出 JSON 的持续时间（秒）。")]
+    [Min(0.5f)] public float diagnosticCaptureDuration = 10f;
+    [Tooltip("JSON 采样间隔（秒），不会逐帧写磁盘。")]
+    [Min(0.05f)] public float diagnosticCaptureInterval = 0.1f;
 
     public class Baker : Baker<FlowFieldManagerAuthoring>
     {

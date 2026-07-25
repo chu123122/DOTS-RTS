@@ -22,7 +22,7 @@ public partial struct MotionIntegrationJob : IJob
 {
     public MotionIntegrationOperation Operation;
     public ContactPipelineConfiguration Configuration;
-    public NativeArray<FlowFieldCell> Grid;
+    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;

@@ -41,7 +41,7 @@ public partial struct ConstraintSolverJob : IJob
     public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
     public NativeList<JacobiBlockTelemetry> BlockStatistics;
 #endif
-    public NativeArray<FlowFieldCell> Grid;
+    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;

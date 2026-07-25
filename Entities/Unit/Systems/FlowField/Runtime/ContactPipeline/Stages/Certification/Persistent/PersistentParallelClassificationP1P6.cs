@@ -212,11 +212,12 @@ public partial struct InteractionCertificationJob
             NeedsCommit = 0
         };
 #if RTS_CONTACT_DIAGNOSTICS
-        PersistentClassificationTelemetryState telemetry = new PersistentClassificationTelemetryState
+        PersistentClassificationTelemetryState telemetry = default;
+        if (EnableDiagnostics)
         {
-            BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp
-        };
-        PersistentClassificationTelemetry.Value = telemetry;
+            telemetry.BuildStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+            PersistentClassificationTelemetry.Value = telemetry;
+        }
 #endif
         PersistentClassificationResults.Clear();
         if (runtimeState.Value.IsValid == 0 ||
@@ -237,8 +238,11 @@ public partial struct InteractionCertificationJob
         if (needsClassification)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            telemetry.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
-            PersistentClassificationTelemetry.Value = telemetry;
+            if (EnableDiagnostics)
+            {
+                telemetry.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+                PersistentClassificationTelemetry.Value = telemetry;
+            }
 #endif
             phase.Timestep = IncrementalCacheState.Value.Timestep;
             phase.ClassificationEpoch = CalculateClassificationEpoch();
@@ -251,9 +255,10 @@ public partial struct InteractionCertificationJob
         else
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            FinalizePersistentBuildTimingP1P6(
-                telemetry.BuildStartTimestamp,
-                ref statistics);
+            if (EnableDiagnostics)
+                FinalizePersistentBuildTimingP1P6(
+                    telemetry.BuildStartTimestamp,
+                    ref statistics);
 #endif
         }
 
@@ -470,13 +475,16 @@ public partial struct InteractionCertificationJob
         CommitTimestepContactViews(ref statistics, ref incremental, false);
         ValidateIncrementalContactSetAgainstQuadraticOracle(ref incremental);
 #if RTS_CONTACT_DIAGNOSTICS
-        PersistentClassificationTelemetryState telemetry =
-            PersistentClassificationTelemetry.Value;
-        incremental.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
-            ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
-        FinalizePersistentBuildTimingP1P6(
-            telemetry.BuildStartTimestamp,
-            ref statistics);
+        if (EnableDiagnostics)
+        {
+            PersistentClassificationTelemetryState telemetry =
+                PersistentClassificationTelemetry.Value;
+            incremental.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
+            FinalizePersistentBuildTimingP1P6(
+                telemetry.BuildStartTimestamp,
+                ref statistics);
+        }
 #endif
 
         phase.NeedsCommit = 0;
