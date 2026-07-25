@@ -27,7 +27,7 @@ public struct ContactConstraintEvaluation
 public static class XpbdContactConstraintMath
 {
     public static ContactConstraintEvaluation Evaluate(
-        ref UnitCollisionPair pair,
+        ref ContactConstraint pair,
         CrowdBodySnapshot bodyA,
         CrowdBodyStepState stepA,
         CrowdBodySnapshot bodyB,
@@ -45,7 +45,7 @@ public static class XpbdContactConstraintMath
         float3 normal;
         float constraintValue;
 
-        if (pair.ContactMode == UnitContactMode.Predictive)
+        if (pair.ContactMode == ContactConstraintMode.Predictive)
         {
             normal = pair.PredictiveNormal;
             if (pair.PredictiveNormalOriented == 0)
@@ -161,7 +161,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
             CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
             CrowdMotionEvidence evidenceA = MotionEvidence[pair.BodyA];
@@ -247,7 +247,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
             CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
             CrowdBodyStepState stepA = StepStates[pair.BodyA];
@@ -312,7 +312,7 @@ public partial struct SolveXpbdUnitContactsJob
             for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
             {
                 int pairIndex = ActiveIncidentPairIndices[incidentIndex];
-                UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+                ContactConstraint pair = TimestepContactPairs[pairIndex];
                 JacobiPairCorrection contribution = JacobiPairCorrections[pairIndex];
                 if (pair.BodyA == bodyIndex && contribution.ActiveA != 0)
                 {
@@ -346,7 +346,7 @@ public partial struct SolveXpbdUnitContactsJob
 
     private void MarkPairCorrectedThisTimestep(
         int pairIndex,
-        ref UnitCollisionPair pair,
+        ref ContactConstraint pair,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         if (pair.WasCorrectedThisTimestep != 0)

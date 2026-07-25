@@ -116,12 +116,13 @@ internal struct ContactFrameResources
     public NativeArray<CrowdBodyResult> Results;
     public NativeArray<float2> CollisionFootprints;
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
-    public NativeList<UnitCollisionPair> CollisionPairs;
-    public NativeList<UnitCollisionPair> TimestepContactPairs;
+    public NativeList<ContactConstraint> CollisionPairs;
+    public NativeList<ContactConstraint> TimestepContactPairs;
     public NativeParallelHashMap<Entity, int> CurrentBodyIndexByEntity;
-    public NativeList<UnitCollisionPair> TimestepInteractionPairs;
-    public NativeList<UnitCollisionPair> SoftAvoidancePairs;
-    public NativeList<UnitCollisionPair> PreviousTimestepContactPairs;
+    public NativeList<BodyPair> TimestepInteractionPairs;
+    public NativeList<BodyPair> SoftAvoidancePairs;
+    public NativeList<BodyPair> ClassificationBodyPairs;
+    public NativeList<ContactConstraint> PreviousTimestepContactPairs;
     public NativeList<PersistentSweptProxy> CurrentIncrementalProxies;
     public NativeList<IncrementalDirtyBody> IncrementalDirtyBodies;
     public NativeArray<byte> IncrementalDirtyFlagsByBody;
@@ -177,12 +178,13 @@ internal struct ContactFrameResources
             Results = new NativeArray<CrowdBodyResult>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
             CollisionFootprints = new NativeArray<float2>(unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
             SweptCellEntries = new NativeList<SweptDiscCellEntry>(math.max(unitCount * 4, 1), Allocator.TempJob),
-            CollisionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob),
-            TimestepContactPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            CollisionPairs = new NativeList<ContactConstraint>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            TimestepContactPairs = new NativeList<ContactConstraint>(math.max(unitCount * 4, 1), Allocator.TempJob),
             CurrentBodyIndexByEntity = new NativeParallelHashMap<Entity, int>(one, Allocator.TempJob),
-            TimestepInteractionPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 8, 1), Allocator.TempJob),
-            SoftAvoidancePairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob),
-            PreviousTimestepContactPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            TimestepInteractionPairs = new NativeList<BodyPair>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            SoftAvoidancePairs = new NativeList<BodyPair>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            ClassificationBodyPairs = new NativeList<BodyPair>(math.max(unitCount * 8, 1), Allocator.TempJob),
+            PreviousTimestepContactPairs = new NativeList<ContactConstraint>(math.max(unitCount * 8, 1), Allocator.TempJob),
             CurrentIncrementalProxies = new NativeList<PersistentSweptProxy>(one, Allocator.TempJob),
             IncrementalDirtyBodies = new NativeList<IncrementalDirtyBody>(one, Allocator.TempJob),
             IncrementalDirtyFlagsByBody = new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
@@ -238,6 +240,7 @@ internal struct ContactFrameResources
         combined = Combine(combined, CurrentBodyIndexByEntity.Dispose(finalReader));
         combined = Combine(combined, TimestepInteractionPairs.Dispose(finalReader));
         combined = Combine(combined, SoftAvoidancePairs.Dispose(finalReader));
+        combined = Combine(combined, ClassificationBodyPairs.Dispose(finalReader));
         combined = Combine(combined, PreviousTimestepContactPairs.Dispose(finalReader));
         combined = Combine(combined, CurrentIncrementalProxies.Dispose(finalReader));
         combined = Combine(combined, IncrementalDirtyBodies.Dispose(finalReader));

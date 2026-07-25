@@ -10,7 +10,7 @@ namespace RTS.Unit.FlowField.Systems
 internal struct ContactDiagnosticsFrameResources
 {
 #if RTS_CONTACT_DIAGNOSTICS
-    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs;
+    public NativeList<BodyPair> IncrementalOracleContactPairs;
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelPairCandidates;
     public NativeList<SimulationDebuggerPairSample> ParallelPairScratch;
     public NativeList<Stage3ContactIterationDiagnostic> Iterations;
@@ -20,7 +20,7 @@ internal struct ContactDiagnosticsFrameResources
     public NativeReference<PredictiveDiscContactStatistics> ContactStatistics;
     public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
 #else
-    public NativeList<UnitCollisionPair> IncrementalOracleContactPairs { get => default; set { } }
+    public NativeList<BodyPair> IncrementalOracleContactPairs { get => default; set { } }
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelPairCandidates { get => default; set { } }
     public NativeList<SimulationDebuggerPairSample> ParallelPairScratch { get => default; set { } }
     public NativeList<Stage3ContactIterationDiagnostic> Iterations { get => default; set { } }
@@ -119,7 +119,7 @@ public abstract partial class BaseFlowMovementSystem
     {
         ContactDiagnosticsFrameResources scratch = default;
 #if RTS_CONTACT_DIAGNOSTICS
-        scratch.IncrementalOracleContactPairs = new NativeList<UnitCollisionPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
+        scratch.IncrementalOracleContactPairs = new NativeList<BodyPair>(math.max(unitCount * 4, 1), Allocator.TempJob);
         scratch.ParallelPairCandidates = captureParallelSelectedPairs ? new NativeList<ParallelSimulationDebuggerPairCapture>(math.max(unitCount * 4, 1), Allocator.TempJob) : default;
         scratch.ParallelPairScratch = captureParallelSelectedPairs ? new NativeList<SimulationDebuggerPairSample>(math.max(unitCount, 1), Allocator.TempJob) : default;
         scratch.Iterations = new NativeList<Stage3ContactIterationDiagnostic>(math.max(settings.SubstepCount * settings.IterationCount, 1), Allocator.TempJob);

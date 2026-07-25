@@ -66,7 +66,7 @@ public partial struct SolveXpbdUnitContactsJob
                 if (!startsOverlapping && !EnablePredictivePairGeneration)
                     continue;
 
-                IncrementalOracleContactPairs.Add(new UnitCollisionPair
+                IncrementalOracleContactPairs.Add(new BodyPair
                 {
                     BodyA = bodyAIndex,
                     BodyB = bodyBIndex
@@ -82,7 +82,7 @@ public partial struct SolveXpbdUnitContactsJob
              oracleIndex < IncrementalOracleContactPairs.Length;
              oracleIndex++)
         {
-            UnitCollisionPair oraclePair = IncrementalOracleContactPairs[oracleIndex];
+            BodyPair oraclePair = IncrementalOracleContactPairs[oracleIndex];
             if (FindPairIndex(
                     TimestepContactPairs,
                     oraclePair.BodyA,
@@ -94,7 +94,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             if (FindPairIndex(
                     IncrementalOracleContactPairs,
                     pair.BodyA,

@@ -17,7 +17,7 @@ public partial struct SolveXpbdUnitContactsJob
         if (!EnableDiagnostics) return;
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[i];
+            ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -32,7 +32,7 @@ public partial struct SolveXpbdUnitContactsJob
             if (pair.WasActivated != 0)
             {
                 statistics.ActiveConstraintCount++;
-                if (pair.ContactMode == UnitContactMode.Predictive)
+                if (pair.ContactMode == ContactConstraintMode.Predictive)
                     statistics.PredictiveActivatedCount++;
             }
 
@@ -69,7 +69,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[i];
+            ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -106,7 +106,7 @@ public partial struct SolveXpbdUnitContactsJob
                 continue;
 
             activeCount++;
-            if (pair.ContactMode == UnitContactMode.Predictive)
+            if (pair.ContactMode == ContactConstraintMode.Predictive)
                 predictiveActivatedCount++;
         }
 
@@ -142,7 +142,7 @@ public partial struct SolveXpbdUnitContactsJob
         int violatingCount = 0;
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[i];
+            ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -173,11 +173,11 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private static float CalculateConstraintValue(
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         float3 currentDelta,
         float radiusSum)
     {
-        if (pair.ContactMode != UnitContactMode.Predictive)
+        if (pair.ContactMode != ContactConstraintMode.Predictive)
             return math.length(currentDelta) - radiusSum;
 
         return math.dot(currentDelta, pair.PredictiveNormal) - radiusSum;
@@ -240,7 +240,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[i];
+            ContactConstraint pair = TimestepContactPairs[i];
             if (pair.BodyA != selectedBodyIndex && pair.BodyB != selectedBodyIndex)
                 continue;
 
@@ -298,7 +298,7 @@ public partial struct SolveXpbdUnitContactsJob
     }
 
     private void AddSelectedPairDiagnostic(
-        UnitCollisionPair pair,
+        ContactConstraint pair,
         Stage3ContactDiagnosticPairKind kind,
         float closestTime,
         float minimumDistance,

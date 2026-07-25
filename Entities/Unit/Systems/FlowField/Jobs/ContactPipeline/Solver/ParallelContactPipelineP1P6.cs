@@ -325,7 +325,7 @@ public partial struct SolveXpbdUnitContactsJob
                 MotionIntents = MotionIntents,
                 MotionEvidence = MotionEvidence,
                 StepStates = StepStates,
-                RawPairs = Pairs.AsDeferredJobArray(),
+                RawPairs = ClassificationBodyPairs.AsDeferredJobArray(),
                 PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
                 PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
                 DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
@@ -1285,7 +1285,7 @@ public partial struct SolveXpbdUnitContactsJob
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<UnitCollisionPair> Pairs;
+        [ReadOnly] public NativeArray<BodyPair> Pairs;
         public NativeArray<SoftAvoidancePairContribution> Contributions;
         public SoftAvoidanceVelocitySolverMode SolverMode;
         public float SoftShell;
@@ -1294,7 +1294,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         public void Execute(int pairIndex)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            BodyPair pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
             CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
@@ -1368,7 +1368,7 @@ public partial struct SolveXpbdUnitContactsJob
         public NativeArray<CrowdMotionIntent> MotionIntents;
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<UnitCollisionPair> Pairs;
+        [ReadOnly] public NativeArray<BodyPair> Pairs;
         [ReadOnly] public NativeArray<SoftAvoidancePairContribution> Contributions;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
         [ReadOnly] public NativeArray<int> IncidentPairIndices;
@@ -1402,7 +1402,7 @@ public partial struct SolveXpbdUnitContactsJob
             for (int incident = begin; incident < end; incident++)
             {
                 int pairIndex = IncidentPairIndices[incident];
-                UnitCollisionPair pair = Pairs[pairIndex];
+                BodyPair pair = Pairs[pairIndex];
                 SoftAvoidancePairContribution contribution = Contributions[pairIndex];
                 if (pair.BodyA == bodyIndex && contribution.ActiveA != 0)
                 {
@@ -1620,10 +1620,10 @@ public partial struct SolveXpbdUnitContactsJob
     [BurstCompile]
     private struct ResetContactPairStateJob : IJobParallelForDefer
     {
-        public NativeArray<UnitCollisionPair> Pairs;
+        public NativeArray<ContactConstraint> Pairs;
         public void Execute(int pairIndex)
         {
-            UnitCollisionPair pair = Pairs[pairIndex];
+            ContactConstraint pair = Pairs[pairIndex];
             pair.Lambda = 0f;
             pair.WasActivated = 0;
             Pairs[pairIndex] = pair;
@@ -2203,7 +2203,10 @@ public partial struct SolveXpbdUnitContactsJob
         phase.Timestep = IncrementalCacheState.Value.Timestep;
         phase.ClassificationEpoch = CalculateClassificationEpoch();
         phase.NeedsCommit = 2;
-        PersistentClassificationResults.ResizeUninitialized(Pairs.Length);
+        ClassificationBodyPairs.Clear();
+        CopyConstraintsToBodyPairs(Pairs.AsArray(), ClassificationBodyPairs);
+        PersistentClassificationResults.ResizeUninitialized(
+            ClassificationBodyPairs.Length);
         PersistentClassificationState.Value = phase;
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
@@ -2230,7 +2233,7 @@ public partial struct SolveXpbdUnitContactsJob
         {
             PersistentPairClassificationResult result =
                 PersistentClassificationResults[pairIndex];
-            UnitCollisionPair rawPair = result.RawPair;
+            BodyPair rawPair = result.RawPair;
             PersistentPredictiveContact contact = result.Contact;
             PredictiveContactScratch.Add(contact);
             if (result.WasReclassified != 0)
@@ -2257,7 +2260,7 @@ public partial struct SolveXpbdUnitContactsJob
                 });
                 continue;
             }
-            Pairs[activeWriteIndex++] = BuildUnitCollisionPairFromPersistentContact(
+            Pairs[activeWriteIndex++] = BuildContactConstraintFromPersistentContact(
                 rawPair.BodyA,
                 rawPair.BodyB,
                 contact);
@@ -2265,7 +2268,7 @@ public partial struct SolveXpbdUnitContactsJob
 
         Pairs.ResizeUninitialized(activeWriteIndex);
         if (Pairs.Length > 1)
-            Pairs.AsArray().Sort(new UnitCollisionPairComparer());
+            Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (PredictiveContactScratch.Length > 1)
             PredictiveContactScratch.AsArray().Sort(
                 new PersistentPredictiveContactComparer());
@@ -2695,7 +2698,7 @@ public partial struct SolveXpbdUnitContactsJob
             SoftIncidentWriteCursors[bodyIndex] = 0;
         for (int pairIndex = 0; pairIndex < SoftAvoidancePairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = SoftAvoidancePairs[pairIndex];
+            BodyPair pair = SoftAvoidancePairs[pairIndex];
             SoftIncidentWriteCursors[pair.BodyA]++;
             SoftIncidentWriteCursors[pair.BodyB]++;
         }
@@ -2710,7 +2713,7 @@ public partial struct SolveXpbdUnitContactsJob
         SoftIncidentPairIndices.ResizeUninitialized(entries);
         for (int pairIndex = 0; pairIndex < SoftAvoidancePairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = SoftAvoidancePairs[pairIndex];
+            BodyPair pair = SoftAvoidancePairs[pairIndex];
             SoftIncidentPairIndices[SoftIncidentWriteCursors[pair.BodyA]++] = pairIndex;
             SoftIncidentPairIndices[SoftIncidentWriteCursors[pair.BodyB]++] = pairIndex;
         }
@@ -2723,7 +2726,7 @@ public partial struct SolveXpbdUnitContactsJob
         ulong fingerprint = 1469598103934665603UL;
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             fingerprint = (fingerprint ^ (uint)pair.BodyA) * 1099511628211UL;
             fingerprint = (fingerprint ^ (uint)pair.BodyB) * 1099511628211UL;
         }
@@ -2738,7 +2741,7 @@ public partial struct SolveXpbdUnitContactsJob
             ActiveIncidentWriteCursors[bodyIndex] = 0;
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             ActiveIncidentWriteCursors[pair.BodyA]++;
             ActiveIncidentWriteCursors[pair.BodyB]++;
         }
@@ -2753,7 +2756,7 @@ public partial struct SolveXpbdUnitContactsJob
         ActiveIncidentPairIndices.ResizeUninitialized(entries);
         for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
         {
-            UnitCollisionPair pair = TimestepContactPairs[pairIndex];
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
             ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyA]++] = pairIndex;
             ActiveIncidentPairIndices[ActiveIncidentWriteCursors[pair.BodyB]++] = pairIndex;
         }

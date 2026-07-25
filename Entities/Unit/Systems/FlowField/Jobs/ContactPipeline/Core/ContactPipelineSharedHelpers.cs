@@ -66,22 +66,67 @@ public partial struct SolveXpbdUnitContactsJob
         CorrectedBodyIndices.Add(bodyIndex);
     }
 
-    private static void SortAndDeduplicateBodyPairs(NativeList<UnitCollisionPair> pairs)
+    private static void SortAndDeduplicateBodyPairs(NativeList<BodyPair> pairs)
     {
         if (pairs.Length <= 1)
             return;
-        pairs.AsArray().Sort(new UnitCollisionPairComparer());
+        pairs.AsArray().Sort(new BodyPairComparer());
         int writeIndex = 1;
-        UnitCollisionPair previous = pairs[0];
+        BodyPair previous = pairs[0];
         for (int readIndex = 1; readIndex < pairs.Length; readIndex++)
         {
-            UnitCollisionPair current = pairs[readIndex];
+            BodyPair current = pairs[readIndex];
             if (current.BodyA == previous.BodyA && current.BodyB == previous.BodyB)
                 continue;
             pairs[writeIndex++] = current;
             previous = current;
         }
         pairs.ResizeUninitialized(writeIndex);
+    }
+
+    private static void SortAndDeduplicateConstraints(
+        NativeList<ContactConstraint> constraints)
+    {
+        if (constraints.Length <= 1)
+            return;
+        constraints.AsArray().Sort(new ContactConstraintComparer());
+        int writeIndex = 1;
+        ContactConstraint previous = constraints[0];
+        for (int readIndex = 1; readIndex < constraints.Length; readIndex++)
+        {
+            ContactConstraint current = constraints[readIndex];
+            if (current.BodyA == previous.BodyA && current.BodyB == previous.BodyB)
+                continue;
+            constraints[writeIndex++] = current;
+            previous = current;
+        }
+        constraints.ResizeUninitialized(writeIndex);
+    }
+
+    private static void CopyConstraintsToBodyPairs(
+        NativeArray<ContactConstraint> source,
+        NativeList<BodyPair> destination)
+    {
+        for (int i = 0; i < source.Length; i++)
+        {
+            ContactConstraint constraint = source[i];
+            destination.Add(new BodyPair(constraint.BodyA, constraint.BodyB));
+        }
+    }
+
+    private static void AppendBodyPairsAsConstraints(
+        NativeArray<BodyPair> source,
+        NativeList<ContactConstraint> destination)
+    {
+        for (int i = 0; i < source.Length; i++)
+        {
+            BodyPair pair = source[i];
+            destination.Add(new ContactConstraint
+            {
+                BodyA = pair.BodyA,
+                BodyB = pair.BodyB
+            });
+        }
     }
 
     private static bool TryFindProxy(

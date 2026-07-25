@@ -14,7 +14,8 @@ paths = {
     "body_contracts": PIPE / "Core/CrowdSimulationDataContracts.cs",
     "environment": PIPE / "Core/CrowdEnvironmentViews.cs",
     "configuration": PIPE / "Core/ContactPipelineConfiguration.cs",
-    "pair_types": PIPE / "Core/ContactPairTypes.cs",
+    "body_pair": PIPE / "Core/BodyPair.cs",
+    "contact_constraint": PIPE / "Core/ContactConstraint.cs",
     "certificate_contracts": PIPE / "Prediction/InteractionCertificationContracts.cs",
     "certifier": PIPE / "Prediction/InteractionCorrectnessCertifier.cs",
     "timestep": PIPE / "Prediction/TimestepContactSet.cs",
@@ -130,33 +131,46 @@ for forbidden in ("FlowMovementFrameState", "CalculateIndependentFlowForceJob", 
 if "FlowNavigationView" not in text["intent"]:
     raise SystemExit("Navigation intent bypasses FlowNavigationView")
 
+retired_pair_paths = (
+    PIPE / "Core/ContactPairTypes.cs",
+    PIPE / "Core/ContactPairTypes.cs.meta",
+)
+for retired in retired_pair_paths:
+    if retired.exists():
+        raise SystemExit(f"Retired contact-pair compatibility path still exists: {retired}")
+
+for required in ("public struct BodyPair", "public struct BodyPairComparer"):
+    if required not in text["body_pair"]:
+        raise SystemExit(f"Body-pair contract missing: {required}")
 for required in (
+    "public enum ContactConstraintMode",
+    "public struct ContactConstraint",
+    "public struct ContactConstraintComparer",
+    "public float Lambda;",
+    "public byte WasActivated;",
+):
+    if required not in text["contact_constraint"]:
+        raise SystemExit(f"Contact-constraint contract missing: {required}")
+for forbidden in (
+    "UnitCollisionPair",
+    "UnitCollisionPairComparer",
+    "UnitContactMode",
     "ContactConstraintDefinition",
     "ContactConstraintRuntime",
     "ContactConstraintHistory",
 ):
-    if required not in text["pair_types"]:
-        raise SystemExit(f"Contact-pair lifetime split missing: {required}")
-
-# Forwarding compatibility properties are values, not ref-return properties.
-# Passing one directly by ref/out would be a C# compile error after the storage split.
-forwarded_pair_properties = (
-    "BodyA", "BodyB", "PredictiveNormal", "ContactMode",
-    "PredictiveNormalOriented", "IsDormant", "Lambda", "WasActivated",
-    "WasActivatedThisTimestep", "WasCorrectedThisTimestep",
-    "WasAddedByFallback", "FirstActivatedSubstep", "ActivatedSubstepCount",
-)
-property_pattern = re.compile(
-    r"\b(?:ref|out)\s+[A-Za-z_][A-Za-z0-9_]*\."
-    r"(?:" + "|".join(forwarded_pair_properties) + r")\b"
-)
-for cs_path in ROOT.rglob("*.cs"):
-    source = cs_path.read_text(encoding="utf-8")
-    match = property_pattern.search(source)
-    if match:
-        raise SystemExit(
-            f"Forwarding pair property passed by ref/out in {cs_path}: {match.group(0)}"
-        )
+    for cs_path in ROOT.rglob("*.cs"):
+        if forbidden in cs_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Retired pair compatibility symbol remains in {cs_path}: {forbidden}")
+for required in (
+    "NativeList<BodyPair> TimestepInteractionPairs",
+    "NativeList<BodyPair> SoftAvoidancePairs",
+    "NativeList<ContactConstraint> TimestepContactPairs",
+):
+    if required not in text["resources"]:
+        raise SystemExit(f"Pair product is wired to the wrong lifetime: {required}")
+if "NativeArray<BodyPair> candidates" not in text["soft"]:
+    raise SystemExit("Soft avoidance does not consume the pure BodyPair view")
 
 for required in ("FlowNavigationView", "GridObstacleView", "FlowGridGeometry"):
     if required not in text["environment"]:
