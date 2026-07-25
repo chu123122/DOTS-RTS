@@ -7,61 +7,21 @@ using Unity.Profiling.LowLevel.Unsafe;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
+using static RTS.Unit.FlowField.Jobs.CrowdContactPipelineScheduler;
+
 namespace RTS.Unit.FlowField.Jobs
 {
-public struct ParallelJacobiExecutionState
-{
-    public byte IsValid;
-    public byte RecoveryRequired;
-#if RTS_CONTACT_DIAGNOSTICS
-    public float PenetrationSum;
-    public long SolverStartTimestamp;
-    public long IterationStartTimestamp;
-#else
-    public float PenetrationSum;
-    public long SolverStartTimestamp { get => default; set { } }
-    public long IterationStartTimestamp { get => default; set { } }
-#endif
-}
 
-#if RTS_CONTACT_DIAGNOSTICS
-public struct ParallelJacobiIterationTelemetry
+internal static class ParallelJacobiJobs
 {
-    public float MaxViolationBeforeSolve;
-    public float AverageViolationBeforeSolve;
-    public float TotalWallPositionCorrection;
-    public float MaxWallPositionCorrection;
-}
-
-public struct JacobiBlockTelemetry
-{
-    public float TotalPositionCorrection;
-    public float MaxPositionCorrection;
-    public int NewlyActivatedPairCount;
-    public int NewlyCorrectedPairCount;
-    public int SelectedPairCount;
-    public int SelectedPairOffset;
-}
-#endif
-
-/// <summary>
-/// Multi-job Jacobi path. The topology, lifecycle, envelope validation and fallback
-/// remain serial coordination stages; pair evaluation and body gather/apply are
-/// conflict-free parallel stages. Selected-pair debugger capture uses pair-exclusive
-/// scratch slots and deterministic compaction without changing the solver backend.
-/// </summary>
-public partial struct CrowdContactPipelineScheduler
-{
-    internal const int JacobiPairBatchSize = 64;
-
-    private struct JacobiPairSolveResult
+internal struct JacobiPairSolveResult
     {
         public ContactConstraint Pair;
         public JacobiPairCorrection Correction;
         public ContactConstraintEvaluation Evaluation;
     }
 
-    private static JacobiPairSolveResult EvaluateJacobiPair(
+    internal static JacobiPairSolveResult EvaluateJacobiPair(
         int substepIndex,
         float alpha,
         ContactConstraint pair,
@@ -120,7 +80,7 @@ public partial struct CrowdContactPipelineScheduler
 
 
     [BurstCompile]
-    private struct EvaluateParallelJacobiPairsJob : IJobParallelForDefer
+    internal struct EvaluateParallelJacobiPairsJob : IJobParallelForDefer
     {
         public float Alpha;
         public int SubstepIndex;
@@ -160,7 +120,7 @@ public partial struct CrowdContactPipelineScheduler
     }
 
     [BurstCompile]
-    private struct EvaluateParallelJacobiPairsWithDiagnosticsJob :
+    internal struct EvaluateParallelJacobiPairsWithDiagnosticsJob :
         IJobParallelForDefer
     {
         public float Alpha;
@@ -224,7 +184,7 @@ public partial struct CrowdContactPipelineScheduler
 
 #if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
-    private struct ReduceParallelJacobiBlocksJob : IJobParallelForDefer
+    internal struct ReduceParallelJacobiBlocksJob : IJobParallelForDefer
     {
         [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
         public NativeArray<JacobiBlockTelemetry> Blocks;
@@ -254,7 +214,7 @@ public partial struct CrowdContactPipelineScheduler
 #endif
 
     [BurstCompile]
-    private struct GatherAndApplyParallelJacobiBodiesJob : IJobParallelFor
+    internal struct GatherAndApplyParallelJacobiBodiesJob : IJobParallelFor
     {
         public NativeArray<CrowdBodySnapshot> Bodies;
         public NativeArray<CrowdNavigationState> NavigationStates;
@@ -311,23 +271,5 @@ public partial struct CrowdContactPipelineScheduler
             CorrectedBodyFlags[bodyIndex] = 1;
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
 }

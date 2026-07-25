@@ -14,6 +14,10 @@ namespace RTS.Unit.FlowField.Jobs
 /// </summary>
 public partial struct CrowdContactPipelineScheduler
 {
+    internal const int ParallelBodyBatchSize = 64;
+    internal const int SoftPairBatchSize = 64;
+    internal const int JacobiPairBatchSize = 64;
+
     public ContactPipelineConfiguration Configuration;
     public ContactPipelineLifecycleJob Lifecycle;
     public InteractionCertificationJob Certification;
