@@ -13,13 +13,13 @@ namespace RTS.Unit.FlowField.Systems
 {
 /// <summary>
 /// Crowd-simulation composition root for one ECS World. It owns stage ordering,
-/// resource lifetime and JobHandle dependencies; detailed solver ABI expansion is
-/// while each stage receives only its explicit data products.
+/// resource lifetime and JobHandle dependencies. Each resource owner constructs only
+/// its capability-limited stage job; there is no aggregate frame bag or ABI adapter.
 /// </summary>
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     private EntityQuery _movementQuery;
-    private ContactPersistentState _persistentState;
+    private InteractionCandidateStore _candidateStore;
     private uint _simulationStepId;
 
     protected override void OnCreate()
@@ -37,7 +37,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadOnly<UnitMovementSettings>(),
             ComponentType.ReadOnly<UnitContactBody>(),
             ComponentType.ReadOnly<UnitMoveDestination>());
-        _persistentState = ContactPersistentState.Create();
+        _candidateStore = InteractionCandidateStore.Create();
         CreatePersistentDiagnostics();
         ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         SimulationDebuggerRuntime.RegisterWorld(worldId);
@@ -47,7 +47,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     protected override void OnDestroy()
     {
         Dependency.Complete();
-        _persistentState.Dispose();
+        _candidateStore.Dispose();
         DisposePersistentDiagnostics();
         ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
         IncrementalContactPipelineExperimentRuntime.UnregisterWorld(worldId);
@@ -99,10 +99,10 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             return;
 
         uint simulationStepId = NextSimulationStepId();
-        if (_persistentState.RequiresCapacity(unitCount))
+        if (_candidateStore.RequiresCapacity(unitCount))
         {
             Dependency.Complete();
-            _persistentState.EnsureCapacity(unitCount);
+            _candidateStore.EnsureCapacity(unitCount);
         }
 
         bool usesJacobiScratch =
@@ -140,10 +140,18 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 unitCount,
                 contactSolverSettings,
                 captureParallelSelectedPairs);
-        ContactFrameResources frame = ContactFrameResources.Create(
-            unitCount,
-            usesJacobiScratch,
-            useParallelJacobi);
+        CrowdStepBodyResources body = CrowdStepBodyResources.Create(unitCount);
+        InteractionCertificationFrameResources certificationResources =
+            InteractionCertificationFrameResources.Create(unitCount, useParallelJacobi);
+        SoftAvoidanceFrameResources softResources =
+            SoftAvoidanceFrameResources.Create(unitCount, useParallelJacobi);
+        ConstraintSolverFrameResources solverResources =
+            ConstraintSolverFrameResources.Create(
+                unitCount,
+                usesJacobiScratch,
+                useParallelJacobi);
+        ContactPipelineExecutionResources executionResources =
+            ContactPipelineExecutionResources.Create(unitCount, useParallelJacobi);
 
         ComponentLookup<PhysicsCollider> colliderLookup =
             SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
@@ -152,7 +160,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         {
             PhysicsColliderLookup = colliderLookup,
             FallbackCellSize = gridComponent.CellRadius * 2f,
-            CollisionFootprints = frame.CollisionFootprints
+            CollisionFootprints = body.CollisionFootprints
         }.ScheduleParallel(_movementQuery, Dependency);
 
         FlowGridGeometry gridGeometry = new FlowGridGeometry(
@@ -164,17 +172,17 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             NavigationCells = gridComponent.Grid,
             NavigationGrid = gridGeometry,
             ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
-            CollisionFootprints = frame.CollisionFootprints,
-            Bodies = frame.Bodies,
-            NavigationStates = frame.NavigationStates,
-            MotionIntents = frame.MotionIntents
+            CollisionFootprints = body.CollisionFootprints,
+            Bodies = body.Bodies,
+            NavigationStates = body.NavigationStates,
+            MotionIntents = body.MotionIntents
         }.ScheduleParallel(_movementQuery, footprintHandle);
 
         JobHandle initializeHandle = new InitializeCrowdStepStateJob
         {
-            Bodies = frame.Bodies,
-            MotionEvidence = frame.MotionEvidence,
-            StepStates = frame.StepStates
+            Bodies = body.Bodies,
+            MotionEvidence = body.MotionEvidence,
+            StepStates = body.StepStates
         }.Schedule(unitCount, 64, intentHandle);
 
         ContactPipelineConfiguration configuration =
@@ -186,27 +194,68 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 contactSolverSettings,
                 effectivePersistentContactCache,
                 effectiveTimestepContactSetCache);
-        CrowdContactPipelineScheduler solver = ComposeContactPipelineScheduler(
+        ContactPipelineLifecycleJob lifecycle = _candidateStore.CreateLifecycleJob(
+            configuration,
+            executionResources,
+            solverResources,
+            diagnostics,
+            _simulationDebuggerSelectedPairs);
+        InteractionCertificationJob certification = certificationResources.CreateJob(
             configuration,
             gridComponent,
-            frame,
+            body,
+            _candidateStore,
+            solverResources,
+            executionResources,
+            diagnostics,
+            selectedEntity);
+        MotionIntegrationJob motion = body.CreateMotionJob(
+            configuration,
+            gridComponent,
+            diagnostics);
+        SoftAvoidanceJob softAvoidance = softResources.CreateJob(
+            configuration,
+            gridComponent,
+            body,
+            certificationResources,
+            solverResources,
+            executionResources,
+            diagnostics);
+        ConstraintSolverJob constraintSolver = solverResources.CreateJob(
+            configuration,
+            gridComponent,
+            body,
+            certificationResources,
+            executionResources,
             diagnostics,
             selectedEntity,
             captureMask,
-            maximumVisualizedPairs);
+            maximumVisualizedPairs,
+            _simulationDebuggerSelectedPairs,
+            _simulationDebuggerSelectedUnit,
+            _simulationDebuggerSelectedUnitValid);
+        CrowdContactPipelineScheduler solver = new CrowdContactPipelineScheduler
+        {
+            Configuration = configuration,
+            Lifecycle = lifecycle,
+            Certification = certification,
+            Motion = motion,
+            SoftAvoidance = softAvoidance,
+            ConstraintSolver = constraintSolver
+        };
 
         JobHandle solveHandle;
         if (useParallelJacobi)
         {
 #if RTS_CONTACT_DIAGNOSTICS
             solveHandle = solver.ScheduleParallelJacobiP1P6(
-                frame.ParallelJacobiRuntimeState,
-                frame.ParallelJacobiIterationState,
-                frame.ParallelJacobiBlockTelemetry,
+                executionResources.ParallelJacobiRuntimeState,
+                executionResources.ParallelJacobiIterationState,
+                executionResources.ParallelJacobiBlockTelemetry,
                 initializeHandle);
 #else
             solveHandle = solver.ScheduleParallelJacobiP1P6(
-                frame.ParallelJacobiRuntimeState,
+                executionResources.ParallelJacobiRuntimeState,
                 initializeHandle);
 #endif
         }
@@ -235,18 +284,30 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         JobHandle resultHandle = new BuildCrowdBodyResultsJob
         {
             DeltaTime = SystemAPI.Time.DeltaTime,
-            Bodies = frame.Bodies,
-            NavigationStates = frame.NavigationStates,
-            StepStates = frame.StepStates,
-            Results = frame.Results
+            Bodies = body.Bodies,
+            NavigationStates = body.NavigationStates,
+            StepStates = body.StepStates,
+            Results = body.Results
         }.Schedule(unitCount, 64, solveHandle);
 
         JobHandle applyHandle = new ApplyFlowMovementJob
         {
-            Results = frame.Results
+            Results = body.Results
         }.ScheduleParallel(_movementQuery, resultHandle);
 
-        JobHandle runtimeDispose = frame.Dispose(applyHandle);
+        JobHandle runtimeDispose = body.Dispose(applyHandle);
+        runtimeDispose = JobHandle.CombineDependencies(
+            runtimeDispose,
+            certificationResources.Dispose(solveHandle));
+        runtimeDispose = JobHandle.CombineDependencies(
+            runtimeDispose,
+            softResources.Dispose(solveHandle));
+        runtimeDispose = JobHandle.CombineDependencies(
+            runtimeDispose,
+            solverResources.Dispose(solveHandle));
+        runtimeDispose = JobHandle.CombineDependencies(
+            runtimeDispose,
+            executionResources.Dispose(solveHandle));
         JobHandle diagnosticsDispose = DisposeContactDiagnosticsFrameResources(
             diagnostics,
             solveHandle,
@@ -268,7 +329,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private void ResetPersistentContactCaches()
     {
         Dependency.Complete();
-        _persistentState.Reset();
+        _candidateStore.Reset();
     }
 }
 }

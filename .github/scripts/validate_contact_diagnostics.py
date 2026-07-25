@@ -8,7 +8,14 @@ settings = Path('Entities/Unit/Components/FlowField/GridComponent.cs').read_text
 helper = (flow / 'Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs').read_text(encoding='utf-8')
 runtime = (flow / 'Diagnostics/Runtime/SimulationDebuggerRuntime.cs').read_text(encoding='utf-8')
 snapshot = (flow / 'Diagnostics/Capture/PublishedSimulationDiagnosticsSnapshot.cs').read_text(encoding='utf-8')
-resources = (flow / 'ContactPipelineResources.cs').read_text(encoding='utf-8')
+resource_paths = [flow / name for name in (
+    'InteractionCandidateStore.cs',
+    'CrowdStepBodyResources.cs',
+    'InteractionCertificationFrameResources.cs',
+    'SoftAvoidanceFrameResources.cs',
+    'ConstraintSolverFrameResources.cs',
+    'ContactPipelineExecutionResources.cs')]
+resources = '\n'.join(path.read_text(encoding='utf-8') for path in resource_paths)
 
 
 def preprocess_diagnostics(source: str, enabled: bool) -> str:

@@ -6,11 +6,15 @@ PIPE = ROOT / "Jobs/ContactPipeline"
 
 paths = {
     "base": ROOT / "BaseFlowMovementSystem.cs",
-    "composition": ROOT / "BaseFlowMovementComposition.cs",
     "stage_jobs": PIPE / "Core/ContactPipelineStageJobs.cs",
     "scheduler": PIPE / "Core/CrowdContactPipelineScheduler.cs",
     "lifecycle": PIPE / "Core/ContactPipelineLifecycleJob.cs",
-    "resources": ROOT / "ContactPipelineResources.cs",
+    "candidate_store": ROOT / "InteractionCandidateStore.cs",
+    "body_resources": ROOT / "CrowdStepBodyResources.cs",
+    "certification_resources": ROOT / "InteractionCertificationFrameResources.cs",
+    "soft_resources": ROOT / "SoftAvoidanceFrameResources.cs",
+    "solver_resources": ROOT / "ConstraintSolverFrameResources.cs",
+    "execution_resources": ROOT / "ContactPipelineExecutionResources.cs",
     "intent": ROOT / "Jobs/BuildCrowdMotionIntentJob.cs",
     "result": ROOT / "Jobs/BuildCrowdBodyResultsJob.cs",
     "apply": ROOT / "Jobs/ApplyFlowMovementJob.cs",
@@ -77,16 +81,21 @@ for required in (
     "InteractionCertificate = new NativeReference<InteractionCertificate>",
     "InteractionViolations = new NativeList<InteractionCertificateViolation>",
 ):
-    if required not in text["resources"]:
+    if required not in text["certification_resources"]:
         raise SystemExit(f"Timestep certificate resource missing: {required}")
 
 for required in (
-    "ComposeContactPipelineScheduler(",
     "ContactPipelineConfiguration.Create(",
     "NextSimulationStepId(",
-    "FlowGridGeometry",
+    "new CrowdContactPipelineScheduler",
+    "InteractionCandidateStore.Create(",
+    "CrowdStepBodyResources.Create(",
+    "InteractionCertificationFrameResources.Create(",
+    "SoftAvoidanceFrameResources.Create(",
+    "ConstraintSolverFrameResources.Create(",
+    "ContactPipelineExecutionResources.Create(",
 ):
-    if required not in text["base"] + text["composition"]:
+    if required not in text["base"]:
         raise SystemExit(f"Composition root contract missing: {required}")
 for required in (
     "InteractionCertificationJob",
@@ -100,6 +109,30 @@ if "public partial struct CrowdContactPipelineScheduler" not in text["scheduler"
     raise SystemExit("Pipeline scheduling composition is missing")
 if ": IJob" in text["scheduler"]:
     raise SystemExit("Scheduling composition became another scheduled mega-job")
+
+for owner, required in {
+    "candidate_store": ("CreateLifecycleJob(", "NativeList<PersistentNeighborPair> NeighborPairs"),
+    "body_resources": ("CreateMotionJob(", "NativeArray<CrowdBodyResult> Results"),
+    "certification_resources": ("CreateJob(", "NativeList<BodyPair> SoftAvoidancePairs"),
+    "soft_resources": ("CreateJob(", "NativeList<SoftAvoidancePairContribution> PairContributions"),
+    "solver_resources": ("CreateJob(", "NativeList<JacobiPairCorrection> JacobiPairCorrections"),
+    "execution_resources": ("NativeReference<SerialContactPipelineControlState> SerialControlState",),
+}.items():
+    for token in required:
+        if token not in text[owner]:
+            raise SystemExit(f"Focused resource owner {owner} misses: {token}")
+for retired in (
+    ROOT / "BaseFlowMovementComposition.cs",
+    ROOT / "BaseFlowMovementComposition.cs.meta",
+    ROOT / "ContactPipelineResources.cs",
+    ROOT / "ContactPipelineResources.cs.meta",
+):
+    if retired.exists():
+        raise SystemExit(f"Retired aggregate composition/resource path still exists: {retired}")
+for forbidden in ("ContactPersistentState", "ContactFrameResources", "ComposeContactPipelineScheduler("):
+    for cs_path in ROOT.rglob("*.cs"):
+        if forbidden in cs_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Retired aggregate composition/resource symbol remains in {cs_path}: {forbidden}")
 for forbidden in ("SolveXpbdUnitContactsJob", "ComposeContactSolverJob("):
     for cs_path in ROOT.rglob("*.cs"):
         if forbidden in cs_path.read_text(encoding="utf-8"):
@@ -143,8 +176,8 @@ for required in (
     "NativeArray<CrowdMotionEvidence> MotionEvidence",
     "NativeArray<CrowdBodyStepState> StepStates",
 ):
-    if required not in text["resources"] + text["composition"]:
-        raise SystemExit(f"Crowd-step product is not wired directly: {required}")
+    if required not in text["body_resources"]:
+        raise SystemExit(f"Crowd-step product is not directly owned: {required}")
 if "NativeArray<CrowdBodyResult> Results" not in text["result"] + text["apply"]:
     raise SystemExit("Detached crowd results are not the ECS writeback product")
 for forbidden in ("FlowMovementFrameState", "CalculateIndependentFlowForceJob", "IndependentForce"):
@@ -190,7 +223,7 @@ for required in (
     "NativeList<BodyPair> SoftAvoidancePairs",
     "NativeList<ContactConstraint> TimestepContactPairs",
 ):
-    if required not in text["resources"]:
+    if required not in text["certification_resources"]:
         raise SystemExit(f"Pair product is wired to the wrong lifetime: {required}")
 if "NativeArray<BodyPair> candidates" not in text["soft"]:
     raise SystemExit("Soft avoidance does not consume the pure BodyPair view")
