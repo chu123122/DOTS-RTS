@@ -4,29 +4,6 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Discriminated collider shape kind. Drives friction response, persistent pair-key
-/// composition, debugger labelling, per-shape hotspot statistics, and predictive-contact
-/// matching across substeps.
-/// </summary>
-public enum ClothColliderKind : byte
-{
-    Sphere,
-    Capsule,
-    Plane
-}
-
-/// <summary>
-/// Stable collider identity. Kind distinguishes the shape generator; ColliderId is the
-/// Proxy Builder's authoritative instance identifier (Unity Collider InstanceID), not a
-/// temporary array index that would be invalidated on reallocation or full rebuild.
-/// </summary>
-public struct ClothColliderHandle
-{
-    public ClothColliderKind Kind;
-    public int ColliderId;
-}
-
-/// <summary>
 /// Immutable body facts captured from ECS at the beginning of one crowd step.
 /// Navigation, interaction certification and solver state live in separate arrays.
 /// </summary>
@@ -41,10 +18,6 @@ public struct CrowdBodySnapshot
     public float InverseMass;
     public float Radius;
     public byte IsInsideSimulationDomain;
-    /// <summary>
-    /// Stable collider identity for friction, persistence, debugging and per-shape statistics.
-    /// </summary>
-    public ClothColliderHandle Collider;
 }
 
 /// <summary>

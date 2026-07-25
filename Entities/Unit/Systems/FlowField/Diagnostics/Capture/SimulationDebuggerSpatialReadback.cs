@@ -93,11 +93,11 @@ public abstract partial class BaseFlowMovementSystem
             }
         }
 
-        if (_candidateStore.SweptProxies.IsCreated)
+        if (_persistentState.SweptProxies.IsCreated)
         {
-            for (int i = 0; i < _candidateStore.SweptProxies.Length; i++)
+            for (int i = 0; i < _persistentState.SweptProxies.Length; i++)
             {
-                PersistentSweptProxy proxy = _candidateStore.SweptProxies[i];
+                PersistentSweptProxy proxy = _persistentState.SweptProxies[i];
                 if (captureProxies)
                 {
                     float minimumSlack = CalculateMinimumProxySlack(proxy);

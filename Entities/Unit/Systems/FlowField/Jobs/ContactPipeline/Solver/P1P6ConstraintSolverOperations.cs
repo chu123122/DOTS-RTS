@@ -58,7 +58,7 @@ public partial struct ConstraintSolverJob
         int count = 0;
         for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
         {
-            int bodyIndex = blockIndex * CrowdContactPipelineScheduler.ParallelBodyBatchSize;
+            int bodyIndex = blockIndex * ParallelBodyBatchSize;
             ParallelBodyStageResult body = ParallelBodyStatistics[bodyIndex];
             statistics.TotalVelocityChange += body.Total;
             statistics.MaxVelocityChange = math.max(statistics.MaxVelocityChange, body.Maximum);
