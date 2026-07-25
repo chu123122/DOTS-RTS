@@ -44,6 +44,11 @@ jobs:
               print(symbol)
               print(' expected:', expected)
               print(' actual:', paths)
+          runtime_types = (pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs').read_text(encoding='utf-8')
+          telemetry = (flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs').read_text(encoding='utf-8')
+          print('runtime contains Nanoseconds:', 'Nanoseconds' in runtime_types)
+          print('runtime contains OraclePairCount:', 'OraclePairCount' in runtime_types)
+          print('telemetry contains IncrementalContactCacheState:', 'IncrementalContactCacheState' in telemetry)
           print('workflows:')
           for path in sorted(Path('.github/workflows').glob('*.yml')):
               print(path)
