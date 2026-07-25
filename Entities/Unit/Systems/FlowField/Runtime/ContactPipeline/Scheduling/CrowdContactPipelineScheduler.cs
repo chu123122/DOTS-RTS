@@ -124,6 +124,10 @@ public partial struct CrowdContactPipelineScheduler
             certification.Operation = InteractionCertificationOperation.ValidateBaseMotionSerial;
             handle = certification.Schedule(handle);
 
+            certification.Operation =
+                InteractionCertificationOperation.ValidateConsumerViewsSerial;
+            handle = certification.Schedule(handle);
+
             SoftAvoidanceJob soft = SoftAvoidance;
             soft.Operation = SoftAvoidanceOperation.SolveSerial;
             handle = soft.Schedule(handle);
@@ -140,6 +144,10 @@ public partial struct CrowdContactPipelineScheduler
             certification = Certification;
             certification.SubstepIndex = substep;
             certification.Operation = InteractionCertificationOperation.ValidatePredictedAndActivateSerial;
+            handle = certification.Schedule(handle);
+
+            certification.Operation =
+                InteractionCertificationOperation.ValidateConsumerViewsSerial;
             handle = certification.Schedule(handle);
 
             for (int iteration = 0; iteration < iterations; iteration++)

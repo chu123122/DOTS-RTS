@@ -4,8 +4,9 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Provenance of a certified interaction product. Gameplay consumers must not
-/// branch on this value; it exists for certification audit and diagnostics only.
+/// Provenance of a certified interaction product. The scheduler may use the
+/// certificate as a fail-closed gate; lower simulation stages must not reinterpret
+/// the source mode or consult persistent candidate state.
 /// </summary>
 public enum CertifiedInteractionSourceMode : byte
 {
@@ -37,7 +38,9 @@ public enum InteractionCertificateViolationReason : byte
     EntitySetChanged,
     ConfigurationChanged,
     MappingFailed,
-    RepairCoverageFailed
+    RepairCoverageFailed,
+    CertificateScopeMismatch,
+    CommittedViewMismatch
 }
 
 /// <summary>

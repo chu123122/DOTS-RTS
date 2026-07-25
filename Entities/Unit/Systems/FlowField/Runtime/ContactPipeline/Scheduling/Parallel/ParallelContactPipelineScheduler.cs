@@ -272,6 +272,13 @@ public partial struct CrowdContactPipelineScheduler
             commitRepair.SubstepIndex = substepIndex;
             handle = commitRepair.Schedule(handle);
 
+            InteractionCertificationJob gateSoftViews = Certification;
+            gateSoftViews.Operation =
+                InteractionCertificationOperation.ValidateConsumerViewsP1P6;
+            gateSoftViews.RuntimeState = runtimeState;
+            gateSoftViews.SubstepIndex = substepIndex;
+            handle = gateSoftViews.Schedule(handle);
+
             SoftAvoidanceJob prepareSoft = SoftAvoidance;
             prepareSoft.Operation = SoftAvoidanceOperation.PrepareParallelWorkset;
             prepareSoft.RuntimeState = runtimeState;
@@ -419,6 +426,13 @@ public partial struct CrowdContactPipelineScheduler
             finalizePrepared.RuntimeState = runtimeState;
             finalizePrepared.SubstepIndex = substepIndex;
             handle = finalizePrepared.Schedule(handle);
+
+            InteractionCertificationJob gateSolverViews = Certification;
+            gateSolverViews.Operation =
+                InteractionCertificationOperation.ValidateConsumerViewsP1P6;
+            gateSolverViews.RuntimeState = runtimeState;
+            gateSolverViews.SubstepIndex = substepIndex;
+            handle = gateSolverViews.Schedule(handle);
 
             handle = new ResetContactPairStateJob
             {

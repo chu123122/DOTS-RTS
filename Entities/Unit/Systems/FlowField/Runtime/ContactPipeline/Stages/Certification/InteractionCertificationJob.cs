@@ -34,6 +34,7 @@ public enum InteractionCertificationOperation : byte
     ClampSoftOutputSerial,
     ValidatePredictedAndActivateSerial,
     ValidateSolverCorrectionSerial,
+    ValidateConsumerViewsSerial,
     PreparePersistentClassificationP1P6,
     CommitPersistentClassificationP1P6,
     BuildInitialP1P6,
@@ -41,6 +42,7 @@ public enum InteractionCertificationOperation : byte
     PrepareSubstepRepairP1P6,
     CommitSubstepRepairP1P6,
     FinalizePreparedSubstepP1P6,
+    ValidateConsumerViewsP1P6,
     FinalizeWallIterationP1P6,
     FinalizeContactIterationP1P6
 }
@@ -214,6 +216,9 @@ public partial struct InteractionCertificationJob : IJob
             case InteractionCertificationOperation.ValidateSolverCorrectionSerial:
                 ExecuteValidateSolverCorrectionSerial();
                 break;
+            case InteractionCertificationOperation.ValidateConsumerViewsSerial:
+                ValidateConsumerViewsSerial();
+                break;
             case InteractionCertificationOperation.PreparePersistentClassificationP1P6:
                 PreparePersistentClassificationP1P6(RuntimeState);
                 break;
@@ -234,6 +239,9 @@ public partial struct InteractionCertificationJob : IJob
                 break;
             case InteractionCertificationOperation.FinalizePreparedSubstepP1P6:
                 FinalizeP1P6PreparedSubstep(SubstepIndex, RuntimeState);
+                break;
+            case InteractionCertificationOperation.ValidateConsumerViewsP1P6:
+                ValidateConsumerViewsP1P6();
                 break;
             case InteractionCertificationOperation.FinalizeWallIterationP1P6:
                 FinalizeP1P6WallIteration(SubstepIndex, RuntimeState

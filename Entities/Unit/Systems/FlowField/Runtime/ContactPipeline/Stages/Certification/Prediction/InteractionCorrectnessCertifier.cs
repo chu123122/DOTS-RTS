@@ -106,6 +106,88 @@ public partial struct InteractionCertificationJob
         };
     }
 
+    private bool HasValidConsumerViewStructure()
+    {
+        if (!TimestepInteractionPairs.IsCreated ||
+            !SoftAvoidancePairs.IsCreated ||
+            !TimestepContactPairs.IsCreated ||
+            !PredictiveContactSchedule.IsCreated)
+            return false;
+
+        int bodyCount = Bodies.Length;
+        for (int i = 0; i < TimestepInteractionPairs.Length; i++)
+        {
+            BodyPair pair = TimestepInteractionPairs[i];
+            if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
+                pair.BodyB >= bodyCount)
+                return false;
+        }
+        for (int i = 0; i < SoftAvoidancePairs.Length; i++)
+        {
+            BodyPair pair = SoftAvoidancePairs[i];
+            if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
+                pair.BodyB >= bodyCount)
+                return false;
+        }
+        for (int i = 0; i < TimestepContactPairs.Length; i++)
+        {
+            ContactConstraint pair = TimestepContactPairs[i];
+            if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
+                pair.BodyB >= bodyCount)
+                return false;
+        }
+
+        int substepCount = math.max(1, SubstepCount);
+        for (int i = 0; i < PredictiveContactSchedule.Length; i++)
+        {
+            if (PredictiveContactSchedule[i].Substep >= substepCount)
+                return false;
+        }
+        return true;
+    }
+
+    private bool HasValidPersistentEntityMapping()
+    {
+        if (!CurrentBodyIndexByEntity.IsCreated)
+            return false;
+        for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
+        {
+            if (!CurrentBodyIndexByEntity.TryGetValue(
+                    Bodies[bodyIndex].Entity,
+                    out int mappedBodyIndex) ||
+                mappedBodyIndex != bodyIndex)
+                return false;
+        }
+        return true;
+    }
+
+    private InteractionCertificationFlags BuildCertificationFlags(
+        ContactViewBuildResult result,
+        InteractionCertificationEvidence evidence)
+    {
+        InteractionCertificationFlags flags = InteractionCertificationFlags.None;
+        bool structureValid =
+            result.InteractionPairCount >= 0 && HasValidConsumerViewStructure();
+        if (structureValid)
+            flags |= InteractionCertificationFlags.StructureVerified;
+
+        bool persistentSource =
+            result.SourceMode != ContactInteractionSourceMode.FullSweep;
+        if (!persistentSource || HasValidPersistentEntityMapping())
+            flags |= InteractionCertificationFlags.EntityMappingVerified;
+        if (evidence.ConfigurationFingerprint != 0u)
+            flags |= InteractionCertificationFlags.ConfigurationVerified;
+        if (!persistentSource || result.PersistentViewReady != 0)
+            flags |= InteractionCertificationFlags.TopologyCoverageVerified;
+        if (!persistentSource ||
+            (IncrementalCacheState.IsCreated &&
+             IncrementalCacheState.Value.IsValid != 0))
+            flags |= InteractionCertificationFlags.ClassificationVerified;
+        if (structureValid)
+            flags |= InteractionCertificationFlags.ConsumerViewsCommitted;
+        return flags;
+    }
+
     /// <summary>
     /// Common commit hook used by both the serial reference path and the staged
     /// P1-P6 Jacobi path. Every consumer-visible compact view therefore receives
@@ -137,13 +219,16 @@ public partial struct InteractionCertificationJob
             BuildCertificationEvidence(start, end);
 
         InteractionCertificationFlags flags =
+            BuildCertificationFlags(result, evidence);
+        const InteractionCertificationFlags required =
             InteractionCertificationFlags.StructureVerified |
             InteractionCertificationFlags.EntityMappingVerified |
             InteractionCertificationFlags.ConfigurationVerified |
             InteractionCertificationFlags.TopologyCoverageVerified |
             InteractionCertificationFlags.ClassificationVerified |
-            InteractionCertificationFlags.ConsumerViewsCommitted |
-            InteractionCertificationFlags.Issued;
+            InteractionCertificationFlags.ConsumerViewsCommitted;
+        if ((flags & required) == required)
+            flags |= InteractionCertificationFlags.Issued;
 
         InteractionCertificate.Value = new InteractionCertificate
         {
@@ -165,6 +250,66 @@ public partial struct InteractionCertificationJob
         };
         if (InteractionCertificateViolations.IsCreated)
             InteractionCertificateViolations.Clear();
+    }
+
+    private bool IsConsumerCertificateValid(int substepIndex)
+    {
+        if (!InteractionCertificate.IsCreated)
+            return false;
+
+        InteractionCertificate certificate = InteractionCertificate.Value;
+        int certificateSubstep = EnableTimestepContactSetCache
+            ? substepIndex
+            : 0;
+        if (!certificate.Covers(
+                Configuration.WorldId,
+                Configuration.SimulationStepId,
+                certificateSubstep))
+            return false;
+        if (certificate.BodySetFingerprint != CalculateBodySetFingerprint() ||
+            certificate.ConfigurationFingerprint !=
+                Configuration.CalculateCertificationFingerprint() ||
+            certificate.SoftPairCount != SoftAvoidancePairs.Length ||
+            certificate.ContactConstraintCount != TimestepContactPairs.Length ||
+            certificate.DormantScheduleCount != PredictiveContactSchedule.Length)
+            return false;
+        return true;
+    }
+
+    private void ValidateConsumerViewsSerial()
+    {
+        SerialContactPipelineControlState control = SerialControl.Value;
+        if (control.IsValid == 0 ||
+            IsConsumerCertificateValid(SubstepIndex))
+            return;
+
+        RevokeInteractionCertificate(
+            -1,
+            SubstepIndex,
+            InteractionCertificateViolationReason.CommittedViewMismatch,
+            default,
+            default);
+        control.IsValid = 0;
+        control.RecoveryRequired = 1;
+        SerialControl.Value = control;
+    }
+
+    private void ValidateConsumerViewsP1P6()
+    {
+        ParallelJacobiExecutionState runtime = RuntimeState.Value;
+        if (runtime.IsValid == 0 ||
+            IsConsumerCertificateValid(SubstepIndex))
+            return;
+
+        RevokeInteractionCertificate(
+            -1,
+            SubstepIndex,
+            InteractionCertificateViolationReason.CommittedViewMismatch,
+            default,
+            default);
+        runtime.IsValid = 0;
+        runtime.RecoveryRequired = 1;
+        RuntimeState.Value = runtime;
     }
 
     private void IssueFullSweepSubstepCertificate()
