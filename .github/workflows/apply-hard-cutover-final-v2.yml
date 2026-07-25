@@ -1,0 +1,139 @@
+name: Apply hard cutover phases 3-5 v2
+
+on:
+  pull_request:
+    branches:
+      - Simulation
+    paths:
+      - '.github/cutover/final/**'
+      - '.github/workflows/apply-hard-cutover-final-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: hard-cutover-final-v2
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+          fetch-depth: 250
+
+      - name: Reconstruct verified patches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          piece() {
+            local file="$1" length="$2" hash="$3" output="$4"
+            test "$(wc -c < "$file")" -eq "$length"
+            echo "$hash  $file" | sha256sum --check
+            cat "$file" >> "$output"
+          }
+
+          : > /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-00.b64 5000 47c47e15227a83fc8f507df8c740e1bffb2f4212bddfab44b0210e1a1922283f /tmp/phase3.b64
+          piece .github/cutover/final/phase3/fix-01.b64 5000 c68f216f7bc445d65120c72cc795cc25ef42f8629d11debaf639c1fbfd5a38c7 /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-02-03.b64 10000 66af424291154c61b8c69c3bff13d900eb08d1d784694cfce34cfc5860ddb71c /tmp/phase3.b64
+          piece .github/cutover/final/phase3/fix-04.b64 5000 cf68258afbd19d9e797a7b87617fa0f2aedfe0ce2306fb7422afd33dcd4da4f8 /tmp/phase3.b64
+          piece .github/cutover/final/phase3/fix-05.b64 5000 0d90e5e2bdbe28ac5b585a23b4fa382cf51484ae65eea6ede7eeed99f963ecfa /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-06-07.b64 10000 33b304af5c452d7a7d87ce82f9c7975ec9f921143b55958e2c2d9e8583a0822a /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-08-09.b64 10000 e7434afa3ea3a01d12a7e2dc0e30037aa9289cd48549950664f4b1c5f3d30d3a /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-10-11.b64 10000 39a423c449c4fa16f76a9b8630293c810219df176b616022fd9d9d20038f8677 /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-12-13.b64 10000 f43ba839b2714dfe59c1485d2a6ec20bd25bd1d87b29a8ad615df09aaceebade /tmp/phase3.b64
+          piece .github/cutover/final/phase3/chunk-14.b64 1340 a636a608b071da84a822e62bf6432c5d82e1933d87401b3ce3be9339432d7204 /tmp/phase3.b64
+          echo '3159ed42667854163efb963bb09d185f4c8537d97b46056df14ffb1fabf94687  /tmp/phase3.b64' | sha256sum --check
+
+          : > /tmp/phase4.b64
+          piece .github/cutover/final/phase4/chunk-00-01.b64 10000 590c500045eb6434c5da8a5d857bdd7778863d141614e91e6faec2eb55597677 /tmp/phase4.b64
+          piece .github/cutover/final/phase4/chunk-02.b64 5000 7091a6422ffcc31ba23ab575d83bd4d64fd12257aba97a23d41640532731d40b /tmp/phase4.b64
+          piece .github/cutover/final/phase4/chunk-03.b64 4180 ca6f7265af0ea50afc9ac2aac5202e53399727f59e3590b2be437ba739e92f31 /tmp/phase4.b64
+          echo '112e6b7afa086015c350754554f178f5b59f20337bb9b34e0e756b34b980c359  /tmp/phase4.b64' | sha256sum --check
+
+          : > /tmp/phase5.b64
+          piece .github/cutover/final/phase5/chunk-00.b64 3824 f3b3766155b7eaaa588bf8ce1ab593234557e8a19262620a970c542c5bc64e1f /tmp/phase5.b64
+          echo 'f3b3766155b7eaaa588bf8ce1ab593234557e8a19262620a970c542c5bc64e1f  /tmp/phase5.b64' | sha256sum --check
+
+          for phase in phase3 phase4 phase5; do
+            base64 -d "/tmp/${phase}.b64" > "/tmp/${phase}.patch.gz"
+            gzip -t "/tmp/${phase}.patch.gz"
+            gzip -dc "/tmp/${phase}.patch.gz" > "/tmp/${phase}.patch"
+          done
+          echo 'f94016f9f4667bec7b704ad5c5e8934c00c2404a66db97dd275b021e924634f0  /tmp/phase3.patch.gz' | sha256sum --check
+          echo '07d0e1f909809410cac37318b18388d78e7f28dcfd7516d85a3bb7be822c2c07  /tmp/phase3.patch' | sha256sum --check
+          echo '13362e421ff2f64b785b63e7f1465f14c59d2e4b9eff7bb2dc7ef31ae08fe25d  /tmp/phase4.patch.gz' | sha256sum --check
+          echo 'a5f7d922d866307ab66c816b08723f01a3dd735e0369709649ba573d66f87f06  /tmp/phase4.patch' | sha256sum --check
+          echo '68c8d440408e56fc6768789a91776b7dbe78e6e294d20792c27b243c437a9cd1  /tmp/phase5.patch.gz' | sha256sum --check
+          echo '53e95445af113a9a763473b709828858679aee5ea21ff35fa635840abf67ae91  /tmp/phase5.patch' | sha256sum --check
+
+      - name: Configure commit identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Apply phase 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check --3way /tmp/phase3.patch
+          git apply --index --3way /tmp/phase3.patch
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+          ! grep -R --include='*.cs' -E 'SolveXpbdUnitContactsJob|CrowdEnvironmentAccess' Entities/Unit/Systems/FlowField
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/SolveXpbdUnitContactsJob.cs.meta
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/CrowdEnvironmentAccess.cs
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/CrowdEnvironmentAccess.cs.meta
+          git commit -m "hard cutover contact pipeline stages"
+
+      - name: Apply phase 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check --3way /tmp/phase4.patch
+          git apply --index --3way /tmp/phase4.patch
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+          ! grep -R --include='*.cs' -E 'ContactPersistentState|ContactFrameResources|ComposeContactPipelineScheduler|BaseFlowMovementComposition' Entities/Unit/Systems/FlowField
+          test ! -e Entities/Unit/Systems/FlowField/BaseFlowMovementComposition.cs
+          test ! -e Entities/Unit/Systems/FlowField/BaseFlowMovementComposition.cs.meta
+          test ! -e Entities/Unit/Systems/FlowField/ContactPipelineResources.cs
+          test ! -e Entities/Unit/Systems/FlowField/ContactPipelineResources.cs.meta
+          git commit -m "hard cutover contact resource ownership"
+
+      - name: Apply phase 5 and remove scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check --3way /tmp/phase5.patch
+          git apply --index --3way /tmp/phase5.patch
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/Compatibility
+          test ! -e Entities/Unit/Systems/FlowField/Jobs/Compatibility.meta
+          ! grep -R --include='*.cs' -E 'AdaptiveFatAabbCellHistory|AdaptiveFatAabbRetainedPair|AdaptiveFatAabbBodyState|AdaptiveFatAabbEntry|AdaptiveFatAabbCellBucket|AdaptiveFatAabbPairCandidate|AdaptiveFatAabbPairKey|AdaptiveFatAabbBroadPhaseState|AdaptiveFatAabbDiagnostics' Entities/Unit/Systems/FlowField
+          rm -rf .github/cutover/final
+          rm -f .github/workflows/apply-hard-cutover-final.yml
+          rm -f .github/workflows/apply-hard-cutover-final-v2.yml
+          rm -f .github/workflows/diagnose-hard-cutover-final.yml
+          git add -A
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_diagnostics.py
+          python3 .github/scripts/validate_contact_architecture.py
+          git diff --cached --check
+          git commit -m "remove retired contact compatibility types"
+
+      - name: Push completed phases
+        run: git push origin HEAD:codex/simulation-integration
