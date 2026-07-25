@@ -1,0 +1,53 @@
+name: Diagnose final ownership
+
+on:
+  push:
+    branches:
+      - codex/simulation-integration
+    paths:
+      - '.github/workflows/diagnose-final-ownership.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/simulation-integration
+      - name: Capture ownership report
+        run: |
+          python - <<'PY' > /tmp/ownership-report.txt
+          from pathlib import Path
+          flow = Path('Entities/Unit/Systems/FlowField')
+          pipeline = flow / 'Jobs/ContactPipeline'
+          ownership = {
+              'public struct BodyPair': pipeline / 'Core/BodyPair.cs',
+              'public struct ContactConstraint': pipeline / 'Core/ContactConstraint.cs',
+              'public struct SweptDiscCellEntry': pipeline / 'BroadPhase/SweptDiscTypes.cs',
+              'public struct IncrementalContactCacheState': pipeline / 'Persistent/IncrementalPredictiveContactTypes.cs',
+              'public struct IncrementalContactPipelineStatistics': flow / 'Diagnostics/Capture/ContactPipelineTelemetry.cs',
+          }
+          for symbol, expected in ownership.items():
+              paths = [
+                  path for path in flow.rglob('*.cs')
+                  if symbol in path.read_text(encoding='utf-8')
+              ]
+              print(symbol)
+              print(' expected:', expected)
+              print(' actual:', paths)
+          print('workflows:')
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              print(path)
+          print('refactor-temp:', list(Path('.github/workflows').glob('refactor-contact-pipeline-phase*.yml')))
+          print('audit-temp:', list(Path('.github/workflows').glob('audit-*.yml')))
+          PY
+          cat /tmp/ownership-report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-ownership-report
+          path: /tmp/ownership-report.txt
+          retention-days: 1
