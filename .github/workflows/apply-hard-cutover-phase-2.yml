@@ -47,6 +47,7 @@ jobs:
         run: git apply --index --3way /tmp/phase-2.patch
       - name: Remove transfer scaffolding
         run: |
+          git restore --staged --worktree .github/workflows/contact-pipeline-static-checks.yml
           rm -rf .github/cutover/phase-2
           rm -f .github/workflows/apply-hard-cutover-phase-2.yml
           git add -A
@@ -61,7 +62,9 @@ jobs:
           test ! -e Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Core/ContactPairTypes.cs.meta
       - name: Commit hard cutover
         run: |
+          set -o pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git status --short
           git commit -m "hard cutover body pairs and contact constraints"
-          git push origin HEAD:codex/simulation-integration
+          git push origin HEAD:codex/simulation-integration 2>&1 | tee /tmp/phase-2-push.log
