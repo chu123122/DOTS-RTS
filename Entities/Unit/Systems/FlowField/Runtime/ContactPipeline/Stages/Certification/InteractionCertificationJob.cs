@@ -59,11 +59,6 @@ public partial struct InteractionCertificationJob : IJob
     public NativeReference<ParallelJacobiExecutionState> RuntimeState;
     public NativeReference<SerialContactPipelineControlState> SerialControl;
     public int BodyBlockCount;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
-    public NativeList<JacobiBlockTelemetry> BlockStatistics;
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
-#endif
 
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -117,9 +112,6 @@ public partial struct InteractionCertificationJob : IJob
 
     public NativeList<PersistentPairClassificationResult> PersistentClassificationResults;
     public NativeReference<PersistentClassificationPhaseState> PersistentClassificationState;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
-#endif
     public NativeParallelMultiHashMap<int, int> PersistentSpatialMembership;
     public NativeReference<uint> PersistentSpatialMembershipEpoch;
     public NativeArray<uint> PersistentSpatialVisitStampByProxy;
@@ -127,15 +119,6 @@ public partial struct InteractionCertificationJob : IJob
     public NativeParallelMultiHashMap<Entity, int> PersistentIncidentPairLookup;
     public NativeReference<uint> PersistentIncidentLookupEpoch;
 
-#if RTS_CONTACT_DIAGNOSTICS
-    public Entity DiagnosticSelectedEntity;
-    public NativeList<BodyPair> IncrementalOracleContactPairs;
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<ContactPairDiagnostic> PairDiagnostics;
-    public NativeArray<ContactHeatSample> HeatSamples;
-#endif
 
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;
@@ -157,31 +140,6 @@ public partial struct InteractionCertificationJob : IJob
 
     private FlowGridGeometry EnvironmentGeometry =>
         new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
-
-    private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? IncrementalStatistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) IncrementalStatistics.Value = value;
-#endif
-    }
-    private PredictiveDiscContactStatistics LoadContactStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? Statistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreContactStatistics(PredictiveDiscContactStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) Statistics.Value = value;
-#endif
-    }
 
     public void Execute()
     {

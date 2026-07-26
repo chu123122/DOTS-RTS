@@ -37,10 +37,6 @@ public partial struct ConstraintSolverJob : IJob
     public int BodyBlockCount;
     public int BlockCount;
     public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
-    public NativeList<JacobiBlockTelemetry> BlockStatistics;
-#endif
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -59,22 +55,6 @@ public partial struct ConstraintSolverJob : IJob
     public NativeList<JacobiPairCorrection> JacobiPairCorrections;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
     public NativeArray<ParallelBodyStageResult> ParallelBodyStatistics;
-#if RTS_CONTACT_DIAGNOSTICS
-    public Entity DiagnosticSelectedEntity;
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<ContactIterationDiagnostic> IterationDiagnostics;
-    public NativeList<ContactPairDiagnostic> PairDiagnostics;
-    public NativeReference<SelectedBodyContactDiagnostic> SelectedBodyDiagnostic;
-    public NativeArray<ContactHeatSample> HeatSamples;
-    public SimulationDebuggerCaptureMask SimulationDebuggerCaptureMask;
-    public int SimulationDebuggerMaximumPairs;
-    public NativeList<SimulationDebuggerPairSample> SimulationDebuggerSelectedPairs;
-    public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
-    public NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch;
-    public NativeReference<SimulationDebuggerUnitSample> SimulationDebuggerSelectedUnit;
-    public NativeReference<byte> SimulationDebuggerSelectedUnitValid;
-#endif
     private float DeltaTime => Configuration.DeltaTime;
     private int SubstepCount => Configuration.SubstepCount;
     private int IterationCount => Configuration.IterationCount;
@@ -86,30 +66,6 @@ public partial struct ConstraintSolverJob : IJob
     private bool EnablePredictiveContacts => Configuration.EnablePredictiveContacts;
     private float PredictiveSkin => Configuration.PredictiveSkin;
     private FlowGridGeometry EnvironmentGeometry => new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
-    private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? IncrementalStatistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) IncrementalStatistics.Value = value;
-#endif
-    }
-    private PredictiveDiscContactStatistics LoadContactStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? Statistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreContactStatistics(PredictiveDiscContactStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) Statistics.Value = value;
-#endif
-    }
     public void Execute()
     {
         switch (Operation)

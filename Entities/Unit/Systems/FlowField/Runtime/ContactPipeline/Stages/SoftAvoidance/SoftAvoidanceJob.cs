@@ -35,13 +35,6 @@ public partial struct SoftAvoidanceJob : IJob
     public NativeList<int> SoftIncidentPairIndices;
     public NativeList<SoftAvoidancePairContribution> SoftPairContributions;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<IncrementalContactPipelineStatistics> IncrementalStatistics;
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeList<JacobiBlockTelemetry> BlockStatistics;
-    public NativeArray<int> EscapeCountsByBlock;
-    public int EscapeBlockCount;
-#endif
     private float SoftAvoidanceResponseRate => Configuration.SoftAvoidanceResponseRate;
     private float SoftAvoidanceShell => Configuration.SoftAvoidanceShell;
     private float SettledSoftAvoidanceMultiplier => Configuration.SettledSoftAvoidanceMultiplier;
@@ -50,30 +43,6 @@ public partial struct SoftAvoidanceJob : IJob
     private bool EnableDiagnostics => Configuration.EnableDiagnostics;
     private bool EnablePersistentContactCache => Configuration.EnablePersistentContactCache;
     private FlowGridGeometry EnvironmentGeometry => new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
-    private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? IncrementalStatistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) IncrementalStatistics.Value = value;
-#endif
-    }
-    private PredictiveDiscContactStatistics LoadContactStatistics() =>
-#if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? Statistics.Value : default;
-#else
-        default;
-#endif
-    private void StoreContactStatistics(PredictiveDiscContactStatistics value)
-    {
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) Statistics.Value = value;
-#endif
-    }
     public void Execute()
     {
         switch (Operation)
