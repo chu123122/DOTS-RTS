@@ -252,9 +252,22 @@ internal struct JacobiPairSolveResult
                 end = listLength;
                 CorrectedBodyFlags[bodyIndex] = 2; // sentinel: incident index desync
             }
+            int pairCount = Pairs.Length;
+            int correctionCountLimit = Corrections.Length;
             for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
             {
                 int pairIndex = IncidentPairIndices[incidentIndex];
+                // The pairIndex stored in the incident list was written by Ensure
+                // against the TimestepContactPairs length at Ensure time. If the
+                // pair/correction views are shorter here (deferred-write timing),
+                // pairIndex can exceed their length. Skip + sentinel rather than
+                // Burst-abort so the desync is observable without halting the frame.
+                if ((uint)pairIndex >= (uint)pairCount ||
+                    (uint)pairIndex >= (uint)correctionCountLimit)
+                {
+                    CorrectedBodyFlags[bodyIndex] = 2;
+                    continue;
+                }
                 ContactConstraint pair = Pairs[pairIndex];
                 JacobiPairCorrection contribution = Corrections[pairIndex];
                 if (pair.BodyA == bodyIndex && contribution.ActiveA != 0)
