@@ -1095,32 +1095,11 @@ public partial struct InteractionCertificationJob
         float softAvoidanceShell,
         float softAvoidanceResponseRate,
         SoftAvoidanceVelocitySolverMode softSolverMode,
-        float rvoTimeHorizon)
-    {
-        PersistentSweptProxy proxy = new PersistentSweptProxy
-        {
-            Entity = stateSnapshot.Entity,
-            BodyIndex = bodyIndex,
-            IsValid = (byte)((stateSnapshot.IsInsideSimulationDomain != 0) ? 1 : 0),
-            Radius = math.max(0f, stateSnapshot.Radius)
-        };
-        if (!(stateSnapshot.IsInsideSimulationDomain != 0))
-            return proxy;
-        proxy.TightMin = stateEvidence.InteractionEnvelopeMin;
-        proxy.TightMax = stateEvidence.InteractionEnvelopeMax;
-        proxy.GuardMin = proxy.TightMin - math.max(0f, guardMargin);
-        proxy.GuardMax = proxy.TightMax + math.max(0f, guardMargin);
-        proxy.TrajectoryStart = stateEvidence.TrajectoryStart.xz;
-        proxy.TrajectoryEnd = stateEvidence.BaselineEnd.xz;
-        proxy.AvoidanceHorizonEnd =
-            softSolverMode == SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle &&
-            softAvoidanceShell > 0f && softAvoidanceResponseRate > 0f
-                ? stateEvidence.TrajectoryStart.xz +
-                  stateStep.BaseVelocity.xz * math.max(0f, rvoTimeHorizon)
-                : stateEvidence.BaselineEnd.xz;
-        proxy.MotionVersion = 1u;
-        return proxy;
-    }
+        float rvoTimeHorizon) =>
+        PersistentProxyBuilder.BuildFromState(
+            bodyIndex, stateSnapshot, stateEvidence, stateStep,
+            guardMargin, softAvoidanceShell,
+            softAvoidanceResponseRate, softSolverMode, rvoTimeHorizon);
 
     internal static IncrementalBodyDirtyFlags ClassifyAndUpdatePersistentProxyForBodyP1P6(
         int bodyIndex,
@@ -1134,49 +1113,12 @@ public partial struct InteractionCertificationJob
         float softAvoidanceShell,
         float softAvoidanceResponseRate,
         SoftAvoidanceVelocitySolverMode softSolverMode,
-        float rvoTimeHorizon)
-    {
-        if (cacheState.IsValid == 0 ||
-            proxyIndexByBody.Length != cacheState.BodyCount ||
-            persistentProxies.Length != cacheState.BodyCount ||
-            (uint)bodyIndex >= (uint)proxyIndexByBody.Length)
-            return IncrementalBodyDirtyFlags.None;
-
-        int proxyIndex = proxyIndexByBody[bodyIndex];
-        if ((uint)proxyIndex >= (uint)persistentProxies.Length)
-            return IncrementalBodyDirtyFlags.EntitySet |
-                   IncrementalBodyDirtyFlags.Topology |
-                   IncrementalBodyDirtyFlags.Motion;
-
-        PersistentSweptProxy previous = persistentProxies[proxyIndex];
-        if (previous.Entity != stateSnapshot.Entity)
-            return IncrementalBodyDirtyFlags.EntitySet |
-                   IncrementalBodyDirtyFlags.Topology |
-                   IncrementalBodyDirtyFlags.Motion;
-
-        PersistentSweptProxy current = BuildPersistentProxyFromStateP1P6(
+        float rvoTimeHorizon) =>
+        PersistentProxyBuilder.ClassifyAndUpdateForBody(
             bodyIndex, stateSnapshot, stateEvidence, stateStep,
+            persistentProxies, proxyIndexByBody, cacheState,
             guardMargin, softAvoidanceShell,
             softAvoidanceResponseRate, softSolverMode, rvoTimeHorizon);
-        AssignMotionVersion(ref current, previous);
-        bool topologyDirty = previous.IsValid != current.IsValid ||
-                             previous.Radius != current.Radius ||
-                             (current.IsValid != 0 && !ContactPipelineShared.AabbContains(
-                                 previous.GuardMin, previous.GuardMax,
-                                 current.TightMin, current.TightMax));
-        bool motionDirty = topologyDirty || current.MotionVersion != previous.MotionVersion;
-        if (!motionDirty)
-            return IncrementalBodyDirtyFlags.None;
-        if (!topologyDirty)
-        {
-            current.GuardMin = previous.GuardMin;
-            current.GuardMax = previous.GuardMax;
-        }
-        persistentProxies[proxyIndex] = current;
-        return topologyDirty
-            ? IncrementalBodyDirtyFlags.Motion | IncrementalBodyDirtyFlags.Topology
-            : IncrementalBodyDirtyFlags.Motion;
-    }
 
     private void PrepareInitialPersistentDirtyBodySet()
     {
@@ -1875,19 +1817,8 @@ public partial struct InteractionCertificationJob
 
     private static void AssignMotionVersion(
         ref PersistentSweptProxy current,
-        PersistentSweptProxy previous)
-    {
-        bool same = math.all(current.TrajectoryStart == previous.TrajectoryStart) &&
-                    math.all(current.TrajectoryEnd == previous.TrajectoryEnd) &&
-                    math.all(current.AvoidanceHorizonEnd ==
-                             previous.AvoidanceHorizonEnd) &&
-                    current.Radius == previous.Radius;
-        current.MotionVersion = same
-            ? previous.MotionVersion
-            : previous.MotionVersion == uint.MaxValue
-                ? 1u
-                : previous.MotionVersion + 1u;
-    }
+        PersistentSweptProxy previous) =>
+        PersistentProxyBuilder.AssignMotionVersion(ref current, previous);
 
     private void FullRebuildPersistentNeighborTopology(
         ref IncrementalContactPipelineStatistics incrementalStatistics)
