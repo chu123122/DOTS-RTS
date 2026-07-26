@@ -13,7 +13,6 @@ public static class IncrementalContactPipelineExperimentRuntime
         public bool TimestepCacheEnabled=true;
         public bool CrossFrameContactCacheEnabled=true;
         public bool PredictiveContactsEnabled=true;
-        public bool DiagnosticsEnabled=true;
         public int SubstepCount=4;
         public int IterationCount=4;
         public ContactPositionSolverMode ContactPositionSolver=ContactPositionSolverMode.GaussSeidel;
@@ -42,7 +41,6 @@ public static class IncrementalContactPipelineExperimentRuntime
     public static bool TimestepCacheEnabled {get{lock(Gate)return GetLocked(Target).TimestepCacheEnabled;}set{lock(Gate)GetLocked(Target).TimestepCacheEnabled=value;}}
     public static bool CrossFrameContactCacheEnabled {get{lock(Gate)return GetLocked(Target).CrossFrameContactCacheEnabled;}set{lock(Gate)GetLocked(Target).CrossFrameContactCacheEnabled=value;}}
     public static bool PredictiveContactsEnabled {get{lock(Gate)return GetLocked(Target).PredictiveContactsEnabled;}set{lock(Gate)GetLocked(Target).PredictiveContactsEnabled=value;}}
-    public static bool DiagnosticsEnabled {get{lock(Gate)return GetLocked(Target).DiagnosticsEnabled;}set{lock(Gate)GetLocked(Target).DiagnosticsEnabled=value;}}
     public static int SubstepCount {get{lock(Gate)return GetLocked(Target).SubstepCount;}set{lock(Gate)GetLocked(Target).SubstepCount=value;}}
     public static int IterationCount {get{lock(Gate)return GetLocked(Target).IterationCount;}set{lock(Gate)GetLocked(Target).IterationCount=value;}}
     public static ContactPositionSolverMode ContactPositionSolver {get{lock(Gate)return GetLocked(Target).ContactPositionSolver;}set{lock(Gate)GetLocked(Target).ContactPositionSolver=value;}}
@@ -69,7 +67,14 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.EnablePredictiveContacts=state.PredictiveContactsEnabled;
         settings.EnableTimestepContactSetCache=state.TimestepCacheEnabled;
         settings.EnablePersistentContactCache=state.CrossFrameContactCacheEnabled&&state.TimestepCacheEnabled;
-        settings.EnableDiagnostics=state.DiagnosticsEnabled;
+        // NOTE: EnableDiagnostics is intentionally NOT overridden here. It is a
+        // user-visible switch (FlowFieldManagerAuthoring + Simulation Debugger
+        // panel toggle) and was previously silently flipped by benchmark
+        // OverrideState residue (DiagnosticsEnabled=false stays in the static
+        // Worlds dict across Play Mode restarts), which made every diagnostic
+        // counter read 0 while the singleton still read true. Diagnostics cost
+        // is now the user's choice; if a benchmark needs a clean baseline the
+        // user toggles it off through the normal panel.
     }
     public static void Apply(ref UnitContactSolverSettings settings)=>Apply(Target,ref settings);
 
@@ -116,7 +121,6 @@ public static class IncrementalContactPipelineExperimentRuntime
     public static bool TimestepCacheEnabled {get=>true;set{}}
     public static bool CrossFrameContactCacheEnabled {get=>true;set{}}
     public static bool PredictiveContactsEnabled {get=>true;set{}}
-    public static bool DiagnosticsEnabled {get=>false;set{}}
     public static int SubstepCount {get=>4;set{}}
     public static int IterationCount {get=>4;set{}}
     public static ContactPositionSolverMode ContactPositionSolver {get=>ContactPositionSolverMode.GaussSeidel;set{}}

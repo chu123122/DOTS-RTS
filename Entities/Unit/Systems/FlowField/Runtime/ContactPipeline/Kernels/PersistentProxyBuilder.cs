@@ -127,8 +127,22 @@ internal static class PersistentProxyBuilder
             return IncrementalBodyDirtyFlags.None;
         if (!topologyDirty)
         {
-            current.GuardMin = previous.GuardMin;
-            current.GuardMax = previous.GuardMax;
+            // Uniform translation path: slide the previous guard by this
+            // frame's tight displacement so steady formation motion never
+            // trips the topology guard (AabbContains measures relative, not
+            // absolute, drift). Displacement is taken from the tight AABB,
+            // not the trajectory intent, so the guard tracks the real hull.
+            float2 displacement = current.TightMin - previous.TightMin;
+            current.GuardMin = previous.GuardMin + displacement;
+            current.GuardMax = previous.GuardMax + displacement;
+            // Acceleration, reversal or wall-bounce can move the tight AABB
+            // past the translated guard. Re-test containment against the
+            // translated guard and, if the tight hull still escapes, fall
+            // back to the authoritative topology-rebuild path.
+            if (!ContactPipelineShared.AabbContains(
+                    current.GuardMin, current.GuardMax,
+                    current.TightMin, current.TightMax))
+                topologyDirty = true;
         }
         persistentProxies[proxyIndex] = current;
         return topologyDirty

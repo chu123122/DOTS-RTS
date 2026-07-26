@@ -75,7 +75,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Tooltip("持久 Guard Envelope 在圆盘半径和 Predictive Skin 之外保留的复用余量。")]
     [FormerlySerializedAs("shadowCacheMargin")]
     [FormerlySerializedAs("fatAabbCacheMargin")]
-    [Min(0f)] public float persistentGuardEnvelopeMargin = 0.25f;
+    [Min(0f)] public float persistentGuardEnvelopeMargin = 0.5f;
     [Tooltip("整个 timestep ContactSet 预测轨迹之外的安全边界；逃出后执行完整回退重建。")]
     [Min(0f)] public float timestepContactMargin = 0.25f;
 

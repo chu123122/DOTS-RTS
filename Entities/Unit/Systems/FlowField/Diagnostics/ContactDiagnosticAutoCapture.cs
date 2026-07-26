@@ -12,7 +12,7 @@ public sealed class ContactDiagnosticAutoCapture
     public const float InitialWarmupSeconds = 3f;
     public const float TransitionWarmupSeconds = 2f;
     public const float ExperimentPredictiveSkin = 0.05f;
-    public const float ExperimentFatAabbMargin = 0.25f;
+    public const float ExperimentFatAabbMargin = 0.5f;
     public const float ExperimentCaptureDuration = 10f;
     public const float ExperimentCaptureInterval = 0.1f;
 

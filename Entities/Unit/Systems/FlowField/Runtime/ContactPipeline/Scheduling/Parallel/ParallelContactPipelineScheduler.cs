@@ -552,12 +552,11 @@ public partial struct CrowdContactPipelineScheduler
                 }
 
 #if RTS_CONTACT_DIAGNOSTICS
-                if (EnableDiagnostics)
-                    handle = new ReduceParallelJacobiBlocksJob
-                    {
-                        Corrections = JacobiPairCorrections,
-                        Blocks = blockStatistics.AsDeferredJobArray()
-                    }.Schedule(blockStatistics, 1, handle);
+                handle = new ReduceParallelJacobiBlocksJob
+                {
+                    Corrections = JacobiPairCorrections,
+                    Blocks = blockStatistics.AsDeferredJobArray()
+                }.Schedule(blockStatistics, 1, handle);
 #endif
 
 #if RTS_CONTACT_DIAGNOSTICS

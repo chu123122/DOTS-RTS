@@ -8,7 +8,14 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
-    private const float IncrementalDirtyBodyRatioThreshold = 0.35f;
+    // Threshold above which a full broad-phase rebuild is cheaper than per-body
+    // incremental repair. Kept high on purpose: a dense local collision cluster
+    // (e.g. two formations colliding head-on) can dirty many bodies in one region
+    // while the rest of the crowd stays clean. Repair is spatial-hash-scoped to
+    // the dirty list, so even a 50-60% dirty ratio of locally-clustered bodies
+    // is still cheaper than a global O(N) rebuild. Only treat a near-total dirty
+    // set (>70%) as a genuinely global change worth a full rebuild.
+    private const float IncrementalDirtyBodyRatioThreshold = 0.7f;
 
     private bool BuildContactPairsFromPersistentNeighborSet(
         ref PredictiveDiscContactStatistics statistics,
@@ -166,6 +173,17 @@ public partial struct InteractionCertificationJob
                          cacheState.ActualContactCount;
         statistics.CandidatePairCount += PersistentNeighborPairs.Length;
         statistics.ContactPairCount += sweptCount;
+        // Reuse skips per-contact classification, so restore the same
+        // solver-facing lifecycle counters that classification would emit.
+        statistics.ActualGeneratedPairCount += cacheState.ActualContactCount;
+        statistics.PredictiveGeneratedPairCount +=
+            cacheState.ApproachingContactCount +
+            cacheState.PredictiveContactCount;
+        statistics.PotentialPredictivePairCount +=
+            cacheState.PredictiveContactCount;
+        statistics.PredictivePairCount += cacheState.PredictiveContactCount;
+        statistics.TimestepContactSetDormantPairCount +=
+            cacheState.DormantContactCount;
         incrementalStatistics.ClassificationReuseCount +=
             PersistentNeighborPairs.Length;
         incrementalStatistics.ClassificationSkippedCount +=
@@ -691,6 +709,11 @@ public partial struct InteractionCertificationJob
             TimestepContactPairs.Length);
         incrementalStatistics.ContactActivationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - activationStart);
+        // Activation can add constraints or rewrite the dormant schedule after
+        // the previous commit, so certify the final consumer-visible views.
+        IssueCertificateForCommittedViews(
+            incrementalStatistics,
+            substepIndex);
     }
 
     private void UpdatePersistentContactAfterScheduledCheck(
