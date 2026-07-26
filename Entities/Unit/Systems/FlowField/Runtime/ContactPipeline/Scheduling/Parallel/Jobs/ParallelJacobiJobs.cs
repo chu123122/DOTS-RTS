@@ -229,10 +229,18 @@ internal struct JacobiPairSolveResult
         public NativeArray<CrowdMotionIntent> MotionIntents;
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeList<ContactConstraint> Pairs;
-        [ReadOnly] public NativeList<JacobiPairCorrection> Corrections;
+        // These three views must be deferred-job arrays, not bare NativeList
+        // fields: a prior job on the dependency chain (FinalizeWall's repair /
+        // RebuildEscapedTimestepContactView) can resize TimestepContactPairs and
+        // trigger buffer reallocation. A bare NativeList field captures the
+        // m_ListData pointer at Schedule time; after reallocation that pointer is
+        // stale and Length reads the old (shorter) buffer -> IndexOutOfRange.
+        // AsDeferredJobArray() makes the Jobs runtime patch the pointer to the
+        // live buffer right before Execute, matching EvaluateParallelJacobiPairsJob.
+        [ReadOnly] public NativeArray<ContactConstraint> Pairs;
+        [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
-        [ReadOnly] public NativeList<int> IncidentPairIndices;
+        [ReadOnly] public NativeArray<int> IncidentPairIndices;
         public NativeArray<byte> CorrectedBodyFlags;
 
         public void Execute(int bodyIndex)

@@ -597,10 +597,10 @@ public partial struct CrowdContactPipelineScheduler
                 MotionIntents = MotionIntents,
                 MotionEvidence = MotionEvidence,
                 StepStates = StepStates,
-                    Pairs = TimestepContactPairs,
-                    Corrections = JacobiPairCorrections,
+                    Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                    Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                     IncidentOffsets = ActiveIncidentOffsets,
-                    IncidentPairIndices = ActiveIncidentPairIndices,
+                    IncidentPairIndices = ActiveIncidentPairIndices.AsDeferredJobArray(),
                     CorrectedBodyFlags = CorrectedBodyFlags
                 }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
