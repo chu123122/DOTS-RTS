@@ -526,40 +526,15 @@ public partial struct InteractionCertificationJob
     private static ContactConstraint BuildContactConstraintFromPersistentContact(
         int firstBodyIndex,
         int secondBodyIndex,
-        PersistentPredictiveContact contact)
-    {
-        return new ContactConstraint
-        {
-            BodyA = math.min(firstBodyIndex, secondBodyIndex),
-            BodyB = math.max(firstBodyIndex, secondBodyIndex),
-            PredictiveNormal = contact.StableNormal,
-            ContactMode = contact.ContactMode,
-            FirstActivatedSubstep = -1
-        };
-    }
+        PersistentPredictiveContact contact) =>
+        PersistentContactMath.BuildConstraintFromPersistentContact(
+            firstBodyIndex, secondBodyIndex, contact);
 
     private static void AccumulatePersistentClassificationStatistics(
         PersistentPredictiveContact contact,
-        ref PredictiveDiscContactStatistics statistics)
-    {
-        switch (contact.Lifecycle)
-        {
-            case PersistentContactLifecycle.Actual:
-                statistics.ActualGeneratedPairCount++;
-                break;
-            case PersistentContactLifecycle.Predictive:
-                statistics.PredictiveGeneratedPairCount++;
-                statistics.PredictivePairCount++;
-                statistics.PotentialPredictivePairCount++;
-                break;
-            case PersistentContactLifecycle.Approaching:
-                statistics.PredictiveGeneratedPairCount++;
-                break;
-            case PersistentContactLifecycle.Dormant:
-                statistics.TimestepContactSetDormantPairCount++;
-                break;
-        }
-    }
+        ref PredictiveDiscContactStatistics statistics) =>
+        PersistentContactMath.AccumulateClassificationStatistics(
+            contact, ref statistics);
 
     private uint CalculateClassificationEpoch()
     {
@@ -729,34 +704,13 @@ public partial struct InteractionCertificationJob
 
     private static float CalculatePairClosestTime(
         CrowdMotionEvidence bodyAEvidence,
-        CrowdMotionEvidence bodyBEvidence)
-    {
-        float3 relativeStart =
-            bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
-        float3 relativeDisplacement =
-            (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
-            (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
-        relativeStart.y = 0f;
-        relativeDisplacement.y = 0f;
-        float relativeLengthSq = math.lengthsq(relativeDisplacement);
-        return relativeLengthSq > 0.0000001f
-            ? math.clamp(
-                -math.dot(relativeStart, relativeDisplacement) / relativeLengthSq,
-                0f,
-                1f)
-            : 0f;
-    }
+        CrowdMotionEvidence bodyBEvidence) =>
+        PersistentContactMath.CalculatePairClosestTime(bodyAEvidence, bodyBEvidence);
 
     private static bool HasRelativeTimestepTrajectory(
         CrowdMotionEvidence bodyAEvidence,
-        CrowdMotionEvidence bodyBEvidence)
-    {
-        float3 relativeDisplacement =
-            (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
-            (bodyAEvidence.BaselineEnd - bodyAEvidence.TrajectoryStart);
-        relativeDisplacement.y = 0f;
-        return math.lengthsq(relativeDisplacement) > 0.0000001f;
-    }
+        CrowdMotionEvidence bodyBEvidence) =>
+        PersistentContactMath.HasRelativeTimestepTrajectory(bodyAEvidence, bodyBEvidence);
 
     private void ActivateScheduledPredictiveContactsForSubstep(
         int substepIndex,
@@ -1058,14 +1012,9 @@ public partial struct InteractionCertificationJob
 
     private static void UpdateActiveConstraintGauges(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
-        int currentActiveConstraintCount)
-    {
-        incrementalStatistics.CurrentActiveConstraintCount =
-            math.max(0, currentActiveConstraintCount);
-        incrementalStatistics.PeakActiveConstraintCount = math.max(
-            incrementalStatistics.PeakActiveConstraintCount,
-            incrementalStatistics.CurrentActiveConstraintCount);
-    }
+        int currentActiveConstraintCount) =>
+        PersistentContactMath.UpdateActiveConstraintGauges(
+            ref incrementalStatistics, currentActiveConstraintCount);
 
     private bool IsPersistentCacheStructurallyReusableP1P6()
     {
@@ -2038,23 +1987,7 @@ public partial struct InteractionCertificationJob
     }
 
     private static void SortAndDeduplicatePersistentNeighborPairs(
-        NativeList<PersistentNeighborPair> pairs)
-    {
-        if (pairs.Length <= 1)
-            return;
-
-        pairs.AsArray().Sort(new PersistentNeighborPairComparer());
-        int writeIndex = 1;
-        PersistentNeighborPair previous = pairs[0];
-        for (int readIndex = 1; readIndex < pairs.Length; readIndex++)
-        {
-            PersistentNeighborPair current = pairs[readIndex];
-            if (current.Key.Equals(previous.Key))
-                continue;
-            pairs[writeIndex++] = current;
-            previous = current;
-        }
-        pairs.ResizeUninitialized(writeIndex);
-    }
+        NativeList<PersistentNeighborPair> pairs) =>
+        PersistentContactMath.SortAndDeduplicatePersistentNeighborPairs(pairs);
 }
 }
