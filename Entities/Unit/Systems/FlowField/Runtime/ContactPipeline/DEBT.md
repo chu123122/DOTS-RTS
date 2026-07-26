@@ -27,6 +27,18 @@
   before SoftAvoidance and Solver when the certificate scope/view counts mismatch.
 - Diagnostics-on and diagnostics-off script compilation are both permanent
   validation configurations.
+- InteractionCertificationJob gameplay-critical helper logic extracted into
+  pure static kernel classes under `Kernels/` (PersistentProxyBuilder,
+  PersistentContactMath, PersistentStoreLookup, IncrementalDirtyBodyStore,
+  PersistentCacheReusability, PredictiveContactScheduler,
+  DirtyIncidentPairMapper). The certifier job keeps its field layout (Burst/
+  Collections Safety requires NativeContainers as direct struct fields); each
+  partial method is now a one-line forwarder and the kernel signatures expose
+  only the containers each algorithm consumes.
+- Diagnostics field declarations and telemetry load/store helpers for
+  ConstraintSolverJob, InteractionCertificationJob and SoftAvoidanceJob moved
+  into sibling `*.Diagnostics.cs` partials so the struct bodies stay free of
+  `#if RTS_CONTACT_DIAGNOSTICS` field-block noise.
 
 ## Remaining runtime evidence, not structural migration
 
@@ -48,3 +60,14 @@ batch script compilation:
   implementation is not ORCA/RVO2 linear programming.
 - Public namespace renaming is excluded to avoid mixing an API migration with the
   physical ownership migration.
+- The certifier's orchestration methods (`BuildTimestepPredictiveSchedule` shell,
+  `ClassifyOrReusePersistentNeighborPairs`, `ClassifyPersistentNeighborPair`,
+  `FullRebuildPersistentNeighborTopology`, `ClassifyAndPatchDirtyIncidentContacts`,
+  `IncrementallyRepairPersistentNeighborTopology`,
+  `TryIncrementallyRepairEscapedContactSet`, `TryReusePersistentContactViews`)
+  stay in the `InteractionCertificationJob` partial. Each coordinates 8-15
+  NativeContainers plus sibling instance methods; moving them into a kernel
+  would require passing that field set as parameters, making the data flow
+  harder to read than the current `this.`-scoped access. The extracted kernels
+  cover the pure-algorithm and lookup surface; these orchestrators are the
+  remaining body by design.
