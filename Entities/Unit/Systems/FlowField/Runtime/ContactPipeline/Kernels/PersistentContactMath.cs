@@ -72,6 +72,51 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
+    /// Recomputes the per-lifecycle current-contact gauges (actual / predictive /
+    /// approaching / dormant) from the predictive-contact scratch and updates
+    /// the active-constraint gauge. The dormant/approaching/predictive/actual
+    /// counts mirror AccumulateClassificationStatistics but reflect the current
+    /// view rather than the cumulative generation counters.
+    /// </summary>
+    internal static void RefreshCurrentContactStateGauges(
+        NativeList<PersistentPredictiveContact> predictiveContactScratch,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        int currentActiveConstraintCount)
+    {
+        incrementalStatistics.CurrentSweptContactCount =
+            predictiveContactScratch.Length;
+        incrementalStatistics.CurrentDormantPairCount = 0;
+        incrementalStatistics.CurrentApproachingPairCount = 0;
+        incrementalStatistics.CurrentPredictivePairCount = 0;
+        incrementalStatistics.CurrentActualPairCount = 0;
+
+        for (int contactIndex = 0;
+             contactIndex < predictiveContactScratch.Length;
+             contactIndex++)
+        {
+            switch (predictiveContactScratch[contactIndex].Lifecycle)
+            {
+                case PersistentContactLifecycle.Dormant:
+                    incrementalStatistics.CurrentDormantPairCount++;
+                    break;
+                case PersistentContactLifecycle.Approaching:
+                    incrementalStatistics.CurrentApproachingPairCount++;
+                    break;
+                case PersistentContactLifecycle.Predictive:
+                    incrementalStatistics.CurrentPredictivePairCount++;
+                    break;
+                case PersistentContactLifecycle.Actual:
+                    incrementalStatistics.CurrentActualPairCount++;
+                    break;
+            }
+        }
+
+        UpdateActiveConstraintGauges(
+            ref incrementalStatistics,
+            currentActiveConstraintCount);
+    }
+
+    /// <summary>
     /// Closest-time-of-approach parameter t∈[0,1] for two swept-disc bodies,
     /// projected onto the xz-plane. Returns 0 when the relative displacement is
     /// negligible (parallel / stationary).

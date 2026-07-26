@@ -975,40 +975,11 @@ public partial struct InteractionCertificationJob
 
     private void RefreshCurrentContactStateGauges(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
-        int currentActiveConstraintCount)
-    {
-        incrementalStatistics.CurrentSweptContactCount =
-            PredictiveContactScratch.Length;
-        incrementalStatistics.CurrentDormantPairCount = 0;
-        incrementalStatistics.CurrentApproachingPairCount = 0;
-        incrementalStatistics.CurrentPredictivePairCount = 0;
-        incrementalStatistics.CurrentActualPairCount = 0;
-
-        for (int contactIndex = 0;
-             contactIndex < PredictiveContactScratch.Length;
-             contactIndex++)
-        {
-            switch (PredictiveContactScratch[contactIndex].Lifecycle)
-            {
-                case PersistentContactLifecycle.Dormant:
-                    incrementalStatistics.CurrentDormantPairCount++;
-                    break;
-                case PersistentContactLifecycle.Approaching:
-                    incrementalStatistics.CurrentApproachingPairCount++;
-                    break;
-                case PersistentContactLifecycle.Predictive:
-                    incrementalStatistics.CurrentPredictivePairCount++;
-                    break;
-                case PersistentContactLifecycle.Actual:
-                    incrementalStatistics.CurrentActualPairCount++;
-                    break;
-            }
-        }
-
-        UpdateActiveConstraintGauges(
+        int currentActiveConstraintCount) =>
+        PersistentContactMath.RefreshCurrentContactStateGauges(
+            PredictiveContactScratch,
             ref incrementalStatistics,
             currentActiveConstraintCount);
-    }
 
     private static void UpdateActiveConstraintGauges(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
