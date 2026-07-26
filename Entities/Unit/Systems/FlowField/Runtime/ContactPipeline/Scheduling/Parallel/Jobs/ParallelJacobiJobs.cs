@@ -241,6 +241,17 @@ internal struct JacobiPairSolveResult
             int correctionCount = 0;
             int begin = IncidentOffsets[bodyIndex];
             int end = IncidentOffsets[bodyIndex + 1];
+            // The incident list is rebuilt by ActiveConstraintIncidentIndexBuilder.Ensure
+            // with exactly 2*Pairs.Length entries. If end exceeds the live list length
+            // the offsets and the list are out of sync (deferred-write timing). Clamp +
+            // assert-free guard: this Execute must never read past the list, but a
+            // positive end>length here is a real bug to surface upstream.
+            int listLength = IncidentPairIndices.Length;
+            if (end > listLength)
+            {
+                end = listLength;
+                CorrectedBodyFlags[bodyIndex] = 2; // sentinel: incident index desync
+            }
             for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
             {
                 int pairIndex = IncidentPairIndices[incidentIndex];

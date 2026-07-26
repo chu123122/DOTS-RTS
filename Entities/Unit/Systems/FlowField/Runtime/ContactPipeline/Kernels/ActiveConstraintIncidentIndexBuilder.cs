@@ -62,6 +62,20 @@ internal static class ActiveConstraintIncidentIndexBuilder
             incidentPairIndices[writeCursors[pair.BodyB]++] = pairIndex;
         }
 
+        // Deterministic invariant: every pair contributes exactly two incident
+        // entries (BodyA + BodyB), so the incident list length must be even and
+        // equal 2 * constraints.Length. A mismatch means a downstream reader
+        // (GatherAndApplyParallelJacobiBodiesJob) will index out of range using
+        // offsets derived from this rebuild. Assert here to catch the divergence
+        // at the source rather than as a Burst IndexOutOfRangeException in the
+        // consumer.
+        if (entries != constraints.Length * 2)
+            throw new System.IndexOutOfRangeException(
+                "Active incident index rebuild produced " + entries +
+                " entries for " + constraints.Length +
+                " constraints; expected exactly " + (constraints.Length * 2) +
+                " (each pair contributes BodyA + BodyB).");
+
         state.Fingerprint = fingerprint;
         state.PairCount = constraints.Length;
         state.BodyCount = bodyCount;
