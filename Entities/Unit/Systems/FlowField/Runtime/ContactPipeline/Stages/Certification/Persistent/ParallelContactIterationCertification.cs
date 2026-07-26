@@ -91,8 +91,6 @@ public partial struct InteractionCertificationJob
                 EnableTimestepContactSetCache,
                 ref statistics,
                 ref incrementalStatistics);
-            ActiveIncidentIndexState.Value = default;
-            EnsureActiveConstraintIncidentIndexP1P6();
 
             if (iterationIndex == math.max(1, IterationCount) - 1)
             {
@@ -100,6 +98,14 @@ public partial struct InteractionCertificationJob
                 runtime.RecoveryRequired = 1;
             }
         }
+
+        // Unconditionally rebuild the incident index against the current
+        // TimestepContactPairs. The repair path above (or an upstream escaped-view
+        // rebuild) can change the pair count; the fingerprint fast-path in Ensure
+        // can otherwise leave a stale index that the next iteration's
+        // GatherAndApply indexes out of range. Match FinalizeP1P6WallIteration.
+        ActiveIncidentIndexState.Value = default;
+        EnsureActiveConstraintIncidentIndexP1P6();
 
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);

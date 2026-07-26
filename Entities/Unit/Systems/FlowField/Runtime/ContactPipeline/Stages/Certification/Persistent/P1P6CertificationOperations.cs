@@ -535,12 +535,21 @@ public partial struct InteractionCertificationJob
                 InvalidateSoftIncidentIndexP1P6();
                 ResetTimestepContactSetForSubstep();
                 RebuildPersistentIncidentPairLookupIfNeededP1P6();
-                ActiveIncidentIndexState.Value = default;
-                EnsureActiveConstraintIncidentIndexP1P6();
             }
 
             ResetCorrectedBodyTracking();
         }
+
+        // Unconditionally rebuild the active-constraint incident index against
+        // the current TimestepContactPairs. GatherAndApplyParallelJacobiBodiesJob
+        // (scheduled right after this) reads pairIndex values stored in the index
+        // and indexes Pairs/Corrections with them; the index MUST match the live
+        // pair count. The repair above (or an upstream escaped-view rebuild) can
+        // shrink TimestepContactPairs, and the fingerprint fast-path inside Ensure
+        // can otherwise leave a stale, larger index in place -> IndexOutOfRange in
+        // Gather. Force the rebuild every iteration so the index is always current.
+        ActiveIncidentIndexState.Value = default;
+        EnsureActiveConstraintIncidentIndexP1P6();
 
         // This serial dependency boundary owns the deferred contact workset
         // lengths. The parallel Jacobi eval/reduce jobs scheduled after it run
