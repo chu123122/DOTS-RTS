@@ -120,18 +120,28 @@ public struct SimulationExperimentMetrics
 public struct SimulationOverviewMetrics
 {
     public SimulationDebuggerHealth Health;
+    public byte TimingAvailable;
+    public byte WorkloadAvailable;
+    public byte StabilityAvailable;
     public int UnitCount;
     public long SolverNanoseconds;
     public long SoftAvoidanceNanoseconds;
     public long PairGenerationNanoseconds;
     public long IterationNanoseconds;
+    public long AverageIterationNanoseconds;
     public int CandidatePairCount;
     public int ContactPairCount;
+    public int CurrentActualPairCount;
+    public int CurrentPredictivePairCount;
+    public int CurrentApproachingPairCount;
+    public int CurrentDormantPairCount;
     public float MaxContactCorrection;
     public float MaxWallCorrection;
     public float MaxVelocityChange;
 
     public float SolverMilliseconds => SolverNanoseconds / 1_000_000f;
+    public int CurrentContactCount =>
+        CurrentActualPairCount + CurrentPredictivePairCount;
 }
 
 [Serializable]

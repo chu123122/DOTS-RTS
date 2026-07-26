@@ -69,8 +69,7 @@ public partial struct SoftAvoidanceJob
 #if RTS_CONTACT_DIAGNOSTICS
         blockStatistics.ResizeUninitialized(
             (SoftAvoidancePairs.Length + CrowdContactPipelineScheduler.SoftPairBatchSize - 1) / CrowdContactPipelineScheduler.SoftPairBatchSize);
-        if (EnableDiagnostics)
-            runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+        runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
 #endif
         runtimeState.Value = runtime;
     }
@@ -82,8 +81,6 @@ public partial struct SoftAvoidanceJob
         NativeArray<int> escapeCountsByBlock,
         int escapeBlockCount)
     {
-        if (!EnableDiagnostics)
-            return;
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;

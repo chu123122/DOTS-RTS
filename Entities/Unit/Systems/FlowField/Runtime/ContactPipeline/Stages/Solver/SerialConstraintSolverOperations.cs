@@ -90,13 +90,11 @@ public partial struct ConstraintSolverJob
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics)
-            statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
-#endif
-#if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics)
-            AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
+        // Iteration timing + constraint counters: no EnableDiagnostics gate so
+        // benchmarks (diagnostics off, oracle off) still capture valid numbers.
+        statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
+        AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
 #endif
         SerialControl.Value = control;
         StoreContactStatistics(statistics);
@@ -132,9 +130,10 @@ public partial struct ConstraintSolverJob
         statistics.AverageSpeedBeforeContact /= math.max(1, SubstepCount);
         statistics.AverageSpeedAfterContact /= math.max(1, SubstepCount);
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics)
-            statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - control.SolverStartTimestamp);
+        // Solver timing: no EnableDiagnostics gate so benchmarks capture valid
+        // total-solve time with the oracle disabled.
+        statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - control.SolverStartTimestamp);
 #endif
         incremental.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;

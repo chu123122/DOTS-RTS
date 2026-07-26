@@ -70,7 +70,8 @@ public abstract partial class BaseFlowMovementSystem
         snapshot.Overview = BuildOverviewMetrics(
             completed.UnitCount,
             true,
-            contactStatistics);
+            contactStatistics,
+            completedPipeline.Statistics);
         snapshot.BroadPhase = BuildRetiredBroadPhaseMetrics(
             contactStatistics.ContactPairCount);
         snapshot.ContactSet = BuildContactSetMetrics(
@@ -330,24 +331,37 @@ public abstract partial class BaseFlowMovementSystem
     private static SimulationOverviewMetrics BuildOverviewMetrics(
         int unitCount,
         bool hasStatistics,
-        PredictiveDiscContactStatistics statistics)
+        PredictiveDiscContactStatistics statistics,
+        IncrementalContactPipelineStatistics incremental)
     {
+        bool telemetryAvailable = false;
+#if RTS_CONTACT_DIAGNOSTICS
+        telemetryAvailable = hasStatistics;
+#endif
         var result = new SimulationOverviewMetrics
         {
             UnitCount = unitCount,
-            Health = unitCount > 0
+            TimingAvailable = (byte)(telemetryAvailable ? 1 : 0),
+            WorkloadAvailable = (byte)(telemetryAvailable ? 1 : 0),
+            StabilityAvailable = (byte)(telemetryAvailable ? 1 : 0),
+            Health = unitCount > 0 && telemetryAvailable
                 ? SimulationDebuggerHealth.Healthy
                 : SimulationDebuggerHealth.Disabled
         };
-        if (!hasStatistics)
+        if (!telemetryAvailable)
             return result;
 
         result.SolverNanoseconds = statistics.SolverNanoseconds;
         result.SoftAvoidanceNanoseconds = statistics.SoftAvoidanceNanoseconds;
         result.PairGenerationNanoseconds = statistics.PairGenerationNanoseconds;
         result.IterationNanoseconds = statistics.IterationNanoseconds;
+        result.AverageIterationNanoseconds = statistics.AverageIterationNanoseconds;
         result.CandidatePairCount = statistics.CandidatePairCount;
         result.ContactPairCount = statistics.ContactPairCount;
+        result.CurrentActualPairCount = incremental.CurrentActualPairCount;
+        result.CurrentPredictivePairCount = incremental.CurrentPredictivePairCount;
+        result.CurrentApproachingPairCount = incremental.CurrentApproachingPairCount;
+        result.CurrentDormantPairCount = incremental.CurrentDormantPairCount;
         result.MaxContactCorrection = statistics.MaxContactPositionCorrection;
         result.MaxWallCorrection = statistics.MaxWallPositionCorrection;
         result.MaxVelocityChange = statistics.MaxVelocityChange;

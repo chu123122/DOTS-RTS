@@ -48,10 +48,10 @@ public struct ParallelContactPipelineLifecycleJob : IJob
         {
             TimestepContactSetFirstEscapeSubstep = -1
         };
+        runtime.SolverStartTimestamp =
+            Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp;
         if (EnableDiagnostics)
         {
-            runtime.SolverStartTimestamp =
-                Unity.Profiling.LowLevel.Unsafe.ProfilerUnsafeUtility.Timestamp;
             if (IterationDiagnostics.IsCreated) IterationDiagnostics.Clear();
             if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
             if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;

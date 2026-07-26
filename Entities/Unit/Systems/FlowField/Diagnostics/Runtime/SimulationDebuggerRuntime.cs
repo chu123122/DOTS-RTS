@@ -470,11 +470,19 @@ public static class SimulationDebuggerRuntime
         lock (Gate)
         {
             WorldState state = GetStateLocked(worldId);
-            state.SolverHistory.PushValue(snapshot.Overview.SolverNanoseconds / 1_000_000f);
-            state.CorrectionHistory.PushValue(snapshot.Overview.MaxContactCorrection);
+            if (snapshot.Overview.TimingAvailable != 0)
+                state.SolverHistory.PushValue(
+                    snapshot.Overview.SolverNanoseconds / 1_000_000f);
+            if (snapshot.Overview.StabilityAvailable != 0)
+                state.CorrectionHistory.PushValue(
+                    snapshot.Overview.MaxContactCorrection);
             state.CacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
-            state.ContactPairHistory.PushValue(snapshot.ContactSet.ContactSetSize);
-            state.ActiveContactHistory.PushValue(snapshot.ContactSet.ActiveContactCount);
+            if (snapshot.Overview.WorkloadAvailable != 0)
+            {
+                state.ContactPairHistory.PushValue(
+                    snapshot.Overview.CurrentContactCount);
+                state.ActiveContactHistory.PushValue(snapshot.ContactSet.ActiveContactCount);
+            }
         }
     }
     public static void Publish(

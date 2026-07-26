@@ -19,28 +19,31 @@ public partial struct SoftAvoidanceJob
     public int EscapeBlockCount;
 #endif
 
+    // No runtime EnableDiagnostics guard: timing/counting stats must accumulate
+    // even with diagnostics off (benchmark needs perf numbers with oracle off).
+    // Release builds stay zero-cost via the outer #if RTS_CONTACT_DIAGNOSTICS.
     private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? IncrementalStatistics.Value : default;
+        IncrementalStatistics.Value;
 #else
         default;
 #endif
     private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) IncrementalStatistics.Value = value;
+        IncrementalStatistics.Value = value;
 #endif
     }
     private PredictiveDiscContactStatistics LoadContactStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? Statistics.Value : default;
+        Statistics.Value;
 #else
         default;
 #endif
     private void StoreContactStatistics(PredictiveDiscContactStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) Statistics.Value = value;
+        Statistics.Value = value;
 #endif
     }
 }

@@ -488,24 +488,31 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawOverview(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawTrendChart(SimulationDebuggerRuntime.GetSolverHistory(), "求解 ms");
-        GUILayout.Space(4f);
-
         SimulationOverviewMetrics metrics = snapshot.Overview;
-        bool diagnosticsEnabled =
-            snapshot.EffectiveSettings.EnableDiagnostics != 0;
+        if (metrics.TimingAvailable != 0)
+        {
+            DrawTrendChart(
+                SimulationDebuggerRuntime.GetSolverHistory(),
+                "接触管线耗时 (ms)");
+            GUILayout.Space(4f);
+        }
+
         DrawStatus("整体仿真", metrics.Health, OverviewStatus(metrics));
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
-        DrawMetric("求解耗时", $"{metrics.SolverMilliseconds:0.000} ms", "整套移动与碰撞每帧成本");
-        DrawMetric("Pair / Contact", Nanoseconds(metrics.PairGenerationNanoseconds), "Fat AABB 应直接降低的阶段");
         DrawMetric(
-            "XPBD Iteration",
-            diagnosticsEnabled ? Nanoseconds(metrics.IterationNanoseconds) : "--",
-            diagnosticsEnabled
-                ? "约束投影成本，不应因缓存直接下降"
-                : "详细诊断已关闭，当前值不可用");
+            "单位数",
+            metrics.UnitCount.ToString("N0"),
+            "当前参与接触仿真的单位");
+        DrawMetric(
+            "接触管线耗时",
+            AvailableNanoseconds(metrics.TimingAvailable, metrics.SolverNanoseconds),
+            "本时间步接触检测与求解总耗时");
+        DrawMetric(
+            "最大接触纠偏",
+            AvailableWorldUnits(metrics.StabilityAvailable, metrics.MaxContactCorrection),
+            "本时间步最严重的位置修正");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
@@ -524,20 +531,44 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (!_showDetails)
             return;
 
-        GUILayout.Label("阶段详情", _sectionStyle);
+        GUILayout.Label("阶段耗时", _sectionStyle);
         DrawTimeBreakdown(metrics);
-        DrawDetailRow("单位数量", metrics.UnitCount.ToString("N0"));
-        DrawDetailRow("Broad 候选", metrics.CandidatePairCount.ToString("N0"));
-        DrawDetailRow("接触缓存", metrics.ContactPairCount.ToString("N0"));
-        DrawDetailRow("最大接触修正", metrics.MaxContactCorrection.ToString("0.000"));
-        DrawDetailRow("最大墙体修正", metrics.MaxWallCorrection.ToString("0.000"));
-        DrawDetailRow("最大速度变化", metrics.MaxVelocityChange.ToString("0.000"));
 
         GUILayout.Space(6f);
-        GUILayout.Label("60 帧趋势", _sectionStyle);
-        DrawTrendRow("求解耗时", SimulationDebuggerRuntime.GetSolverTrend(), "0.0", "ms");
-        DrawTrendRow("最大修正量", SimulationDebuggerRuntime.GetCorrectionTrend(), "0.000");
-        DrawTrendRow("接触对数量", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
+        GUILayout.Label("接触工作量", _sectionStyle);
+        DrawContactWorkload(metrics);
+
+        GUILayout.Space(6f);
+        GUILayout.Label("稳定性", _sectionStyle);
+        DrawDetailRow(
+            "最大接触纠偏",
+            AvailableWorldUnits(metrics.StabilityAvailable, metrics.MaxContactCorrection));
+        DrawDetailRow(
+            "最大墙体纠偏",
+            AvailableWorldUnits(metrics.StabilityAvailable, metrics.MaxWallCorrection));
+        DrawDetailRow(
+            "最大速度变化",
+            AvailableWorldUnitsPerSecond(metrics.StabilityAvailable, metrics.MaxVelocityChange));
+
+        GUILayout.Space(6f);
+        GUILayout.Label("最近 60 次采样", _sectionStyle);
+        if (metrics.TimingAvailable != 0)
+            DrawTrendRow(
+                "接触管线耗时",
+                SimulationDebuggerRuntime.GetSolverTrend(),
+                "0.0",
+                "ms");
+        if (metrics.StabilityAvailable != 0)
+            DrawTrendRow(
+                "最大接触纠偏",
+                SimulationDebuggerRuntime.GetCorrectionTrend(),
+                "0.000",
+                "世界单位");
+        if (metrics.WorkloadAvailable != 0)
+            DrawTrendRow(
+                "当前接触关系",
+                SimulationDebuggerRuntime.GetContactPairTrend(),
+                "0");
     }
 
     private void DrawPersistentBroadPhase(
@@ -1490,15 +1521,49 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawTimeBreakdown(SimulationOverviewMetrics metrics)
     {
+        if (metrics.TimingAvailable == 0)
+        {
+            DrawDetailRow("阶段计时", "--");
+            return;
+        }
+
         long known = metrics.SoftAvoidanceNanoseconds +
                      metrics.PairGenerationNanoseconds +
                      metrics.IterationNanoseconds;
         long other = Math.Max(0, metrics.SolverNanoseconds - known);
+        DrawDetailRow("接触管线总计", Nanoseconds(metrics.SolverNanoseconds));
         DrawDetailRow("软避让", Nanoseconds(metrics.SoftAvoidanceNanoseconds));
-        DrawDetailRow("Pair / Contact 生成", Nanoseconds(metrics.PairGenerationNanoseconds));
-        DrawDetailRow("XPBD Iteration", Nanoseconds(metrics.IterationNanoseconds));
+        DrawDetailRow("接触对生成与分类", Nanoseconds(metrics.PairGenerationNanoseconds));
+        DrawDetailRow("XPBD 投影总计", Nanoseconds(metrics.IterationNanoseconds));
+        DrawDetailRow("XPBD 平均每轮", Nanoseconds(metrics.AverageIterationNanoseconds));
         DrawDetailRow("其他阶段", Nanoseconds(other));
     }
+
+    private void DrawContactWorkload(SimulationOverviewMetrics metrics)
+    {
+        if (metrics.WorkloadAvailable == 0)
+        {
+            DrawDetailRow("接触工作量", "--");
+            return;
+        }
+
+        DrawDetailRow("当前接触关系", metrics.CurrentContactCount.ToString("N0"));
+        DrawDetailRow("当前实际接触", metrics.CurrentActualPairCount.ToString("N0"));
+        DrawDetailRow("当前预测接触", metrics.CurrentPredictivePairCount.ToString("N0"));
+        DrawDetailRow("当前接近关系", metrics.CurrentApproachingPairCount.ToString("N0"));
+        DrawDetailRow("当前休眠邻居", metrics.CurrentDormantPairCount.ToString("N0"));
+        DrawDetailRow("候选 Pair 评估累计", metrics.CandidatePairCount.ToString("N0"));
+        DrawDetailRow("保留接触评估累计", metrics.ContactPairCount.ToString("N0"));
+    }
+
+    private static string AvailableNanoseconds(byte available, long nanoseconds) =>
+        available != 0 ? Nanoseconds(nanoseconds) : "--";
+
+    private static string AvailableWorldUnits(byte available, float value) =>
+        available != 0 ? $"{value:0.000} 世界单位" : "--";
+
+    private static string AvailableWorldUnitsPerSecond(byte available, float value) =>
+        available != 0 ? $"{value:0.000} 世界单位/秒" : "--";
 
     private void DrawStatus(string title, SimulationDebuggerHealth health, string explanation)
     {
@@ -1604,11 +1669,30 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private static string OverviewStatus(SimulationOverviewMetrics metrics)
     {
+        if (metrics.UnitCount <= 0)
+            return "等待参与接触仿真的单位。";
+        if (metrics.TimingAvailable == 0 || metrics.StabilityAvailable == 0)
+            return "单位仿真正在运行；等待接触管线摘要遥测。";
+
         if (metrics.Health == SimulationDebuggerHealth.Critical)
-            return "求解成本或位置修正明显偏高；展开阶段详情定位瓶颈。";
+        {
+            if (metrics.SolverMilliseconds > 4f &&
+                metrics.MaxContactCorrection > 0.25f)
+                return "接触管线耗时和最大纠偏均明显偏高。";
+            return metrics.SolverMilliseconds > 4f
+                ? "接触管线耗时明显偏高；展开阶段耗时定位瓶颈。"
+                : "最大接触纠偏明显偏高；检查穿透和求解稳定性。";
+        }
         if (metrics.Health == SimulationDebuggerHealth.Warning)
-            return "局部拥堵正在增加求解压力。";
-        return "成本和约束修正处于正常范围。";
+        {
+            if (metrics.SolverMilliseconds > 2f &&
+                metrics.MaxContactCorrection > 0.08f)
+                return "接触管线耗时和最大纠偏正在升高。";
+            return metrics.SolverMilliseconds > 2f
+                ? "接触管线耗时正在升高。"
+                : "最大接触纠偏正在升高。";
+        }
+        return "接触管线成本和最大纠偏处于正常范围。";
     }
 
     private static string BroadPhaseStatus(PersistentBroadPhaseMetrics metrics)

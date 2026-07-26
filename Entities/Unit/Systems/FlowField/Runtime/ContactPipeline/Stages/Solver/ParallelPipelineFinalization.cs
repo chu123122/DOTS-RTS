@@ -41,9 +41,10 @@ public partial struct ConstraintSolverJob
             statistics.SoftAvoidanceNanoseconds / substepCount;
         statistics.AverageSpeedBeforeContact /= substepCount;
         statistics.AverageSpeedAfterContact /= substepCount;
-        if (EnableDiagnostics)
-            statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
+        // Solver timing: no EnableDiagnostics gate so benchmarks capture valid
+        // total-solve time with the oracle disabled.
+        statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
+            ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
 
         incrementalStatistics.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;

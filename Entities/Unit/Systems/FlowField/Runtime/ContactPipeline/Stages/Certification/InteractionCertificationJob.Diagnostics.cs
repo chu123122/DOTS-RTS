@@ -28,28 +28,33 @@ public partial struct InteractionCertificationJob
     public NativeArray<ContactHeatSample> HeatSamples;
 #endif
 
+    // Load/Store intentionally have NO runtime EnableDiagnostics guard. Timing
+    // and counting statistics (*Nanoseconds, *Count fields) are cheap and must
+    // always accumulate so benchmarks can disable the O(N^2) oracle (which IS
+    // guarded by EnableDiagnostics) while still capturing valid perf numbers.
+    // The compile-time #if RTS_CONTACT_DIAGNOSTICS keeps release builds zero-cost.
     private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? IncrementalStatistics.Value : default;
+        IncrementalStatistics.Value;
 #else
         default;
 #endif
     private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) IncrementalStatistics.Value = value;
+        IncrementalStatistics.Value = value;
 #endif
     }
     private PredictiveDiscContactStatistics LoadContactStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        EnableDiagnostics ? Statistics.Value : default;
+        Statistics.Value;
 #else
         default;
 #endif
     private void StoreContactStatistics(PredictiveDiscContactStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics) Statistics.Value = value;
+        Statistics.Value = value;
 #endif
     }
 }

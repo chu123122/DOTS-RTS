@@ -37,8 +37,10 @@ public partial struct ConstraintSolverJob
     private void BeginP1P6FinalizeSubstep(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
     {
-        if (!EnableDiagnostics)
-            return;
+        // No EnableDiagnostics gate: this path only accumulates iteration
+        // timing and constraint counters (ActiveConstraintCount etc.), both
+        // cheap. Gating it would starve benchmarks of perf numbers when the
+        // oracle is disabled.
         ParallelJacobiExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
@@ -56,8 +58,8 @@ public partial struct ConstraintSolverJob
         NativeReference<ParallelJacobiExecutionState> runtimeState,
         int blockCount)
     {
-        if (!EnableDiagnostics)
-            return;
+        // No EnableDiagnostics gate: velocity-change stats are cheap and needed
+        // by benchmarks with the oracle disabled.
         if (runtimeState.Value.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();

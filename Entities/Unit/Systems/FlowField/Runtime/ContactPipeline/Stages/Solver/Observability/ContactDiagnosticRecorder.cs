@@ -15,7 +15,10 @@ public partial struct ConstraintSolverJob
         ref PredictiveDiscContactStatistics statistics,
         ref float penetrationSum)
     {
-        if (!EnableDiagnostics) return;
+        // No EnableDiagnostics gate: the counters accumulated here
+        // (ActiveConstraintCount, PredictiveActivatedCount, penetration) are
+        // cheap and must populate even with diagnostics off so benchmarks can
+        // read valid activation/penetration numbers with the oracle disabled.
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             ContactConstraint pair = TimestepContactPairs[i];
