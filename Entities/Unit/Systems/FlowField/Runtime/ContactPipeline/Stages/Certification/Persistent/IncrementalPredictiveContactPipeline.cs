@@ -969,24 +969,25 @@ public partial struct InteractionCertificationJob
         PersistentContactMath.UpdateActiveConstraintGauges(
             ref incrementalStatistics, currentActiveConstraintCount);
 
-    private bool IsPersistentCacheStructurallyReusableP1P6()
-    {
-        IncrementalContactCacheState state = IncrementalCacheState.Value;
-        return state.IsValid != 0 &&
-               state.BodyCount == Bodies.Length &&
-               PersistentSweptProxies.Length == Bodies.Length &&
-               PersistentProxyIndexByBody.Length == Bodies.Length &&
-               state.GuardMargin == math.max(0f, GuardEnvelopeMargin) &&
-               state.PredictiveSkin == math.max(0f, PredictiveSkin) &&
-               state.TimestepContactMargin == math.max(0f, TimestepContactMargin) &&
-               state.SoftAvoidanceShell == math.max(0f, SoftAvoidanceShell) &&
-               state.SoftAvoidanceResponseRate == math.max(0f, SoftAvoidanceResponseRate) &&
-               state.RvoTimeHorizon == math.max(0f, RvoTimeHorizon) &&
-               state.SubstepCount == math.max(1, SubstepCount) &&
-               state.PredictivePairGenerationEnabled == (byte)(EnablePredictivePairGeneration ? 1 : 0) &&
-               state.PredictiveContactsEnabled == (byte)(EnablePredictiveContacts ? 1 : 0) &&
-               state.SoftAvoidanceVelocitySolver == (byte)SoftAvoidanceVelocitySolver;
-    }
+    private bool IsPersistentCacheStructurallyReusableP1P6() =>
+        PersistentCacheReusability.IsStructurallyReusable(
+            IncrementalCacheState.Value,
+            Bodies.Length,
+            PersistentSweptProxies.Length,
+            PersistentProxyIndexByBody.Length,
+            new PersistentCacheReusability.ConfigurationFingerprint
+            {
+                GuardMargin = GuardEnvelopeMargin,
+                PredictiveSkin = PredictiveSkin,
+                TimestepContactMargin = TimestepContactMargin,
+                SoftAvoidanceShell = SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = SoftAvoidanceResponseRate,
+                RvoTimeHorizon = RvoTimeHorizon,
+                SubstepCount = SubstepCount,
+                PredictivePairGenerationEnabled = EnablePredictivePairGeneration,
+                PredictiveContactsEnabled = EnablePredictiveContacts,
+                SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver
+            });
 
     private static PersistentSweptProxy BuildPersistentProxyFromStateP1P6(
         int bodyIndex,
