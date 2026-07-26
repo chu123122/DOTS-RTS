@@ -1622,38 +1622,23 @@ public partial struct InteractionCertificationJob
         CrowdMotionEvidence stateEvidence,
         CrowdBodyStepState stateStep,
         out float2 tightMin,
-        out float2 tightMax)
-    {
-        float contactPadding = math.max(0f, PredictiveSkin) +
-                               math.max(0f, TimestepContactMargin) * 2f;
-        float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
-        float extent = math.max(0f, stateSnapshot.Radius) +
-                       math.max(contactPadding, avoidancePadding);
-        CalculateNeighborPathBounds(stateEvidence, stateStep, out float2 pathMin, out float2 pathMax);
-        tightMin = pathMin - extent;
-        tightMax = pathMax + extent;
-    }
+        out float2 tightMax) =>
+        PersistentContactMath.CalculateIncrementalTightSweptBounds(
+            stateSnapshot, stateEvidence, stateStep,
+            PredictiveSkin, TimestepContactMargin, SoftAvoidanceShell,
+            RvoTimeHorizon, SoftAvoidanceVelocitySolver,
+            out tightMin, out tightMax);
 
     private void CalculateIncrementalValidationBounds(
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
         CrowdBodyStepState stateStep,
         out float2 validationMin,
-        out float2 validationMax)
-    {
-        // The stored interaction envelope already includes the retained-contact
-        // budget. Validation only needs the current contact/avoidance footprint;
-        // using the retained padding again would make every unchanged proxy look
-        // escaped at the envelope boundary.
-        float contactPadding = math.max(0f, PredictiveSkin) +
-                               math.max(0f, TimestepContactMargin);
-        float avoidancePadding = math.max(0f, SoftAvoidanceShell) * 0.5f;
-        float extent = math.max(0f, stateSnapshot.Radius) +
-                       math.max(contactPadding, avoidancePadding);
-        CalculateNeighborPathBounds(stateEvidence, stateStep, out float2 pathMin, out float2 pathMax);
-        validationMin = pathMin - extent;
-        validationMax = pathMax + extent;
-    }
+        out float2 validationMax) =>
+        PersistentContactMath.CalculateIncrementalValidationBounds(
+            stateSnapshot, stateEvidence, stateStep,
+            PredictiveSkin, TimestepContactMargin, SoftAvoidanceShell,
+            out validationMin, out validationMax);
 
     private float2 CalculateAvoidanceHorizonEnd(
         CrowdMotionEvidence stateEvidence,

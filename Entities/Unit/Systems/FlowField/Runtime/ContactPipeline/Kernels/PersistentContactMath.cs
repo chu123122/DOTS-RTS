@@ -180,5 +180,96 @@ internal static class PersistentContactMath
         }
         pairs.ResizeUninitialized(writeIndex);
     }
+
+    /// <summary>
+    /// Tight swept bounds for a body's incremental proxy: the path AABB
+    /// (trajectory start/end plus solved/unconstrained positions) inflated by
+    /// the contact skin, double timestep margin, and half the soft-avoidance
+    /// shell — whichever is larger.
+    /// </summary>
+    internal static void CalculateIncrementalTightSweptBounds(
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
+        float predictiveSkin,
+        float timestepContactMargin,
+        float softAvoidanceShell,
+        float rvoTimeHorizon,
+        SoftAvoidanceVelocitySolverMode softSolverMode,
+        out float2 tightMin,
+        out float2 tightMax)
+    {
+        float contactPadding = math.max(0f, predictiveSkin) +
+                               math.max(0f, timestepContactMargin) * 2f;
+        float avoidancePadding = math.max(0f, softAvoidanceShell) * 0.5f;
+        float extent = math.max(0f, stateSnapshot.Radius) +
+                       math.max(contactPadding, avoidancePadding);
+        CalculateNeighborPathBounds(
+            stateEvidence, stateStep, softSolverMode, softAvoidanceShell, rvoTimeHorizon,
+            out float2 pathMin, out float2 pathMax);
+        tightMin = pathMin - extent;
+        tightMax = pathMax + extent;
+    }
+
+    /// <summary>
+    /// Validation bounds for a body's incremental proxy: the path AABB inflated
+    /// by the current contact/avoidance footprint only. The stored interaction
+    /// envelope already carries the retained-contact budget, so validation must
+    /// not re-apply it or every unchanged proxy would look escaped.
+    /// </summary>
+    internal static void CalculateIncrementalValidationBounds(
+        CrowdBodySnapshot stateSnapshot,
+        CrowdMotionEvidence stateEvidence,
+        CrowdBodyStepState stateStep,
+        float predictiveSkin,
+        float timestepContactMargin,
+        float softAvoidanceShell,
+        out float2 validationMin,
+        out float2 validationMax)
+    {
+        float contactPadding = math.max(0f, predictiveSkin) +
+                               math.max(0f, timestepContactMargin);
+        float avoidancePadding = math.max(0f, softAvoidanceShell) * 0.5f;
+        float extent = math.max(0f, stateSnapshot.Radius) +
+                       math.max(contactPadding, avoidancePadding);
+        // Validation bounds intentionally do not extend the RVO horizon: the
+        // interaction envelope is fixed at build time. Pass a non-RVO mode so
+        // CalculateNeighborPathBounds skips the horizon projection.
+        CalculateNeighborPathBounds(
+            stateEvidence, stateStep, SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer, 0f, 0f,
+            out float2 pathMin, out float2 pathMax);
+        validationMin = pathMin - extent;
+        validationMax = pathMax + extent;
+    }
+
+    private static void CalculateNeighborPathBounds(
+        CrowdMotionEvidence evidence,
+        CrowdBodyStepState step,
+        SoftAvoidanceVelocitySolverMode softSolverMode,
+        float softAvoidanceShell,
+        float rvoTimeHorizon,
+        out float2 pathMin,
+        out float2 pathMax)
+    {
+        pathMin = math.min(
+            evidence.TrajectoryStart.xz,
+            math.min(
+                evidence.BaselineEnd.xz,
+                math.min(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
+        pathMax = math.max(
+            evidence.TrajectoryStart.xz,
+            math.max(
+                evidence.BaselineEnd.xz,
+                math.max(step.UnconstrainedPosition.xz, step.SolvedPosition.xz)));
+        if (softSolverMode !=
+                SoftAvoidanceVelocitySolverMode.ReciprocalVelocityObstacle ||
+            softAvoidanceShell <= 0f)
+            return;
+
+        float2 horizonEnd = step.SolvedPosition.xz +
+                            step.BaseVelocity.xz * math.max(0f, rvoTimeHorizon);
+        pathMin = math.min(pathMin, horizonEnd);
+        pathMax = math.max(pathMax, horizonEnd);
+    }
 }
 }
