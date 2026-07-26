@@ -294,27 +294,33 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         }.ScheduleParallel(_movementQuery, resultHandle);
 
         // DIAG (incident index desync probe): GatherAndApplyParallelJacobiBodiesJob
-        // stamps CorrectedBodyFlags==2 when offsets/indices/pairs run out of sync.
-        // Complete the solver jobs and count those sentinels here, on the main
-        // thread, so the desync surfaces as a Debug.LogError instead of a silent
-        // Burst abort. Remove once the root cause (deferred incident-index timing)
-        // is fixed.
+        // stamps CorrectedBodyFlags when offsets/indices/pairs run out of sync.
+        // 2 = offsets end > IncidentPairIndices.Length (offsets built for more pairs)
+        // 3 = stored pairIndex >= Pairs.Length (index built against larger pair view)
+        // 4 = stored pairIndex >= Corrections.Length (corrections view too short)
+        // Complete the solver jobs and tally per-mode here so the desync surfaces
+        // as a Debug.LogError instead of a silent Burst abort. Remove once the root
+        // cause (deferred incident-index timing) is fixed.
         if (useParallelJacobi)
         {
             solveHandle.Complete();
-            int desyncCount = 0;
+            int flag2 = 0, flag3 = 0, flag4 = 0;
             NativeArray<byte> flags = solverResources.CorrectedBodyFlags;
             for (int i = 0; i < flags.Length; i++)
-                if (flags[i] == 2)
-                    desyncCount++;
+            {
+                byte f = flags[i];
+                if (f == 2) flag2++;
+                else if (f == 3) flag3++;
+                else if (f == 4) flag4++;
+            }
+            int desyncCount = flag2 + flag3 + flag4;
             if (desyncCount > 0)
                 Debug.LogError(
                     "[IncidentIndexDesync] " + desyncCount + "/" + flags.Length +
-                    " bodies had out-of-range incident lookups this frame " +
-                    "(CorrectedBodyFlags==2). Root cause: GatherAndApply reads " +
-                    "IncidentPairIndices/Offsets/Pairs as schedule-time snapshots " +
-                    "while a prior job resizes them; fix = deferred (IJobParallelForDefer) " +
-                    "or force re-Ensure before GatherAndApply.");
+                    " bodies out-of-range: offsetsEnd>list=" + flag2 +
+                    " pairIndex>=Pairs=" + flag3 +
+                    " pairIndex>=Corrections=" + flag4 +
+                    ". fix = deferred (IJobParallelForDefer) or force re-Ensure before GatherAndApply.");
         }
 
         JobHandle runtimeDispose = body.Dispose(applyHandle);

@@ -241,31 +241,36 @@ internal struct JacobiPairSolveResult
             int correctionCount = 0;
             int begin = IncidentOffsets[bodyIndex];
             int end = IncidentOffsets[bodyIndex + 1];
-            // The incident list is rebuilt by ActiveConstraintIncidentIndexBuilder.Ensure
-            // with exactly 2*Pairs.Length entries. If end exceeds the live list length
-            // the offsets and the list are out of sync (deferred-write timing). Clamp +
-            // assert-free guard: this Execute must never read past the list, but a
-            // positive end>length here is a real bug to surface upstream.
+            // Diagnose incident-index desync by failure mode:
+            //   flag==2 -> offsets end exceeds IncidentPairIndices.Length
+            //              (offsets built for more pairs than the list holds)
+            //   flag==3 -> stored pairIndex >= Pairs.Length
+            //              (index built against a larger pair view than Gather sees)
+            //   flag==4 -> stored pairIndex >= Corrections.Length
+            //              (corrections view shorter than the index assumes)
+            // A non-zero flag also means this body's contact correction was
+            // partial/skipped this frame.
             int listLength = IncidentPairIndices.Length;
             if (end > listLength)
             {
                 end = listLength;
-                CorrectedBodyFlags[bodyIndex] = 2; // sentinel: incident index desync
+                CorrectedBodyFlags[bodyIndex] = 2;
             }
             int pairCount = Pairs.Length;
             int correctionCountLimit = Corrections.Length;
             for (int incidentIndex = begin; incidentIndex < end; incidentIndex++)
             {
                 int pairIndex = IncidentPairIndices[incidentIndex];
-                // The pairIndex stored in the incident list was written by Ensure
-                // against the TimestepContactPairs length at Ensure time. If the
-                // pair/correction views are shorter here (deferred-write timing),
-                // pairIndex can exceed their length. Skip + sentinel rather than
-                // Burst-abort so the desync is observable without halting the frame.
-                if ((uint)pairIndex >= (uint)pairCount ||
-                    (uint)pairIndex >= (uint)correctionCountLimit)
+                if ((uint)pairIndex >= (uint)pairCount)
                 {
-                    CorrectedBodyFlags[bodyIndex] = 2;
+                    if (CorrectedBodyFlags[bodyIndex] == 0)
+                        CorrectedBodyFlags[bodyIndex] = 3;
+                    continue;
+                }
+                if ((uint)pairIndex >= (uint)correctionCountLimit)
+                {
+                    if (CorrectedBodyFlags[bodyIndex] == 0)
+                        CorrectedBodyFlags[bodyIndex] = 4;
                     continue;
                 }
                 ContactConstraint pair = Pairs[pairIndex];
