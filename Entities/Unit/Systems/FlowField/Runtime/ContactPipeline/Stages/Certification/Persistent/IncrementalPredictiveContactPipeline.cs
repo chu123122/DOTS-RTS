@@ -1122,50 +1122,21 @@ public partial struct InteractionCertificationJob
                 PersistentProxyIndexByBody[bodyIndex] = proxyIndex;
         }
     }
-    private void ClearIncrementalDirtyBodySet()
-    {
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
-        {
-            int bodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            if ((uint)bodyIndex < (uint)IncrementalDirtyFlagsByBody.Length)
-                IncrementalDirtyFlagsByBody[bodyIndex] = 0;
-        }
-        IncrementalDirtyBodies.Clear();
-    }
+    private void ClearIncrementalDirtyBodySet() =>
+        IncrementalDirtyBodyStore.Clear(IncrementalDirtyFlagsByBody, IncrementalDirtyBodies);
 
     private void SetIncrementalDirtyFlags(
         int bodyIndex,
-        IncrementalBodyDirtyFlags flags)
-    {
-        if ((uint)bodyIndex >= (uint)IncrementalDirtyFlagsByBody.Length)
-            return;
-        IncrementalBodyDirtyFlags previous =
-            (IncrementalBodyDirtyFlags)IncrementalDirtyFlagsByBody[bodyIndex];
-        IncrementalBodyDirtyFlags merged = previous | flags;
-        IncrementalDirtyFlagsByBody[bodyIndex] = (byte)merged;
-        if (previous == IncrementalBodyDirtyFlags.None)
-        {
-            IncrementalDirtyBodies.Add(new IncrementalDirtyBody
-            {
-                BodyIndex = bodyIndex,
-                Flags = merged
-            });
-        }
-    }
+        IncrementalBodyDirtyFlags flags) =>
+        IncrementalDirtyBodyStore.SetFlags(
+            bodyIndex, flags, IncrementalDirtyFlagsByBody, IncrementalDirtyBodies);
 
-    private IncrementalBodyDirtyFlags GetDirtyFlags(int bodyIndex)
-    {
-        return (uint)bodyIndex < (uint)IncrementalDirtyFlagsByBody.Length
-            ? (IncrementalBodyDirtyFlags)IncrementalDirtyFlagsByBody[bodyIndex]
-            : IncrementalBodyDirtyFlags.EntitySet;
-    }
+    private IncrementalBodyDirtyFlags GetDirtyFlags(int bodyIndex) =>
+        IncrementalDirtyBodyStore.GetFlags(IncrementalDirtyFlagsByBody, bodyIndex);
 
-    private bool IsTopologyDirtyEntity(Entity entity)
-    {
-        if (!TryFindCurrentBodyIndex(entity, out int bodyIndex))
-            return true;
-        return (GetDirtyFlags(bodyIndex) & IncrementalBodyDirtyFlags.Topology) != 0;
-    }
+    private bool IsTopologyDirtyEntity(Entity entity) =>
+        IncrementalDirtyBodyStore.IsTopologyDirtyEntity(
+            entity, CurrentBodyIndexByEntity, IncrementalDirtyFlagsByBody);
 
     private int FindPersistentProxyIndex(Entity entity) =>
         PersistentStoreLookup.FindProxyIndex(PersistentSweptProxies, entity);
@@ -1621,17 +1592,12 @@ public partial struct InteractionCertificationJob
         PredictiveContactScheduleCursor.Value = 0;
     }
 
-    private bool IsDirtyBodyIndex(int bodyIndex)
-    {
-        return GetDirtyFlags(bodyIndex) != IncrementalBodyDirtyFlags.None;
-    }
+    private bool IsDirtyBodyIndex(int bodyIndex) =>
+        IncrementalDirtyBodyStore.IsDirtyBodyIndex(IncrementalDirtyFlagsByBody, bodyIndex);
 
-    private bool IsDirtyEntity(Entity entity)
-    {
-        if (!TryFindCurrentBodyIndex(entity, out int bodyIndex))
-            return true;
-        return IsDirtyBodyIndex(bodyIndex);
-    }
+    private bool IsDirtyEntity(Entity entity) =>
+        IncrementalDirtyBodyStore.IsDirtyEntity(
+            entity, CurrentBodyIndexByEntity, IncrementalDirtyFlagsByBody);
 
     private void BuildCurrentIncrementalSweptProxies()
     {
