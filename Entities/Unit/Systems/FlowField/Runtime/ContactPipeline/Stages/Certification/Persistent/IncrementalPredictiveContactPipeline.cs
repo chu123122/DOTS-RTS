@@ -576,130 +576,22 @@ public partial struct InteractionCertificationJob
         int scheduleStartSubstep)
     {
         PrepareCurrentBodyLookup();
-        PredictiveContactScratch.Clear();
-        PredictiveContactSchedule.Clear();
-        uint timestep = IncrementalCacheState.Value.Timestep;
-        int totalSubstepCount = EnableTimestepContactSetCache
-            ? math.max(1, SubstepCount)
-            : 1;
-        scheduleStartSubstep = math.clamp(
+        PredictiveContactScheduler.BuildTimestepSchedule(
+            Pairs,
+            Bodies,
+            MotionEvidence,
+            PersistentSweptProxies,
+            PredictiveContactScratch,
+            PersistentPredictiveContacts,
+            PredictiveContactSchedule,
+            PredictiveContactScheduleCursor,
+            IncrementalCacheState.Value.Timestep,
+            SubstepCount,
             scheduleStartSubstep,
-            0,
-            totalSubstepCount - 1);
-        int remainingSubstepCount = totalSubstepCount - scheduleStartSubstep;
-
-        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = Pairs[pairIndex];
-            CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
-            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
-            CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
-            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
-            StableEntityPairKey key = StableEntityPairKey.Create(bodyASnapshot.Entity, bodyBSnapshot.Entity);
-
-            PersistentContactLifecycle lifecycle;
-            float3 currentDelta = bodyAEvidence.TrajectoryStart - bodyBEvidence.TrajectoryStart;
-            currentDelta.y = 0f;
-            float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
-            if (math.lengthsq(currentDelta) <= radiusSum * radiusSum)
-                lifecycle = PersistentContactLifecycle.Actual;
-            else if (pair.IsDormant != 0)
-                lifecycle = PersistentContactLifecycle.Dormant;
-            else if (pair.ContactMode == ContactConstraintMode.Predictive)
-                lifecycle = PersistentContactLifecycle.Predictive;
-            else
-                lifecycle = PersistentContactLifecycle.Approaching;
-
-            // 调度与稳定法线属于中层 InteractionSet 的派生结果。
-            // 不读取上一帧接触状态，保证 A0B1 与 A1B1 只有来源成本不同。
-            float3 stableNormal = pair.PredictiveNormal;
-            sbyte fixedSide = pair.ContactMode == ContactConstraintMode.Predictive
-                ? (sbyte)1
-                : (sbyte)0;
-
-            PersistentSweptProxy proxyA = default;
-            PersistentSweptProxy proxyB = default;
-            if (EnablePersistentContactCache)
-            {
-                TryFindPersistentProxy(bodyASnapshot.Entity, out proxyA);
-                TryFindPersistentProxy(bodyBSnapshot.Entity, out proxyB);
-            }
-
-            ushort firstPossibleSubstep = 0;
-            if (lifecycle == PersistentContactLifecycle.Dormant)
-            {
-                if (!HasRelativeTimestepTrajectory(bodyAEvidence, bodyBEvidence))
-                {
-                    firstPossibleSubstep = ushort.MaxValue;
-                }
-                else
-                {
-                    float closestTime = CalculatePairClosestTime(bodyAEvidence, bodyBEvidence);
-                    int closestSubstepOffset = math.clamp(
-                        (int)math.floor(closestTime * remainingSubstepCount),
-                        0,
-                        remainingSubstepCount - 1);
-                    // Wake one substep early. The retained contact margin is the safety
-                    // budget for solver/RVO deviations; any larger deviation triggers
-                    // the envelope-escape repair path.
-                    firstPossibleSubstep = (ushort)(scheduleStartSubstep +
-                        math.max(0, closestSubstepOffset - 1));
-                }
-            }
-
-            PersistentPredictiveContact contact = new PersistentPredictiveContact
-            {
-                Key = key,
-                StableNormal = stableNormal,
-                Lifecycle = lifecycle,
-                FixedSide = fixedSide,
-                FirstPossibleSubstep = firstPossibleSubstep,
-                NextCheckSubstep = firstPossibleSubstep,
-                LastSeenTimestep = timestep,
-                MotionVersionA = proxyA.MotionVersion,
-                MotionVersionB = proxyB.MotionVersion
-            };
-            PredictiveContactScratch.Add(contact);
-
-            if (lifecycle == PersistentContactLifecycle.Dormant)
-            {
-                PredictiveContactSchedule.Add(new PredictiveContactScheduleEntry
-                {
-                    Key = key,
-                    Substep = firstPossibleSubstep
-                });
-            }
-        }
-
-        if (PredictiveContactScratch.Length > 1)
-            PredictiveContactScratch.AsArray().Sort(new PersistentPredictiveContactComparer());
-        if (PredictiveContactSchedule.Length > 1)
-            PredictiveContactSchedule.AsArray().Sort(new PredictiveContactScheduleEntryComparer());
-        PredictiveContactScheduleCursor.Value = 0;
-        PersistentPredictiveContacts.Clear();
-        if (EnablePersistentContactCache)
-            PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
-
-        // Dormant contacts live in B's timestep schedule, not in the active
-        // XPBD view, so A0/A1 share the same constraint-utilization semantics.
-        int activeWriteIndex = 0;
-        for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
-        {
-            ContactConstraint pair = Pairs[pairIndex];
-            if (pair.IsDormant != 0)
-                continue;
-            Pairs[activeWriteIndex++] = pair;
-        }
-        Pairs.ResizeUninitialized(activeWriteIndex);
-        RefreshCurrentContactStateGauges(
-            ref incrementalStatistics,
-            activeWriteIndex);
+            EnableTimestepContactSetCache,
+            EnablePersistentContactCache,
+            EnablePredictiveContacts,
+            ref incrementalStatistics);
     }
 
     private static float CalculatePairClosestTime(
@@ -1333,48 +1225,21 @@ public partial struct InteractionCertificationJob
     }
     private bool MapDirtyIncidentNeighborPairsToCurrentBodies()
     {
-        Pairs.Clear();
 #if RTS_CONTACT_DIAGNOSTICS
         if (EnableDiagnostics)
             PairDiagnostics.Clear();
 #endif
 
         RebuildPersistentIncidentPairLookupIfNeededP1P6();
-        if (!PersistentIncidentPairLookup.IsCreated ||
-            !PersistentIncidentLookupEpoch.IsCreated ||
-            PersistentIncidentLookupEpoch.Value !=
-                IncrementalCacheState.Value.TopologyEpoch)
-            return false;
-
-        for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
-        {
-            int dirtyBodyIndex = IncrementalDirtyBodies[dirtyIndex].BodyIndex;
-            Entity entity = Bodies[dirtyBodyIndex].Entity;
-            NativeParallelMultiHashMapIterator<Entity> iterator;
-            if (!PersistentIncidentPairLookup.TryGetFirstValue(
-                    entity, out int persistentPairIndex, out iterator))
-                continue;
-            do
-            {
-                if ((uint)persistentPairIndex >= (uint)PersistentNeighborPairs.Length)
-                    return false;
-                StableEntityPairKey key =
-                    PersistentNeighborPairs[persistentPairIndex].Key;
-                if (!TryFindCurrentBodyIndex(key.EntityA, out int bodyA) ||
-                    !TryFindCurrentBodyIndex(key.EntityB, out int bodyB))
-                    return false;
-                Pairs.Add(new ContactConstraint
-                {
-                    BodyA = math.min(bodyA, bodyB),
-                    BodyB = math.max(bodyA, bodyB)
-                });
-            }
-            while (PersistentIncidentPairLookup.TryGetNextValue(
-                out persistentPairIndex, ref iterator));
-        }
-
-        ContactPipelineShared.SortAndDeduplicateConstraints(Pairs);
-        return true;
+        return DirtyIncidentPairMapper.TryMap(
+            Pairs,
+            IncrementalDirtyBodies,
+            Bodies,
+            CurrentBodyIndexByEntity,
+            PersistentIncidentPairLookup,
+            PersistentIncidentLookupEpoch,
+            PersistentNeighborPairs,
+            IncrementalCacheState.Value);
     }
 
     private void ClassifyAndPatchDirtyIncidentContacts(
