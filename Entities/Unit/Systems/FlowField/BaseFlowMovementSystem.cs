@@ -315,12 +315,21 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             }
             int desyncCount = flag2 + flag3 + flag4;
             if (desyncCount > 0)
+            {
+                ActiveIncidentIndexState incidentState = solverResources.ActiveIncidentIndexState.Value;
                 Debug.LogError(
                     "[IncidentIndexDesync] " + desyncCount + "/" + flags.Length +
                     " bodies out-of-range: offsetsEnd>list=" + flag2 +
                     " pairIndex>=Pairs=" + flag3 +
                     " pairIndex>=Corrections=" + flag4 +
-                    ". fix = deferred (IJobParallelForDefer) or force re-Ensure before GatherAndApply.");
+                    " | Ensure.PairCount=" + incidentState.PairCount +
+                    " Ensure.BodyCount=" + incidentState.BodyCount +
+                    " Ensure.IsValid=" + incidentState.IsValid +
+                    " | TimestepContactPairs.Length=" + certificationResources.TimestepContactPairs.Length +
+                    " JacobiPairCorrections.Length=" + solverResources.JacobiPairCorrections.Length +
+                    " ActiveIncidentPairIndices.Length=" + solverResources.ActiveIncidentPairIndices.Length +
+                    " Bodies.Length=" + unitCount);
+            }
         }
 
         JobHandle runtimeDispose = body.Dispose(applyHandle);
