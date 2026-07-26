@@ -864,26 +864,8 @@ public partial struct InteractionCertificationJob
         InvalidatePersistentContactViews();
     }
 
-    private int FindPersistentPredictiveContactIndex(StableEntityPairKey key)
-    {
-        int low = 0;
-        int high = PersistentPredictiveContacts.Length - 1;
-        var comparer = new StableEntityPairKeyComparer();
-        while (low <= high)
-        {
-            int middle = (low + high) >> 1;
-            int comparison = comparer.Compare(
-                PersistentPredictiveContacts[middle].Key,
-                key);
-            if (comparison == 0)
-                return middle;
-            if (comparison < 0)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
-        return -1;
-    }
+    private int FindPersistentPredictiveContactIndex(StableEntityPairKey key) =>
+        PersistentStoreLookup.FindPredictiveContactIndex(PersistentPredictiveContacts, key);
 
     private void InvalidatePersistentContactViews()
     {
@@ -1185,25 +1167,8 @@ public partial struct InteractionCertificationJob
         return (GetDirtyFlags(bodyIndex) & IncrementalBodyDirtyFlags.Topology) != 0;
     }
 
-    private int FindPersistentProxyIndex(Entity entity)
-    {
-        int low = 0;
-        int high = PersistentSweptProxies.Length - 1;
-        while (low <= high)
-        {
-            int middle = (low + high) >> 1;
-            int comparison = StableEntityPairKey.CompareEntity(
-                PersistentSweptProxies[middle].Entity,
-                entity);
-            if (comparison == 0)
-                return middle;
-            if (comparison < 0)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
-        return -1;
-    }
+    private int FindPersistentProxyIndex(Entity entity) =>
+        PersistentStoreLookup.FindProxyIndex(PersistentSweptProxies, entity);
 
     private void IncrementallyRepairPersistentNeighborTopology(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
@@ -1904,53 +1869,11 @@ public partial struct InteractionCertificationJob
         return true;
     }
 
-    private bool TryFindPersistentProxy(Entity entity, out PersistentSweptProxy proxy)
-    {
-        int low = 0;
-        int high = PersistentSweptProxies.Length - 1;
-        while (low <= high)
-        {
-            int middle = (low + high) >> 1;
-            PersistentSweptProxy candidate = PersistentSweptProxies[middle];
-            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
-            if (comparison == 0)
-            {
-                proxy = candidate;
-                return true;
-            }
-            if (comparison < 0)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
+    private bool TryFindPersistentProxy(Entity entity, out PersistentSweptProxy proxy) =>
+        PersistentStoreLookup.TryFindPersistentProxy(PersistentSweptProxies, entity, out proxy);
 
-        proxy = default;
-        return false;
-    }
-
-    private bool TryFindIncrementalProxy(Entity entity, out PersistentSweptProxy proxy)
-    {
-        int low = 0;
-        int high = CurrentIncrementalProxies.Length - 1;
-        while (low <= high)
-        {
-            int middle = (low + high) >> 1;
-            PersistentSweptProxy candidate = CurrentIncrementalProxies[middle];
-            int comparison = StableEntityPairKey.CompareEntity(candidate.Entity, entity);
-            if (comparison == 0)
-            {
-                proxy = candidate;
-                return true;
-            }
-            if (comparison < 0)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
-
-        proxy = default;
-        return false;
-    }
+    private bool TryFindIncrementalProxy(Entity entity, out PersistentSweptProxy proxy) =>
+        PersistentStoreLookup.TryFindIncrementalProxy(CurrentIncrementalProxies, entity, out proxy);
 
     private void SortAndDeduplicatePersistentNeighborPairs()
     {
