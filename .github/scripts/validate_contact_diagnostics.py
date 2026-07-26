@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 FLOW = Path("Entities/Unit/Systems/FlowField")
 PIPE = FLOW / "Runtime/ContactPipeline"
@@ -81,6 +82,31 @@ diagnostics_entity_creation = lifecycle.split(
         ");", 1)[0]
 if "ContactDiagnosticSelection" in diagnostics_entity_creation:
     fail("Per-system publication entity still owns the World selection control")
+
+movement = read(FLOW / "BaseFlowMovementSystem.cs")
+if re.search(
+        r"if\s*\(\s*contactSolverSettings\.EnableDiagnostics\s*\)\s*"
+        r"\{\s*ApplySimulationDebuggerRuntimeOverrides",
+        movement):
+    fail("Runtime diagnostics override is gated by the value it must enable")
+
+parallel_scheduler = read(
+    PIPE / "Scheduling/Parallel/ParallelContactPipelineScheduler.cs")
+if "JacobiPairCorrections.ResizeUninitialized" in parallel_scheduler:
+    fail("Scheduler resizes a deferred Jacobi workset outside its dependency job")
+
+p1p6_certification = read(
+    PIPE / "Stages/Certification/Persistent/P1P6CertificationOperations.cs")
+contact_workset = re.compile(
+    r"JacobiPairCorrections\.ResizeUninitialized\(\s*"
+    r"TimestepContactPairs\.Length\s*\).*?"
+    r"blockStatistics\.ResizeUninitialized\(\s*"
+    r"\(\s*TimestepContactPairs\.Length\s*\+\s*"
+    r"CrowdContactPipelineScheduler\.JacobiPairBatchSize\s*-\s*1\s*\)\s*/\s*"
+    r"CrowdContactPipelineScheduler\.JacobiPairBatchSize\s*\)",
+    re.DOTALL)
+if not contact_workset.search(p1p6_certification):
+    fail("Contact Jacobi workset is not sized from the committed contact view")
 
 for path in (FLOW / "Diagnostics/Presentation", FLOW / "Diagnostics/Recording",
              FLOW / "Diagnostics/Experiments"):

@@ -56,6 +56,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
     [Min(1)] public int contactIterations = 4;
     [Tooltip("XPBD 柔度参数；0 = 硬约束，越大越软。")]
     [Min(0f)] public float contactCompliance;
+    [Tooltip("接触位置求解器：Gauss-Seidel = 串行逐对修正收敛快；Jacobi = 并行批量修正吞吐高。")]
+    public ContactPositionSolverMode contactPositionSolver = ContactPositionSolverMode.GaussSeidel;
     [Tooltip("预测碰撞检测时在圆盘半径外的膨胀厚度。")]
     [Min(0f)] public float predictiveContactSkin = 0.05f;
     [Tooltip("关闭时只生成子步起点已实际接触的 Pair，不沿 swept path 提前发现潜在碰撞。")]
@@ -120,7 +122,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 SubstepCount = math.max(1, authoring.contactSubsteps),
                 IterationCount = math.max(1, authoring.contactIterations),
-                ContactPositionSolver = ContactPositionSolverMode.GaussSeidel,
+                ContactPositionSolver = authoring.contactPositionSolver,
                 Compliance = math.max(0f, authoring.contactCompliance),
                 PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
                 EnablePredictivePairGeneration = authoring.enablePredictivePairGeneration,

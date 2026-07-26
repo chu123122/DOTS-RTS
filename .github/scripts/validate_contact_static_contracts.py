@@ -50,6 +50,31 @@ for token in ("PrepareTimestepPredictionBodiesJob", "EvaluateSoftAvoidancePairsJ
     if token not in parallel_jobs or token not in parallel_schedule:
         fail(f"Parallel schedule/job linkage missing: {token}")
 
+if "JacobiPairCorrections.AsDeferredJobArray()" in parallel_schedule:
+    fail(
+        "Jacobi correction workset is captured as a zero-length deferred array "
+        "instead of reading the dependency-resized NativeList header")
+
+repair_prediction_job = parallel_jobs.split(
+    "internal struct PrepareP1P6RepairPredictionBodiesJob", 1)[1].split(
+        "internal struct InitializeSoftAvoidanceBodiesJob", 1)[0]
+if "int bodyIndex = DirtyBodies[dirtyIndex].BodyIndex;" not in repair_prediction_job:
+    fail("P1P6 repair prediction no longer maps compact dirty indices to bodies")
+for element_type, field_name in (
+    ("CrowdBodySnapshot", "Bodies"),
+    ("CrowdNavigationState", "NavigationStates"),
+    ("CrowdMotionIntent", "MotionIntents"),
+    ("CrowdMotionEvidence", "MotionEvidence"),
+    ("CrowdBodyStepState", "StepStates"),
+):
+    unrestricted_write = re.compile(
+        r"\[NativeDisableParallelForRestriction\]\s*"
+        rf"public NativeArray<{element_type}>\s+{field_name};")
+    if not unrestricted_write.search(repair_prediction_job):
+        fail(
+            "P1P6 repair prediction indirect body write lacks an explicit "
+            f"parallel-for restriction override: {field_name}")
+
 for pattern in ("refactor-contact-pipeline-phase*.yml", "audit-*.yml",
                 "apply-hard-cutover*.yml", "diagnose-*.yml"):
     if list(WORKFLOWS.glob(pattern)):

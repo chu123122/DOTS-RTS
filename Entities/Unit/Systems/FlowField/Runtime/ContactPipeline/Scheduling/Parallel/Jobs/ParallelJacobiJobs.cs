@@ -90,7 +90,7 @@ internal struct JacobiPairSolveResult
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
-        public NativeArray<JacobiPairCorrection> Corrections;
+        public NativeList<JacobiPairCorrection> Corrections;
 
         public void Execute(int pairIndex)
         {
@@ -132,8 +132,8 @@ internal struct JacobiPairSolveResult
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
-        public NativeArray<JacobiPairCorrection> Corrections;
-        public NativeArray<ParallelSimulationDebuggerPairCapture>
+        public NativeList<JacobiPairCorrection> Corrections;
+        public NativeList<ParallelSimulationDebuggerPairCapture>
             DiagnosticPairCandidates;
         public Entity DiagnosticSelectedEntity;
 
@@ -188,7 +188,7 @@ internal struct JacobiPairSolveResult
     [BurstCompile]
     internal struct ReduceParallelJacobiBlocksJob : IJobParallelForDefer
     {
-        [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
+        [ReadOnly] public NativeList<JacobiPairCorrection> Corrections;
         public NativeArray<JacobiBlockTelemetry> Blocks;
 
         public void Execute(int blockIndex)
@@ -223,10 +223,10 @@ internal struct JacobiPairSolveResult
         public NativeArray<CrowdMotionIntent> MotionIntents;
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<ContactConstraint> Pairs;
-        [ReadOnly] public NativeArray<JacobiPairCorrection> Corrections;
+        [ReadOnly] public NativeList<ContactConstraint> Pairs;
+        [ReadOnly] public NativeList<JacobiPairCorrection> Corrections;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
-        [ReadOnly] public NativeArray<int> IncidentPairIndices;
+        [ReadOnly] public NativeList<int> IncidentPairIndices;
         public NativeArray<byte> CorrectedBodyFlags;
 
         public void Execute(int bodyIndex)

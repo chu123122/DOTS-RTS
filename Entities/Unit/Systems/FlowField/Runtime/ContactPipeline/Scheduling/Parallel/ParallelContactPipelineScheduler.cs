@@ -512,7 +512,6 @@ public partial struct CrowdContactPipelineScheduler
 #if RTS_CONTACT_DIAGNOSTICS
                 if (captureSelectedPairs)
                 {
-                    JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
                     handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
                     {
                         Alpha = Configuration.Compliance /
@@ -523,20 +522,18 @@ public partial struct CrowdContactPipelineScheduler
                         Bodies = Bodies,
                 NavigationStates = NavigationStates,
                 MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
+                        MotionEvidence = MotionEvidence,
+                        StepStates = StepStates,
                         Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                        Corrections = JacobiPairCorrections,
                         DiagnosticPairCandidates =
-                            ParallelSimulationDebuggerPairCandidates
-                                .AsDeferredJobArray(),
+                            ParallelSimulationDebuggerPairCandidates,
                         DiagnosticSelectedEntity = DiagnosticSelectedEntity
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
                 else
 #endif
                 {
-                    JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
                     handle = new EvaluateParallelJacobiPairsJob
                     {
                         Alpha = Configuration.Compliance /
@@ -547,10 +544,10 @@ public partial struct CrowdContactPipelineScheduler
                         Bodies = Bodies,
                 NavigationStates = NavigationStates,
                 MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
+                        MotionEvidence = MotionEvidence,
+                        StepStates = StepStates,
                         Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections.AsDeferredJobArray()
+                        Corrections = JacobiPairCorrections
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
 
@@ -558,7 +555,7 @@ public partial struct CrowdContactPipelineScheduler
                 if (EnableDiagnostics)
                     handle = new ReduceParallelJacobiBlocksJob
                     {
-                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                        Corrections = JacobiPairCorrections,
                         Blocks = blockStatistics.AsDeferredJobArray()
                     }.Schedule(blockStatistics, 1, handle);
 #endif
@@ -569,24 +566,22 @@ public partial struct CrowdContactPipelineScheduler
                     handle = new CountParallelSimulationDebuggerPairBlocksJob
                     {
                         Candidates =
-                            ParallelSimulationDebuggerPairCandidates
-                                .AsDeferredJobArray(),
-                        Blocks = blockStatistics.AsDeferredJobArray()
+                            ParallelSimulationDebuggerPairCandidates,
+                        Blocks = blockStatistics
                     }.Schedule(blockStatistics, 1, handle);
 
                     handle = new PrefixParallelSimulationDebuggerPairsJob
                     {
-                        Blocks = blockStatistics.AsDeferredJobArray(),
+                        Blocks = blockStatistics,
                         Scratch = ParallelSimulationDebuggerPairScratch
                     }.Schedule(handle);
 
                     handle = new ScatterParallelSimulationDebuggerPairsJob
                     {
                         Candidates =
-                            ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
-                        Blocks = blockStatistics.AsDeferredJobArray(),
-                        Scratch =
-                            ParallelSimulationDebuggerPairScratch.AsDeferredJobArray()
+                            ParallelSimulationDebuggerPairCandidates,
+                        Blocks = blockStatistics,
+                        Scratch = ParallelSimulationDebuggerPairScratch
                     }.Schedule(blockStatistics, 1, handle);
 
                     ConstraintSolverJob mergeDebuggerPairs = ConstraintSolver;
@@ -602,10 +597,10 @@ public partial struct CrowdContactPipelineScheduler
                 MotionIntents = MotionIntents,
                 MotionEvidence = MotionEvidence,
                 StepStates = StepStates,
-                    Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                    Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                    Pairs = TimestepContactPairs,
+                    Corrections = JacobiPairCorrections,
                     IncidentOffsets = ActiveIncidentOffsets,
-                    IncidentPairIndices = ActiveIncidentPairIndices.AsDeferredJobArray(),
+                    IncidentPairIndices = ActiveIncidentPairIndices,
                     CorrectedBodyFlags = CorrectedBodyFlags
                 }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 

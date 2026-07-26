@@ -160,26 +160,26 @@ public partial struct InteractionCertificationJob : IJob
 
     private IncrementalContactPipelineStatistics LoadIncrementalStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        IncrementalStatistics.Value;
+        EnableDiagnostics ? IncrementalStatistics.Value : default;
 #else
         default;
 #endif
     private void StoreIncrementalStatistics(IncrementalContactPipelineStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        IncrementalStatistics.Value = value;
+        if (EnableDiagnostics) IncrementalStatistics.Value = value;
 #endif
     }
     private PredictiveDiscContactStatistics LoadContactStatistics() =>
 #if RTS_CONTACT_DIAGNOSTICS
-        Statistics.Value;
+        EnableDiagnostics ? Statistics.Value : default;
 #else
         default;
 #endif
     private void StoreContactStatistics(PredictiveDiscContactStatistics value)
     {
 #if RTS_CONTACT_DIAGNOSTICS
-        Statistics.Value = value;
+        if (EnableDiagnostics) Statistics.Value = value;
 #endif
     }
 

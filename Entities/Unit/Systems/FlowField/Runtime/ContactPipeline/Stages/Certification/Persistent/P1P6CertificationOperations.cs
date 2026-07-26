@@ -299,6 +299,7 @@ public partial struct InteractionCertificationJob
 
         InvalidateSoftIncidentIndexP1P6();
         RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        IssueCertificateForCommittedViews(incremental, substepIndex);
         phase.NeedsCommit = 0;
         PersistentClassificationState.Value = phase;
         StoreContactStatistics(statistics);
@@ -538,6 +539,9 @@ public partial struct InteractionCertificationJob
         }
 
         ResetCorrectedBodyTracking();
+        // This serial dependency boundary owns the deferred contact workset
+        // lengths. Scheduler code must not read or resize these lists while
+        // earlier certification jobs may still be mutating the contact view.
         JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
 #if RTS_CONTACT_DIAGNOSTICS
         if (ParallelSimulationDebuggerPairCandidates.IsCreated)

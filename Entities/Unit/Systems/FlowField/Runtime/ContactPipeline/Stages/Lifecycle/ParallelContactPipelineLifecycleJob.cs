@@ -43,6 +43,11 @@ public struct ParallelContactPipelineLifecycleJob : IJob
             IsValid = 1
         };
 #if RTS_CONTACT_DIAGNOSTICS
+        IncrementalStatistics.Value = default;
+        Statistics.Value = new PredictiveDiscContactStatistics
+        {
+            TimestepContactSetFirstEscapeSubstep = -1
+        };
         if (EnableDiagnostics)
         {
             runtime.SolverStartTimestamp =
@@ -51,11 +56,6 @@ public struct ParallelContactPipelineLifecycleJob : IJob
             if (PairDiagnostics.IsCreated) PairDiagnostics.Clear();
             if (SelectedBodyDiagnostic.IsCreated) SelectedBodyDiagnostic.Value = default;
             if (SimulationDebuggerSelectedPairs.IsCreated) SimulationDebuggerSelectedPairs.Clear();
-            IncrementalStatistics.Value = default;
-            Statistics.Value = new PredictiveDiscContactStatistics
-            {
-                TimestepContactSetFirstEscapeSubstep = -1
-            };
         }
 #endif
         ActiveIncidentIndexState.Value = default;

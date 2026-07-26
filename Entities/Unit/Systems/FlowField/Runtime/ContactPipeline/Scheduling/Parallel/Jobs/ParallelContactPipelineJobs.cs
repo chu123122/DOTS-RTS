@@ -373,10 +373,15 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelForDefer
     {
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdBodySnapshot> Bodies;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdNavigationState> NavigationStates;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionIntent> MotionIntents;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [NativeDisableParallelForRestriction]
         public NativeArray<CrowdBodyStepState> StepStates;
         [ReadOnly] public NativeArray<IncrementalDirtyBody> DirtyBodies;
         public float Duration;
@@ -852,9 +857,9 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     internal struct CountParallelSimulationDebuggerPairBlocksJob :
         IJobParallelForDefer
     {
-        [ReadOnly] public NativeArray<ParallelSimulationDebuggerPairCapture>
+        [ReadOnly] public NativeList<ParallelSimulationDebuggerPairCapture>
             Candidates;
-        public NativeArray<JacobiBlockTelemetry> Blocks;
+        public NativeList<JacobiBlockTelemetry> Blocks;
 
         public void Execute(int blockIndex)
         {
@@ -875,7 +880,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct PrefixParallelSimulationDebuggerPairsJob : IJob
     {
-        public NativeArray<JacobiBlockTelemetry> Blocks;
+        public NativeList<JacobiBlockTelemetry> Blocks;
         public NativeList<SimulationDebuggerPairSample> Scratch;
 
         public void Execute()
@@ -895,11 +900,11 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct ScatterParallelSimulationDebuggerPairsJob : IJobParallelForDefer
     {
-        [ReadOnly] public NativeArray<ParallelSimulationDebuggerPairCapture>
+        [ReadOnly] public NativeList<ParallelSimulationDebuggerPairCapture>
             Candidates;
-        [ReadOnly] public NativeArray<JacobiBlockTelemetry> Blocks;
+        [ReadOnly] public NativeList<JacobiBlockTelemetry> Blocks;
         [NativeDisableParallelForRestriction]
-        public NativeArray<SimulationDebuggerPairSample> Scratch;
+        public NativeList<SimulationDebuggerPairSample> Scratch;
 
         public void Execute(int blockIndex)
         {

@@ -111,8 +111,11 @@ public partial struct InteractionCertificationJob
     {
         IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
         uint classificationEpoch = CalculateClassificationEpoch();
-        if (IncrementalDirtyBodies.Length != 0 ||
-            cacheState.ContactViewsValid == 0 ||
+        // Dirty bodies carry motion/topology deltas that the repair path already
+        // consumed. They are an internal pipeline signal, not a cache-validity
+        // gate. Only the explicit cache-state epoch and the per-contact validity
+        // flag determine whether the cached views are reusable.
+        if (cacheState.ContactViewsValid == 0 ||
             cacheState.ClassificationEpoch != classificationEpoch)
             return false;
 
