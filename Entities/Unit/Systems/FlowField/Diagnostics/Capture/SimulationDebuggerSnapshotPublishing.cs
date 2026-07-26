@@ -13,6 +13,11 @@ public abstract partial class BaseFlowMovementSystem
     private bool _simulationDebuggerWriteA;
     private ulong _simulationDebuggerFrameId;
     private ulong _simulationDebuggerUpdateCounter;
+    private int _simulationDebuggerTraceSignature = int.MinValue;
+    private uint _simulationDebuggerLastTraceStep;
+    private int _simulationDebuggerPublishTraceSignature = int.MinValue;
+    private uint _simulationDebuggerLastPublishTraceStep;
+    private bool _hasSimulationDebuggerPublishTraceSignature;
 
     private void PublishSimulationDebuggerSnapshot(
         ulong worldId,
@@ -85,7 +90,231 @@ public abstract partial class BaseFlowMovementSystem
             snapshot,
             completed.SelectedEntity,
             completed.MaximumVisualizedPairs);
+        TraceSimulationDebuggerTelemetry(
+            worldId,
+            completedPipeline,
+            snapshot,
+            contactStatistics);
+        ulong generationBefore =
+            PublishedSimulationDiagnosticsRuntime.GetGeneration(worldId);
+        bool frozenBeforePublish =
+            SimulationDebuggerRuntime.FreezeSnapshotFor(worldId);
         SimulationDebuggerRuntime.Publish(worldId, snapshot, completedPipeline);
+        TraceSimulationDebuggerPublication(
+            worldId,
+            snapshot,
+            generationBefore,
+            frozenBeforePublish);
+    }
+
+    private void TraceSimulationDebuggerTelemetry(
+        ulong worldId,
+        IncrementalContactPipelineSnapshot pipeline,
+        SimulationDebuggerFrameSnapshot snapshot,
+        PredictiveDiscContactStatistics raw)
+    {
+#if RTS_CONTACT_DIAGNOSTICS
+        bool diagnosticsEnabled =
+            snapshot.EffectiveSettings.EnableDiagnostics != 0;
+        bool configurationEnabled =
+            pipeline.Configuration.DiagnosticsEnabled != 0;
+        bool settingsMismatch =
+            diagnosticsEnabled != configurationEnabled;
+        bool rawCoreTelemetryZero =
+            raw.SolverNanoseconds == 0 &&
+            raw.PairGenerationNanoseconds == 0 &&
+            raw.IterationNanoseconds == 0 &&
+            raw.CandidatePairCount == 0 &&
+            raw.ContactPairCount == 0 &&
+            raw.TimestepContactSetBuildCount == 0;
+        bool cacheEnabled =
+            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
+        int expectedContactSetSize = cacheEnabled
+            ? raw.TimestepContactSetUniquePairCount
+            : raw.ContactPairCount;
+        int expectedActiveContactCount = cacheEnabled
+            ? raw.TimestepContactSetUniqueActivatedPairCount
+            : raw.ActiveConstraintCount;
+        bool mappingMismatch =
+            snapshot.Overview.IterationNanoseconds != raw.IterationNanoseconds ||
+            snapshot.Overview.PairGenerationNanoseconds !=
+                raw.PairGenerationNanoseconds ||
+            snapshot.ContactSet.ContactSetSize != expectedContactSetSize ||
+            snapshot.ContactSet.ActiveContactCount !=
+                expectedActiveContactCount ||
+            snapshot.ContactSet.PredictiveContactCount !=
+                raw.PredictivePairCount ||
+            snapshot.ContactSet.FullRebuildCount !=
+                raw.TimestepContactSetFullRebuildCount ||
+            snapshot.ContactSet.FallbackAddedPairCount !=
+                raw.TimestepContactSetFallbackAddedPairCount;
+        bool targetWorldMismatch =
+            SimulationDebuggerRuntime.TargetWorldId != worldId;
+        bool suspicious =
+            settingsMismatch ||
+            mappingMismatch ||
+            targetWorldMismatch ||
+            (diagnosticsEnabled && rawCoreTelemetryZero);
+        int signature =
+            (diagnosticsEnabled ? 1 : 0) |
+            (configurationEnabled ? 1 << 1 : 0) |
+            (rawCoreTelemetryZero ? 1 << 2 : 0) |
+            (mappingMismatch ? 1 << 3 : 0) |
+            (targetWorldMismatch ? 1 << 4 : 0);
+        uint step = snapshot.SimulationStepId;
+        bool stateChanged =
+            signature != _simulationDebuggerTraceSignature;
+        bool repeatSuspicious =
+            suspicious &&
+            step - _simulationDebuggerLastTraceStep >= 120;
+        if (!stateChanged && !repeatSuspicious)
+            return;
+
+        _simulationDebuggerTraceSignature = signature;
+        _simulationDebuggerLastTraceStep = step;
+        string reason = !diagnosticsEnabled
+            ? "DIAGNOSTICS_DISABLED"
+            : settingsMismatch
+                ? "SETTINGS_MISMATCH"
+                : mappingMismatch
+                    ? "PUBLISH_MAPPING_MISMATCH"
+                    : targetWorldMismatch
+                        ? "TARGET_WORLD_MISMATCH"
+                        : rawCoreTelemetryZero
+                            ? "RAW_SOURCE_ZERO"
+                            : "HEALTHY";
+        string message =
+            $"[CONTACT-DIAG-TRACE] reason={reason} world={worldId} " +
+            $"targetWorld={SimulationDebuggerRuntime.TargetWorldId} step={step} " +
+            $"settings(effective={snapshot.EffectiveSettings.EnableDiagnostics}," +
+            $"pipeline={pipeline.Configuration.DiagnosticsEnabled}) " +
+            $"raw(solverNs={raw.SolverNanoseconds},pairNs={raw.PairGenerationNanoseconds}," +
+            $"iterationNs={raw.IterationNanoseconds},candidates={raw.CandidatePairCount}," +
+            $"contacts={raw.ContactPairCount},predictive={raw.PredictivePairCount}," +
+            $"active={raw.ActiveConstraintCount},unique=" +
+            $"{raw.TimestepContactSetUniqueActivatedPairCount}/" +
+            $"{raw.TimestepContactSetUniquePairCount},rebuild=" +
+            $"{raw.TimestepContactSetFullRebuildCount},fallback=" +
+            $"{raw.TimestepContactSetFallbackAddedPairCount}) " +
+            $"lifecycle(currentPredictive=" +
+            $"{pipeline.Statistics.CurrentPredictivePairCount},currentActual=" +
+            $"{pipeline.Statistics.CurrentActualPairCount},currentApproaching=" +
+            $"{pipeline.Statistics.CurrentApproachingPairCount},currentDormant=" +
+            $"{pipeline.Statistics.CurrentDormantPairCount}) " +
+            $"mapped(iterationNs={snapshot.Overview.IterationNanoseconds}," +
+            $"set={snapshot.ContactSet.ContactSetSize},active=" +
+            $"{snapshot.ContactSet.ActiveContactCount},predictive=" +
+            $"{snapshot.ContactSet.PredictiveContactCount},rebuild=" +
+            $"{snapshot.ContactSet.FullRebuildCount},fallback=" +
+            $"{snapshot.ContactSet.FallbackAddedPairCount})";
+        if (suspicious)
+            UnityEngine.Debug.LogWarning(message);
+        else
+            UnityEngine.Debug.Log(message);
+#endif
+    }
+
+    private void TraceSimulationDebuggerPublication(
+        ulong worldId,
+        SimulationDebuggerFrameSnapshot submitted,
+        ulong generationBefore,
+        bool frozenBeforePublish)
+    {
+#if RTS_CONTACT_DIAGNOSTICS
+        ulong generationAfter =
+            PublishedSimulationDiagnosticsRuntime.GetGeneration(worldId);
+        bool hasLatest =
+            PublishedSimulationDiagnosticsRuntime.TryGetLatest(
+                worldId,
+                out PublishedSimulationDiagnosticsSnapshot published);
+        SimulationDebuggerFrameSnapshot latest =
+            hasLatest ? published.Frame : null;
+        uint latestStep = hasLatest ? published.SimulationStepId : 0;
+        bool generationAdvanced = generationAfter > generationBefore;
+        bool submittedStepPublished =
+            generationAdvanced &&
+            latestStep == submitted.SimulationStepId;
+        bool publishedValuesMatch =
+            submittedStepPublished &&
+            latest != null &&
+            latest.Overview.IterationNanoseconds ==
+                submitted.Overview.IterationNanoseconds &&
+            latest.ContactSet.PredictiveContactCount ==
+                submitted.ContactSet.PredictiveContactCount &&
+            latest.ContactSet.FullRebuildCount ==
+                submitted.ContactSet.FullRebuildCount &&
+            latest.ContactSet.FallbackAddedPairCount ==
+                submitted.ContactSet.FallbackAddedPairCount;
+
+        int result;
+        string reason;
+        if (frozenBeforePublish)
+        {
+            result = 1;
+            reason = "FROZEN";
+        }
+        else if (submittedStepPublished && !publishedValuesMatch)
+        {
+            result = 2;
+            reason = "PUBLISHED_FRAME_MISMATCH";
+        }
+        else if (submittedStepPublished)
+        {
+            result = 0;
+            reason = "PUBLISHED";
+        }
+        else if (!hasLatest)
+        {
+            result = 3;
+            reason = "NO_LATEST";
+        }
+        else if (latestStep >= submitted.SimulationStepId)
+        {
+            result = 4;
+            reason = "STALE_OR_DUPLICATE_STEP";
+        }
+        else
+        {
+            result = 5;
+            reason = "PUBLICATION_REJECTED";
+        }
+
+        bool suspicious = result != 0;
+        int signature =
+            result |
+            (SimulationDebuggerRuntime.TargetWorldId == worldId ? 0 : 1 << 4);
+        uint step = submitted.SimulationStepId;
+        bool stateChanged =
+            !_hasSimulationDebuggerPublishTraceSignature ||
+            signature != _simulationDebuggerPublishTraceSignature;
+        bool repeatSuspicious =
+            suspicious &&
+            step - _simulationDebuggerLastPublishTraceStep >= 120;
+        if (!stateChanged && !repeatSuspicious)
+            return;
+
+        _simulationDebuggerPublishTraceSignature = signature;
+        _simulationDebuggerLastPublishTraceStep = step;
+        _hasSimulationDebuggerPublishTraceSignature = true;
+        string message =
+            $"[CONTACT-DIAG-PUBLISH] result={reason} world={worldId} " +
+            $"targetWorld={SimulationDebuggerRuntime.TargetWorldId} " +
+            $"submittedStep={submitted.SimulationStepId} latestStep={latestStep} " +
+            $"frozen={(frozenBeforePublish ? 1 : 0)} generation=" +
+            $"{generationBefore}->{generationAfter} " +
+            $"submitted(iterationNs={submitted.Overview.IterationNanoseconds}," +
+            $"predictive={submitted.ContactSet.PredictiveContactCount}," +
+            $"rebuild={submitted.ContactSet.FullRebuildCount},fallback=" +
+            $"{submitted.ContactSet.FallbackAddedPairCount}) " +
+            $"published(iterationNs={latest?.Overview.IterationNanoseconds ?? 0}," +
+            $"predictive={latest?.ContactSet.PredictiveContactCount ?? 0}," +
+            $"rebuild={latest?.ContactSet.FullRebuildCount ?? 0},fallback=" +
+            $"{latest?.ContactSet.FallbackAddedPairCount ?? 0})";
+        if (suspicious)
+            UnityEngine.Debug.LogWarning(message);
+        else
+            UnityEngine.Debug.Log(message);
+#endif
     }
 
     private SimulationDebuggerFrameSnapshot AcquireSimulationDebuggerWriteSnapshot()

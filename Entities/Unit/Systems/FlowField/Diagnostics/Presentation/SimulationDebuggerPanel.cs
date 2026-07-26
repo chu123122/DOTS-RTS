@@ -492,13 +492,20 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Space(4f);
 
         SimulationOverviewMetrics metrics = snapshot.Overview;
+        bool diagnosticsEnabled =
+            snapshot.EffectiveSettings.EnableDiagnostics != 0;
         DrawStatus("整体仿真", metrics.Health, OverviewStatus(metrics));
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
         DrawMetric("求解耗时", $"{metrics.SolverMilliseconds:0.000} ms", "整套移动与碰撞每帧成本");
         DrawMetric("Pair / Contact", Nanoseconds(metrics.PairGenerationNanoseconds), "Fat AABB 应直接降低的阶段");
-        DrawMetric("XPBD Iteration", Nanoseconds(metrics.IterationNanoseconds), "约束投影成本，不应因缓存直接下降");
+        DrawMetric(
+            "XPBD Iteration",
+            diagnosticsEnabled ? Nanoseconds(metrics.IterationNanoseconds) : "--",
+            diagnosticsEnabled
+                ? "约束投影成本，不应因缓存直接下降"
+                : "详细诊断已关闭，当前值不可用");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
@@ -623,7 +630,16 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Space(4f);
 
         TimestepContactSetMetrics metrics = snapshot.ContactSet;
-        DrawStatus("跨子步接触缓存", metrics.Health, ContactSetStatus(metrics));
+        bool diagnosticsEnabled =
+            snapshot.EffectiveSettings.EnableDiagnostics != 0;
+        DrawStatus(
+            "跨子步接触缓存",
+            diagnosticsEnabled
+                ? metrics.Health
+                : SimulationDebuggerHealth.Disabled,
+            diagnosticsEnabled
+                ? ContactSetStatus(metrics)
+                : "详细诊断已关闭；Benchmark 运行时会主动关闭该开关，以下事件统计不可用。");
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
@@ -631,11 +647,20 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             metrics.CacheEnabled != 0 ? "整步接触集" : "子步接触集",
             metrics.ContactSetSize.ToString("N0"),
             metrics.CacheEnabled != 0 ? "一个时间步只生成一次并跨子步复用" : "每个子步重新生成，仅在迭代内复用");
-        DrawMetric("接触激活率", Percent(metrics.ActivationRatio), "至少一次真正产生约束作用的接触");
+        DrawMetric(
+            "接触激活率",
+            diagnosticsEnabled ? Percent(metrics.ActivationRatio) : "--",
+            diagnosticsEnabled
+                ? "至少一次真正产生约束作用的接触"
+                : "详细诊断已关闭，当前值不可用");
         DrawMetric(
             "重建 / 补充 Pair",
-            $"{metrics.FullRebuildCount} / {metrics.FallbackAddedPairCount}",
-            "完整重建表示视图重新生成；补充 Pair 表示初始接触集遗漏");
+            diagnosticsEnabled
+                ? $"{metrics.FullRebuildCount} / {metrics.FallbackAddedPairCount}"
+                : "--",
+            diagnosticsEnabled
+                ? "完整重建表示视图重新生成；补充 Pair 表示初始接触集遗漏"
+                : "详细诊断已关闭，当前值不可用");
         GUILayout.EndHorizontal();
 
         DrawHeatmapSelector(
@@ -657,14 +682,26 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Label("接触集组成", _sectionStyle);
         DrawDetailRow("生成模式", metrics.CacheEnabled != 0 ? "每时间步一次" : "每子步一次");
         DrawDetailRow("本帧生成次数", metrics.ContactGenerationCount.ToString("N0"));
-        DrawDetailRow("完整重建次数", metrics.FullRebuildCount.ToString("N0"));
-        DrawDetailRow("Fallback 补充 Pair", metrics.FallbackAddedPairCount.ToString("N0"));
+        DrawDetailRow(
+            "完整重建次数",
+            diagnosticsEnabled ? metrics.FullRebuildCount.ToString("N0") : "--");
+        DrawDetailRow(
+            "Fallback 补充 Pair",
+            diagnosticsEnabled ? metrics.FallbackAddedPairCount.ToString("N0") : "--");
         DrawDetailRow("当前 / 临近接触", metrics.ActualContactCount.ToString("N0"));
-        DrawDetailRow("预测接触", metrics.PredictiveContactCount.ToString("N0"));
-        DrawDetailRow("预测接触已激活", metrics.PredictiveActivatedCount.ToString("N0"));
-        DrawDetailRow("缓存但未激活", metrics.InactiveContactCount.ToString("N0"));
+        DrawDetailRow(
+            "预测接触",
+            diagnosticsEnabled ? metrics.PredictiveContactCount.ToString("N0") : "--");
+        DrawDetailRow(
+            "预测接触已激活",
+            diagnosticsEnabled ? metrics.PredictiveActivatedCount.ToString("N0") : "--");
+        DrawDetailRow(
+            "缓存但未激活",
+            diagnosticsEnabled ? metrics.InactiveContactCount.ToString("N0") : "--");
         DrawDetailRow("避免重复生成", $"{metrics.AvoidedContactGenerationCount} 次");
-        DrawDetailRow("预测接触激活率", Percent(metrics.PredictiveActivationRatio));
+        DrawDetailRow(
+            "预测接触激活率",
+            diagnosticsEnabled ? Percent(metrics.PredictiveActivationRatio) : "--");
 
         GUILayout.Space(6f);
         GUILayout.Label("60 帧趋势", _sectionStyle);
@@ -1774,4 +1811,3 @@ internal static class SimulationDebuggerPanelBootstrap
 #endif
 }
 }
-

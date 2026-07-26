@@ -437,7 +437,8 @@ public static class LocalGameplayModeValidation
             entityManager.CompleteAllTrackedJobs();
             Require(
                 SimulationDebuggerRuntime.SelectedEntityFor(
-                    unchecked((ulong)world.Unmanaged.SequenceNumber)) == unit,
+                    SimulationDebuggerWorldIdentity.FromSequenceNumber(
+                        world.Unmanaged.SequenceNumber)) == unit,
                 "Duplicate compatible legacy selections were not bridged to the World runtime.");
 #endif
         }

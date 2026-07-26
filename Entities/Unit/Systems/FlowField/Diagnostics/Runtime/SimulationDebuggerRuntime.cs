@@ -4,6 +4,12 @@ using Unity.Entities;
 
 namespace RTS.Unit.FlowField.Diagnostics
 {
+public static class SimulationDebuggerWorldIdentity
+{
+    public static ulong FromSequenceNumber(ulong sequenceNumber) =>
+        unchecked(sequenceNumber + 1UL);
+}
+
 #if RTS_CONTACT_DIAGNOSTICS
 /// <summary>
 /// Managed diagnostics control plane. Authoritative simulation configuration
@@ -22,6 +28,7 @@ public static class SimulationDebuggerRuntime
         public bool HasPendingSettings;
         public bool ResetSettingsRequested;
         public bool ResetContactCachesRequested;
+        public int LastSubmittedDiagnostics = -1;
         public uint ExperimentConfigurationId;
         public int ExperimentFramesSinceChanged;
         public int ExperimentLastKey = int.MinValue;
@@ -350,13 +357,44 @@ public static class SimulationDebuggerRuntime
         ulong worldId,
         SimulationDebuggerEffectiveSettings settings)
     {
+        int previousDiagnostics;
+        bool diagnosticsChanged;
         lock (Gate)
         {
             WorldState state = GetStateLocked(worldId);
+            previousDiagnostics = state.LastSubmittedDiagnostics;
+            diagnosticsChanged =
+                previousDiagnostics != settings.EnableDiagnostics;
+            state.LastSubmittedDiagnostics = settings.EnableDiagnostics;
             state.PendingSettings = settings;
             state.HasPendingSettings = true;
             state.ResetSettingsRequested = false;
         }
+        if (diagnosticsChanged)
+        {
+            UnityEngine.Debug.Log(
+                $"[CONTACT-DIAG-SETTINGS] world={worldId} " +
+                $"diagnostics={previousDiagnostics}->{settings.EnableDiagnostics} " +
+                $"source={ResolveSettingsSubmitter()}");
+        }
+    }
+
+    private static string ResolveSettingsSubmitter()
+    {
+        var trace = new System.Diagnostics.StackTrace(1, false);
+        for (int frameIndex = 0;
+             frameIndex < trace.FrameCount;
+             frameIndex++)
+        {
+            System.Reflection.MethodBase method =
+                trace.GetFrame(frameIndex)?.GetMethod();
+            Type declaringType = method?.DeclaringType;
+            if (declaringType == null ||
+                declaringType == typeof(SimulationDebuggerRuntime))
+                continue;
+            return $"{declaringType.FullName}.{method.Name}";
+        }
+        return "unknown";
     }
 
     public static void RequestSettingsReset() => RequestSettingsReset(TargetWorldId);

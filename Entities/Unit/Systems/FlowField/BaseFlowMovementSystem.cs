@@ -40,7 +40,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadOnly<UnitMoveDestination>());
         _candidateStore = InteractionCandidateStore.Create();
         CreatePersistentDiagnostics();
-        ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
+        ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
+            World.Unmanaged.SequenceNumber);
         SimulationDebuggerRuntime.RegisterWorld(worldId);
         IncrementalContactPipelineExperimentRuntime.RegisterWorld(worldId);
     }
@@ -50,14 +51,16 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         Dependency.Complete();
         _candidateStore.Dispose();
         DisposePersistentDiagnostics();
-        ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
+        ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
+            World.Unmanaged.SequenceNumber);
         IncrementalContactPipelineExperimentRuntime.UnregisterWorld(worldId);
         SimulationDebuggerRuntime.UnregisterWorld(worldId);
     }
 
     protected override void OnUpdate()
     {
-        ulong worldId = unchecked((ulong)World.Unmanaged.SequenceNumber);
+        ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
+            World.Unmanaged.SequenceNumber);
         FlowFieldGrid gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
         FlowFieldSettings flowFieldSettings = SystemAPI.GetSingleton<FlowFieldSettings>();
         FlowFieldRuntimeState flowFieldRuntimeState =
