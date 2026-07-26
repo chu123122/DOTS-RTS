@@ -499,8 +499,7 @@ public partial struct InteractionCertificationJob
 #endif
         , int bodyBlockCount)
     {
-        if (runtimeState.Value.IsValid == 0)
-            return;
+        ParallelJacobiExecutionState runtime = runtimeState.Value;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
@@ -517,31 +516,40 @@ public partial struct InteractionCertificationJob
 
 #endif
 
-        if (!ValidateSolverCorrectionContactEnvelope(
-                substepIndex,
-                ref statistics,
-                ref incremental))
+        if (runtime.IsValid != 0)
         {
-            int substepCount = math.max(1, SubstepCount);
-            float substepDeltaTime = DeltaTime / substepCount;
-            RepairOrRebuildContactViewForRemainingTime(
-                substepIndex,
-                substepCount,
-                substepDeltaTime,
-                EnableTimestepContactSetCache,
-                ref statistics,
-                ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
-            ResetTimestepContactSetForSubstep();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
-            ActiveIncidentIndexState.Value = default;
-            EnsureActiveConstraintIncidentIndexP1P6();
+            if (!ValidateSolverCorrectionContactEnvelope(
+                    substepIndex,
+                    ref statistics,
+                    ref incremental))
+            {
+                int substepCount = math.max(1, SubstepCount);
+                float substepDeltaTime = DeltaTime / substepCount;
+                RepairOrRebuildContactViewForRemainingTime(
+                    substepIndex,
+                    substepCount,
+                    substepDeltaTime,
+                    EnableTimestepContactSetCache,
+                    ref statistics,
+                    ref incremental);
+                InvalidateSoftIncidentIndexP1P6();
+                ResetTimestepContactSetForSubstep();
+                RebuildPersistentIncidentPairLookupIfNeededP1P6();
+                ActiveIncidentIndexState.Value = default;
+                EnsureActiveConstraintIncidentIndexP1P6();
+            }
+
+            ResetCorrectedBodyTracking();
         }
 
-        ResetCorrectedBodyTracking();
         // This serial dependency boundary owns the deferred contact workset
-        // lengths. Scheduler code must not read or resize these lists while
-        // earlier certification jobs may still be mutating the contact view.
+        // lengths. The parallel Jacobi eval/reduce jobs scheduled after it run
+        // unconditionally — even when the runtime is invalid (e.g. a consumer
+        // certificate mismatch set IsValid=0) — so these deferred write targets
+        // must match the committed contact-pair count regardless of validity.
+        // Skipping the resize on the invalid path left them at length 0 and the
+        // eval job threw IndexOutOfRange. Repair above may change the count, so
+        // this resize must follow it.
         JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
 #if RTS_CONTACT_DIAGNOSTICS
         if (ParallelSimulationDebuggerPairCandidates.IsCreated)
@@ -552,6 +560,10 @@ public partial struct InteractionCertificationJob
         blockStatistics.ResizeUninitialized(
             (TimestepContactPairs.Length + CrowdContactPipelineScheduler.JacobiPairBatchSize - 1) / CrowdContactPipelineScheduler.JacobiPairBatchSize);
 #endif
+
+        if (runtime.IsValid == 0)
+            return;
+
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
 #if RTS_CONTACT_DIAGNOSTICS

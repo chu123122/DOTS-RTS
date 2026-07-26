@@ -50,11 +50,6 @@ for token in ("PrepareTimestepPredictionBodiesJob", "EvaluateSoftAvoidancePairsJ
     if token not in parallel_jobs or token not in parallel_schedule:
         fail(f"Parallel schedule/job linkage missing: {token}")
 
-if "JacobiPairCorrections.AsDeferredJobArray()" in parallel_schedule:
-    fail(
-        "Jacobi correction workset is captured as a zero-length deferred array "
-        "instead of reading the dependency-resized NativeList header")
-
 repair_prediction_job = parallel_jobs.split(
     "internal struct PrepareP1P6RepairPredictionBodiesJob", 1)[1].split(
         "internal struct InitializeSoftAvoidanceBodiesJob", 1)[0]

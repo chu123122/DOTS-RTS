@@ -90,7 +90,13 @@ internal struct JacobiPairSolveResult
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
-        public NativeList<JacobiPairCorrection> Corrections;
+        // 并行 job 的按索引写目标必须是 deferred NativeArray（或
+        // [NativeDisableParallelForRestriction]）。NativeList 不是原子写容器，
+        // 以读写形式喂给 IJobParallelFor 会在 Schedule 阶段被 Jobs 安全检查拒绝
+        //（"not declared [ReadOnly] ... does not support parallel writing"）。
+        // 长度由 FinalizeP1P6WallIteration 的 resize 与接触对数对齐，运行时由
+        // AsDeferredJobArray 从 list length patch，和上方 Pairs 同模式。
+        public NativeArray<JacobiPairCorrection> Corrections;
 
         public void Execute(int pairIndex)
         {
@@ -132,8 +138,8 @@ internal struct JacobiPairSolveResult
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
-        public NativeList<JacobiPairCorrection> Corrections;
-        public NativeList<ParallelSimulationDebuggerPairCapture>
+        public NativeArray<JacobiPairCorrection> Corrections;
+        public NativeArray<ParallelSimulationDebuggerPairCapture>
             DiagnosticPairCandidates;
         public Entity DiagnosticSelectedEntity;
 

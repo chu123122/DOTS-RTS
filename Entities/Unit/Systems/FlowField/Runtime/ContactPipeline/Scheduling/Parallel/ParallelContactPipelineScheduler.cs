@@ -525,9 +525,9 @@ public partial struct CrowdContactPipelineScheduler
                         MotionEvidence = MotionEvidence,
                         StepStates = StepStates,
                         Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections,
+                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
                         DiagnosticPairCandidates =
-                            ParallelSimulationDebuggerPairCandidates,
+                            ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
                         DiagnosticSelectedEntity = DiagnosticSelectedEntity
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
@@ -547,7 +547,7 @@ public partial struct CrowdContactPipelineScheduler
                         MotionEvidence = MotionEvidence,
                         StepStates = StepStates,
                         Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections
+                        Corrections = JacobiPairCorrections.AsDeferredJobArray()
                     }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
                 }
 
