@@ -4,6 +4,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
 using Unity.Transforms;
+using UnityEngine;
 using RTS.Unit.Components;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
@@ -291,6 +292,30 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         {
             Results = body.Results
         }.ScheduleParallel(_movementQuery, resultHandle);
+
+        // DIAG (incident index desync probe): GatherAndApplyParallelJacobiBodiesJob
+        // stamps CorrectedBodyFlags==2 when offsets/indices/pairs run out of sync.
+        // Complete the solver jobs and count those sentinels here, on the main
+        // thread, so the desync surfaces as a Debug.LogError instead of a silent
+        // Burst abort. Remove once the root cause (deferred incident-index timing)
+        // is fixed.
+        if (useParallelJacobi)
+        {
+            solveHandle.Complete();
+            int desyncCount = 0;
+            NativeArray<byte> flags = solverResources.CorrectedBodyFlags;
+            for (int i = 0; i < flags.Length; i++)
+                if (flags[i] == 2)
+                    desyncCount++;
+            if (desyncCount > 0)
+                Debug.LogError(
+                    "[IncidentIndexDesync] " + desyncCount + "/" + flags.Length +
+                    " bodies had out-of-range incident lookups this frame " +
+                    "(CorrectedBodyFlags==2). Root cause: GatherAndApply reads " +
+                    "IncidentPairIndices/Offsets/Pairs as schedule-time snapshots " +
+                    "while a prior job resizes them; fix = deferred (IJobParallelForDefer) " +
+                    "or force re-Ensure before GatherAndApply.");
+        }
 
         JobHandle runtimeDispose = body.Dispose(applyHandle);
         runtimeDispose = JobHandle.CombineDependencies(
