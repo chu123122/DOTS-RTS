@@ -80,8 +80,15 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private Texture2D _panelTexture;
     private Texture2D _cardTexture;
     private Texture2D _activeTexture;
-    private Texture2D _chartTexture;
-    private float[] _chartBuffer = new float[120];
+    private Texture2D _overviewChartTexture;
+    private Texture2D _timestepCostChartTexture;
+    private Texture2D _timestepLoadChartTexture;
+    private Texture2D _substepCostChartTexture;
+    private Texture2D _substepLoadChartTexture;
+    private readonly float[] _chartBufferA = new float[120];
+    private readonly float[] _chartBufferB = new float[120];
+    private readonly float[] _chartBufferC = new float[120];
+    private readonly float[] _chartBufferD = new float[120];
 
     private void OnEnable()
     {
@@ -105,7 +112,11 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DestroyRuntimeTexture(ref _panelTexture);
         DestroyRuntimeTexture(ref _cardTexture);
         DestroyRuntimeTexture(ref _activeTexture);
-        DestroyRuntimeTexture(ref _chartTexture);
+        DestroyRuntimeTexture(ref _overviewChartTexture);
+        DestroyRuntimeTexture(ref _timestepCostChartTexture);
+        DestroyRuntimeTexture(ref _timestepLoadChartTexture);
+        DestroyRuntimeTexture(ref _substepCostChartTexture);
+        DestroyRuntimeTexture(ref _substepLoadChartTexture);
     }
 
     private void OnApplicationQuit()
@@ -317,7 +328,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                     DrawPersistentBroadPhase(snapshot, pipeline);
                     break;
                 case SimulationDebuggerView.TimestepContactSet:
-                    DrawContactSet(snapshot);
+                    DrawContactSet(snapshot, pipeline);
                     break;
                 case SimulationDebuggerView.RuntimeSettings:
                     DrawSettingsSummary(snapshot);
@@ -456,8 +467,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         return view switch
         {
             SimulationDebuggerView.Overview => "整体仿真",
-            SimulationDebuggerView.PersistentBroadPhase => "跨帧接触缓存",
-            SimulationDebuggerView.TimestepContactSet => "跨子步接触缓存",
+            SimulationDebuggerView.PersistentBroadPhase => "Timestep 候选缓存",
+            SimulationDebuggerView.TimestepContactSet => "Substep 接触集缓存",
             _ => "运行时设置"
         };
     }
@@ -466,6 +477,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label($"帧 {snapshot.FrameId}", _mutedStyle);
+        GUILayout.Space(10f);
+        GUILayout.Label($"单位 {snapshot.Overview.UnitCount:N0}", _mutedStyle);
         GUILayout.Space(10f);
         GUILayout.Label(
             $"实验 {snapshot.Experiment.ShortId} · 配置 #{snapshot.Experiment.ConfigurationId}",
@@ -489,31 +502,72 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private void DrawOverview(SimulationDebuggerFrameSnapshot snapshot)
     {
         SimulationOverviewMetrics metrics = snapshot.Overview;
-        if (metrics.TimingAvailable != 0)
-        {
-            DrawTrendChart(
-                SimulationDebuggerRuntime.GetSolverHistory(),
-                "接触管线耗时 (ms)");
-            GUILayout.Space(4f);
-        }
-
-        DrawStatus("整体仿真", metrics.Health, OverviewStatus(metrics));
+        DrawStatus("接触管线总控", metrics.Health, OverviewStatus(metrics));
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
         DrawMetric(
-            "单位数",
-            metrics.UnitCount.ToString("N0"),
-            "当前参与接触仿真的单位");
-        DrawMetric(
-            "接触管线耗时",
+            "管线总耗时",
             AvailableNanoseconds(metrics.TimingAvailable, metrics.SolverNanoseconds),
-            "本时间步接触检测与求解总耗时");
+            "接触管线 Job 时间跨度，不是整帧时间");
         DrawMetric(
-            "最大接触纠偏",
-            AvailableWorldUnits(metrics.StabilityAvailable, metrics.MaxContactCorrection),
-            "本时间步最严重的位置修正");
+            "Broad Phase",
+            AvailableNanoseconds(
+                metrics.StageTimingAvailable,
+                metrics.BroadPhaseNanoseconds),
+            "候选生成、代理校验与缓存维护");
+        DrawMetric(
+            "Narrow Phase",
+            AvailableNanoseconds(
+                metrics.StageTimingAvailable,
+                metrics.NarrowPhaseNanoseconds),
+            "候选几何分类与接触构造");
+        DrawMetric(
+            "XPBD Solve",
+            AvailableNanoseconds(metrics.TimingAvailable, metrics.IterationNanoseconds),
+            $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
         GUILayout.EndHorizontal();
+
+        DrawMultiTrendChart(
+            ref _overviewChartTexture,
+            "阶段耗时趋势（最近有效采样）",
+            new[]
+            {
+                SimulationDebuggerRuntime.GetSolverHistory(),
+                SimulationDebuggerRuntime.GetBroadPhaseHistory(),
+                SimulationDebuggerRuntime.GetNarrowPhaseHistory(),
+                SimulationDebuggerRuntime.GetXpbdHistory()
+            },
+            new[] { "总计", "Broad", "Narrow", "XPBD" },
+            new[]
+            {
+                new Color(0.35f, 0.78f, 1f),
+                new Color(0.28f, 0.85f, 0.45f),
+                new Color(1f, 0.67f, 0.2f),
+                new Color(0.78f, 0.45f, 1f)
+            },
+            "ms",
+            112);
+        DrawTrendRow(
+            "管线总耗时",
+            SimulationDebuggerRuntime.GetSolverTrend(),
+            "0.000",
+            " ms");
+        DrawTrendRow(
+            "Broad Phase",
+            SimulationDebuggerRuntime.GetBroadPhaseTrend(),
+            "0.000",
+            " ms");
+        DrawTrendRow(
+            "Narrow Phase",
+            SimulationDebuggerRuntime.GetNarrowPhaseTrend(),
+            "0.000",
+            " ms");
+        DrawTrendRow(
+            "XPBD Solve",
+            SimulationDebuggerRuntime.GetXpbdTrend(),
+            "0.000",
+            " ms");
 
         DrawHeatmapSelector(
             "整体热力图",
@@ -551,76 +605,120 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             AvailableWorldUnitsPerSecond(metrics.StabilityAvailable, metrics.MaxVelocityChange));
 
         GUILayout.Space(6f);
-        GUILayout.Label("最近 60 次采样", _sectionStyle);
-        if (metrics.TimingAvailable != 0)
-            DrawTrendRow(
-                "接触管线耗时",
-                SimulationDebuggerRuntime.GetSolverTrend(),
-                "0.0",
-                "ms");
-        if (metrics.StabilityAvailable != 0)
-            DrawTrendRow(
-                "最大接触纠偏",
-                SimulationDebuggerRuntime.GetCorrectionTrend(),
-                "0.000",
-                "世界单位");
-        if (metrics.WorkloadAvailable != 0)
-            DrawTrendRow(
-                "当前接触关系",
-                SimulationDebuggerRuntime.GetContactPairTrend(),
-                "0");
+        GUILayout.Label("稳定性与工作量", _sectionStyle);
+        DrawDetailRow("参与单位", metrics.UnitCount.ToString("N0"));
+        DrawDetailRow(
+            "当前实际 / 预测接触",
+            $"{metrics.CurrentActualPairCount:N0} / {metrics.CurrentPredictivePairCount:N0}");
+        DrawDetailRow(
+            "候选 / 接触评估累计",
+            $"{metrics.CandidatePairCount:N0} / {metrics.ContactPairCount:N0}");
+        DrawDetailRow(
+            "最大接触纠偏",
+            AvailableWorldUnits(metrics.StabilityAvailable, metrics.MaxContactCorrection));
     }
 
     private void DrawPersistentBroadPhase(
         SimulationDebuggerFrameSnapshot snapshot,
         IncrementalContactPipelineSnapshot pipeline)
     {
-        var statistics = pipeline.Statistics;
+        IncrementalContactPipelineStatistics statistics = pipeline.Statistics;
         bool cacheEnabled = snapshot.EffectiveSettings.EnablePersistentContactCache != 0;
         bool hasPipelineSnapshot = statistics.Timestep != 0;
+        bool oracleAvailable =
+            snapshot.EffectiveSettings.EnableDiagnostics != 0 &&
+            hasPipelineSnapshot;
+        SimulationDebuggerCacheComparison comparison =
+            SimulationDebuggerRuntime.GetTimestepCacheComparison();
         SimulationDebuggerHealth health;
         string status;
         if (!cacheEnabled)
         {
             health = SimulationDebuggerHealth.Disabled;
-            status = "跨帧邻居拓扑已关闭；当前每个子步重新生成接触候选。";
+            status = "缓存已关闭：正在收集同配置 OFF 基线；开启后才能计算净收益。";
         }
         else if (!hasPipelineSnapshot)
         {
             health = SimulationDebuggerHealth.Warning;
             status = "等待增量接触管线发布首个时间步快照。";
         }
-        else if (statistics.OracleMissingPairCount != 0 || statistics.OracleMismatch != 0)
+        else if (oracleAvailable &&
+                 (statistics.OracleMissingPairCount != 0 ||
+                  statistics.OracleMismatch != 0))
         {
             health = SimulationDebuggerHealth.Critical;
-            status = "Oracle 发现增量接触视图存在缺失 Pair；已记录不一致，但诊断系统不会自动改变 Gameplay cache 状态。";
+            status = "Oracle 发现最终接触视图漏对；检查缓存修复与 Fallback。";
         }
         else if (statistics.FullRebuildCount != 0)
         {
             health = SimulationDebuggerHealth.Warning;
-            status = "本时间步发生完整重建；检查脏体比例和局部查询范围。";
+            status = "本时间步发生完整重建；缓存仍正确，但本步收益可能下降。";
         }
         else
         {
             health = SimulationDebuggerHealth.Healthy;
-            status = "持久邻居拓扑有效，当前数据来自增量接触管线。";
+            status = $"缓存开启 · {pipeline.Mode} · {ComparisonStatus(comparison)}";
         }
 
-        DrawStatus("跨帧接触缓存", health, status);
+        DrawStatus("跨时间步候选缓存", health, status);
         GUILayout.Space(8f);
 
+        long maintenanceNanoseconds =
+            statistics.ProxyValidationNanoseconds +
+            statistics.PersistentPairMappingNanoseconds +
+            statistics.LocalBroadPhaseNanoseconds +
+            statistics.PairDiffNanoseconds +
+            statistics.FallbackNanoseconds;
         GUILayout.BeginHorizontal();
-        DrawMetric("拓扑脏体", hasPipelineSnapshot
-            ? $"{statistics.TopologyDirtyBodyCount} / {statistics.ProxyCount}"
-            : "--", "脏体越少，跨帧邻居拓扑复用越高");
-        DrawMetric("持久邻居对", hasPipelineSnapshot
-            ? statistics.PersistentNeighborPairCount.ToString("N0") : "--", "跨帧保留的局部候选对");
-        DrawMetric("更新模式", hasPipelineSnapshot ? pipeline.Mode.ToString() : "--",
-            "Reuse 最优；Repair 为局部更新；FullRebuild 为完整重建");
+        DrawMetric(
+            "缓存维护耗时",
+            hasPipelineSnapshot ? Nanoseconds(maintenanceNanoseconds) : "--",
+            "校验、局部查询、Pair Diff、映射与回退");
+        DrawMetric(
+            "管线净变化",
+            ComparisonTimeDelta(comparison),
+            "同配置 OFF/ON 各 30 次有效采样的 P50 差值");
+        DrawMetric(
+            "候选评估变化",
+            ComparisonPairDelta(comparison),
+            "负数表示需要评估的候选 Pair 减少");
+        DrawMetric(
+            "Oracle 最终漏对",
+            oracleAvailable
+                ? statistics.OracleMissingPairCount.ToString("N0")
+                : "未验证",
+            oracleAvailable
+                ? $"Oracle 对数 {statistics.OraclePairCount:N0}"
+                : "开启深度正确性诊断后才有真值");
         GUILayout.EndHorizontal();
 
+        DrawMultiTrendChart(
+            ref _timestepCostChartTexture,
+            "成本趋势",
+            new[]
+            {
+                SimulationDebuggerRuntime.GetSolverHistory(),
+                SimulationDebuggerRuntime.GetPersistentMaintenanceHistory()
+            },
+            new[] { "管线总计", "缓存维护" },
+            new[]
+            {
+                new Color(0.35f, 0.78f, 1f),
+                new Color(1f, 0.66f, 0.2f)
+            },
+            "ms",
+            86);
+        DrawMultiTrendChart(
+            ref _timestepLoadChartTexture,
+            "候选负载趋势",
+            new[] { SimulationDebuggerRuntime.GetPersistentCandidateHistory() },
+            new[] { "持久候选对" },
+            new[] { new Color(0.3f, 0.88f, 0.5f) },
+            " pair",
+            70);
+
         DrawHeatmapSelector(
-            "接触拓扑热力图",
+            "候选缓存热力图",
             new[]
             {
                 SimulationDebuggerHeatmap.AabbBenefit,
@@ -636,63 +734,152 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (!_showDetails)
             return;
 
-        GUILayout.Label("增量拓扑详情", _sectionStyle);
-        DrawDetailRow("时间步 / 模式", hasPipelineSnapshot
-            ? $"{statistics.Timestep} / {pipeline.Mode}" : "尚无快照");
+        GUILayout.Label("成本与避免工作", _sectionStyle);
+        DrawDetailRow("当前模式", hasPipelineSnapshot ? pipeline.Mode.ToString() : "--");
+        DrawDetailRow(
+            "代理校验 / Pair 映射",
+            hasPipelineSnapshot
+                ? $"{Nanoseconds(statistics.ProxyValidationNanoseconds)} / " +
+                  $"{Nanoseconds(statistics.PersistentPairMappingNanoseconds)}"
+                : "--");
+        DrawDetailRow(
+            "局部 Broad / Pair Diff",
+            hasPipelineSnapshot
+                ? $"{Nanoseconds(statistics.LocalBroadPhaseNanoseconds)} / " +
+                  $"{Nanoseconds(statistics.PairDiffNanoseconds)}"
+                : "--");
+        DrawDetailRow(
+            "完整扫描 / Fallback",
+            hasPipelineSnapshot
+                ? $"{Nanoseconds(statistics.FullSweepSourceNanoseconds)} / " +
+                  $"{Nanoseconds(statistics.FallbackNanoseconds)}"
+                : "--");
+        DrawDetailRow(
+            "分类复用 / 跳过",
+            hasPipelineSnapshot
+                ? $"{statistics.ClassificationReuseCount:N0} / " +
+                  $"{statistics.ClassificationSkippedCount:N0}"
+                : "--");
+
+        GUILayout.Space(6f);
+        GUILayout.Label("拓扑与正确性", _sectionStyle);
+        DrawDetailRow("拓扑脏体 / 总代理", hasPipelineSnapshot
+            ? $"{statistics.TopologyDirtyBodyCount:N0} / {statistics.ProxyCount:N0}"
+            : "--");
         DrawDetailRow("运动脏体 / 逃逸", hasPipelineSnapshot
-            ? $"{statistics.MotionDirtyBodyCount} / {statistics.CorrectedEscapeBodyCount}" : "--");
+            ? $"{statistics.MotionDirtyBodyCount:N0} / {statistics.CorrectedEscapeBodyCount:N0}"
+            : "--");
         DrawDetailRow("新增 / 移除 / 保留 Pair", hasPipelineSnapshot
             ? $"{statistics.NeighborPairAddedCount} / {statistics.NeighborPairRemovedCount} / {statistics.NeighborPairRetainedCount}" : "--");
         DrawDetailRow("完整重建 / 局部修复", hasPipelineSnapshot
             ? $"{statistics.FullRebuildCount} / {statistics.IncrementalRepairCount}" : "--");
         DrawDetailRow("干净代理 / Pair 保留率", hasPipelineSnapshot
-            ? $"{pipeline.CleanProxyRatio:P1} / {pipeline.RetainedNeighborPairRatio:P1}" : "--");
-        DrawDetailRow("局部代理查询", hasPipelineSnapshot
-            ? statistics.LocalProxyQueryCount.ToString("N0") : "--");
-        DrawDetailRow("代理校验 / 局部 Broad / Pair Diff", hasPipelineSnapshot
-            ? $"{Nanoseconds(statistics.ProxyValidationNanoseconds)} / {Nanoseconds(statistics.LocalBroadPhaseNanoseconds)} / {Nanoseconds(statistics.PairDiffNanoseconds)}" : "--");
-        DrawDetailRow("Oracle 缺失 / 额外", hasPipelineSnapshot
-            ? $"{statistics.OracleMissingPairCount} / {statistics.OracleExtraPairCount}" : "--");
+            ? $"{pipeline.CleanProxyRatio:P1} / {pipeline.RetainedNeighborPairRatio:P1}"
+            : "--");
+        DrawDetailRow(
+            "Oracle 缺失 / 额外",
+            oracleAvailable
+                ? $"{statistics.OracleMissingPairCount:N0} / " +
+                  $"{statistics.OracleExtraPairCount:N0}"
+                : "未验证");
+        DrawDetailRow(
+            "软避让 Oracle 漏对",
+            oracleAvailable
+                ? statistics.SoftAvoidanceOracleMissingPairCount.ToString("N0")
+                : "未验证");
+        DrawComparisonDetails(comparison);
     }
 
-    private void DrawContactSet(SimulationDebuggerFrameSnapshot snapshot)
+    private void DrawContactSet(
+        SimulationDebuggerFrameSnapshot snapshot,
+        IncrementalContactPipelineSnapshot pipeline)
     {
-        DrawTrendChart(SimulationDebuggerRuntime.GetContactPairHistory(), "接触对数");
-        GUILayout.Space(4f);
-
         TimestepContactSetMetrics metrics = snapshot.ContactSet;
-        bool diagnosticsEnabled =
-            snapshot.EffectiveSettings.EnableDiagnostics != 0;
+        PredictiveDiscContactStatistics statistics = pipeline.SolverStatistics;
+        IncrementalContactPipelineStatistics incremental = pipeline.Statistics;
+        SimulationDebuggerCacheComparison comparison =
+            SimulationDebuggerRuntime.GetSubstepCacheComparison();
+        bool cacheEnabled = metrics.CacheEnabled != 0;
+        bool oracleAvailable = metrics.OracleAvailable != 0;
         DrawStatus(
-            "跨子步接触缓存",
-            diagnosticsEnabled
-                ? metrics.Health
-                : SimulationDebuggerHealth.Disabled,
-            diagnosticsEnabled
-                ? ContactSetStatus(metrics)
-                : "详细诊断已关闭；Benchmark 运行时会主动关闭该开关，以下事件统计不可用。");
+            "跨子步接触集缓存",
+            metrics.Health,
+            cacheEnabled
+                ? $"整步唯一接触集复用中 · {ComparisonStatus(comparison)}"
+                : "缓存已关闭：每个 Substep 重新构建接触集，并收集 OFF 基线。");
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
         DrawMetric(
-            metrics.CacheEnabled != 0 ? "整步接触集" : "子步接触集",
+            cacheEnabled ? "整步唯一接触集" : "当前 Substep 接触集",
             metrics.ContactSetSize.ToString("N0"),
-            metrics.CacheEnabled != 0 ? "一个时间步只生成一次并跨子步复用" : "每个子步重新生成，仅在迭代内复用");
+            cacheEnabled
+                ? "整个 Timestep 内唯一 Pair 数"
+                : "关闭缓存时只表示最后一次构建，不参与利用率");
         DrawMetric(
-            "接触激活率",
-            diagnosticsEnabled ? Percent(metrics.ActivationRatio) : "--",
-            diagnosticsEnabled
-                ? "至少一次真正产生约束作用的接触"
-                : "详细诊断已关闭，当前值不可用");
+            "唯一激活利用率",
+            metrics.ActivationAvailable != 0
+                ? Percent(metrics.ActivationRatio)
+                : "不适用",
+            "至少一个 Substep 中产生有效 XPBD 约束的唯一 Pair");
         DrawMetric(
-            "重建 / 补充 Pair",
-            diagnosticsEnabled
-                ? $"{metrics.FullRebuildCount} / {metrics.FallbackAddedPairCount}"
-                : "--",
-            diagnosticsEnabled
-                ? "完整重建表示视图重新生成；补充 Pair 表示初始接触集遗漏"
-                : "详细诊断已关闭，当前值不可用");
+            "避免重复构建",
+            cacheEnabled
+                ? $"{metrics.AvoidedContactGenerationCount} 次"
+                : "0 次",
+            $"实际构建 {metrics.ContactGenerationCount} / {metrics.SubstepCount} 次");
+        DrawMetric(
+            "管线净变化",
+            ComparisonTimeDelta(comparison),
+            "要求跨时间步缓存关闭，OFF/ON 各 30 次有效采样");
         GUILayout.EndHorizontal();
+
+        if (metrics.FallbackAddedPairCount > 0 ||
+            (oracleAvailable && incremental.OracleMissingPairCount > 0))
+        {
+            GUILayout.Space(5f);
+            DrawStatus(
+                "正确性事件",
+                incremental.OracleMissingPairCount > 0
+                    ? SimulationDebuggerHealth.Critical
+                    : SimulationDebuggerHealth.Warning,
+                $"Fallback 补充 {metrics.FallbackAddedPairCount:N0} Pair · " +
+                $"Oracle 最终漏对 " +
+                $"{(oracleAvailable ? incremental.OracleMissingPairCount.ToString("N0") : "未验证")}");
+        }
+
+        DrawMultiTrendChart(
+            ref _substepCostChartTexture,
+            "成本趋势",
+            new[]
+            {
+                SimulationDebuggerRuntime.GetSolverHistory(),
+                SimulationDebuggerRuntime.GetContactSetBuildHistory()
+            },
+            new[] { "管线总计", "接触集构建" },
+            new[]
+            {
+                new Color(0.35f, 0.78f, 1f),
+                new Color(1f, 0.66f, 0.2f)
+            },
+            "ms",
+            86);
+        DrawMultiTrendChart(
+            ref _substepLoadChartTexture,
+            "接触集利用趋势",
+            new[]
+            {
+                SimulationDebuggerRuntime.GetContactSetSizeHistory(),
+                SimulationDebuggerRuntime.GetActiveContactHistoryObj()
+            },
+            new[] { "唯一接触集", "已激活" },
+            new[]
+            {
+                new Color(0.45f, 0.65f, 1f),
+                new Color(0.3f, 0.9f, 0.48f)
+            },
+            " pair",
+            76);
 
         DrawHeatmapSelector(
             "接触缓存热力图",
@@ -710,53 +897,72 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (!_showDetails)
             return;
 
-        GUILayout.Label("接触集组成", _sectionStyle);
-        DrawDetailRow("生成模式", metrics.CacheEnabled != 0 ? "每时间步一次" : "每子步一次");
-        DrawDetailRow("本帧生成次数", metrics.ContactGenerationCount.ToString("N0"));
+        GUILayout.Label("构建与分类成本", _sectionStyle);
+        DrawDetailRow("接触集构建", Nanoseconds(metrics.BuildNanoseconds));
+        DrawDetailRow("Narrow 分类", Nanoseconds(metrics.ClassificationNanoseconds));
+        DrawDetailRow("Substep 激活调度", Nanoseconds(metrics.ActivationNanoseconds));
+        DrawDetailRow("Fallback", Nanoseconds(metrics.FallbackNanoseconds));
         DrawDetailRow(
-            "完整重建次数",
-            diagnosticsEnabled ? metrics.FullRebuildCount.ToString("N0") : "--");
-        DrawDetailRow(
-            "Fallback 补充 Pair",
-            diagnosticsEnabled ? metrics.FallbackAddedPairCount.ToString("N0") : "--");
-        DrawDetailRow("当前 / 临近接触", metrics.ActualContactCount.ToString("N0"));
-        DrawDetailRow(
-            "预测接触",
-            diagnosticsEnabled ? metrics.PredictiveContactCount.ToString("N0") : "--");
-        DrawDetailRow(
-            "预测接触已激活",
-            diagnosticsEnabled ? metrics.PredictiveActivatedCount.ToString("N0") : "--");
-        DrawDetailRow(
-            "缓存但未激活",
-            diagnosticsEnabled ? metrics.InactiveContactCount.ToString("N0") : "--");
-        DrawDetailRow("避免重复生成", $"{metrics.AvoidedContactGenerationCount} 次");
-        DrawDetailRow(
-            "预测接触激活率",
-            diagnosticsEnabled ? Percent(metrics.PredictiveActivationRatio) : "--");
+            "构建 / 分类 / Substep 使用次数",
+            $"{statistics.TimestepContactSetBuildCount:N0} / " +
+            $"{statistics.TimestepContactSetClassificationPassCount:N0} / " +
+            $"{statistics.TimestepContactSetSubstepUseCount:N0}");
 
         GUILayout.Space(6f);
-        GUILayout.Label("60 帧趋势", _sectionStyle);
-        DrawTrendRow("活跃接触数", SimulationDebuggerRuntime.GetActiveContactTrend(), "0");
-        DrawTrendRow("接触集大小", SimulationDebuggerRuntime.GetContactPairTrend(), "0");
+        GUILayout.Label("接触集组成与正确性", _sectionStyle);
+        DrawDetailRow(
+            "Actual / Predictive",
+            $"{incremental.CurrentActualPairCount:N0} / " +
+            $"{incremental.CurrentPredictivePairCount:N0}");
+        DrawDetailRow(
+            "Approaching / Dormant",
+            $"{incremental.CurrentApproachingPairCount:N0} / " +
+            $"{incremental.CurrentDormantPairCount:N0}");
+        DrawDetailRow(
+            "唯一激活 / 唯一纠偏",
+            $"{incremental.UniqueActivatedPairCount:N0} / " +
+            $"{incremental.UniqueCorrectedPairCount:N0}");
+        DrawDetailRow(
+            "缓存但未激活",
+            metrics.ActivationAvailable != 0
+                ? metrics.InactiveContactCount.ToString("N0")
+                : "不适用");
+        DrawDetailRow(
+            "完整重建 / Fallback 补充",
+            $"{metrics.FullRebuildCount:N0} / " +
+            $"{metrics.FallbackAddedPairCount:N0}");
+        DrawDetailRow(
+            "Oracle 最终缺失 / 额外",
+            oracleAvailable
+                ? $"{incremental.OracleMissingPairCount:N0} / " +
+                  $"{incremental.OracleExtraPairCount:N0}"
+                : "未验证");
+        DrawComparisonDetails(comparison);
     }
 
     private void DrawSettingsSummary(SimulationDebuggerFrameSnapshot snapshot)
     {
-        DrawStatus("运行时设置", SimulationDebuggerHealth.Healthy, "修改即时生效");
+        DrawStatus(
+            "运行时设置",
+            SimulationDebuggerHealth.Healthy,
+            $"有效配置：Timestep " +
+            $"{OnOff(snapshot.EffectiveSettings.EnablePersistentContactCache)} · " +
+            $"Substep {OnOff(snapshot.EffectiveSettings.EnableTimestepContactSetCache)} · " +
+            $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
         GUILayout.Space(8f);
 
         SimulationDebuggerEffectiveSettings draft = snapshot.EffectiveSettings;
 
-        GUILayout.Label("对比实验（A / B / C）", _sectionStyle);
+        GUILayout.Label("运行算法", _sectionStyle);
         GUILayout.Label(
-            "A 为跨帧持久邻居拓扑，B 为跨子步接触集；A 依赖 B，关闭 B 会自动关闭 A。",
+            "跨时间步候选缓存依赖跨子步接触集缓存；关闭 Substep 缓存会同时关闭 Timestep 缓存。",
             _mutedStyle);
         draft.EnablePersistentContactCache = DrawToggle(
-            "A：跨帧接触缓存",
+            "跨时间步候选缓存",
             draft.EnablePersistentContactCache,
             snapshot.EffectiveSettings.EnablePersistentContactCache);
         draft.EnableTimestepContactSetCache = DrawToggle(
-            "B：跨子步接触缓存",
+            "跨子步接触集缓存",
             draft.EnableTimestepContactSetCache,
             snapshot.EffectiveSettings.EnableTimestepContactSetCache);
         if (draft.EnablePersistentContactCache != 0 && draft.EnableTimestepContactSetCache == 0)
@@ -766,57 +972,17 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             if (userTurnedOffSubstepCache)
             {
                 draft.EnablePersistentContactCache = 0;
-                GUILayout.Label("已关闭 A：跨帧接触缓存依赖跨子步接触集。", _mutedStyle);
+                GUILayout.Label("已同步关闭跨时间步候选缓存。", _mutedStyle);
             }
             else
             {
                 draft.EnableTimestepContactSetCache = 1;
-                GUILayout.Label("已自动开启 B：跨帧接触缓存需要跨子步接触集。", _mutedStyle);
+                GUILayout.Label("已同步开启跨子步接触集缓存。", _mutedStyle);
             }
         }
-        draft.EnableAdaptiveFatAabb = DrawToggle(
-            "热点网格诊断（非执行路径）",
-            draft.EnableAdaptiveFatAabb,
-            snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("C：软避让求解器", _mutedStyle, GUILayout.Width(170f));
-        string[] solverModes = { "预测引导", "RVO 互惠避让" };
-        draft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
-            Mathf.Clamp(draft.SoftAvoidanceVelocitySolver, 0, 1),
-            solverModes,
-            2,
-            _tabStyle);
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(
-            $"当前有效：{SoftSolverLabel(snapshot.EffectiveSettings.SoftAvoidanceVelocitySolver)}",
-            _mutedStyle);
-        GUILayout.EndHorizontal();
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("D：接触位置求解器", _mutedStyle, GUILayout.Width(170f));
-        string[] contactSolverModes = { "Gauss-Seidel", "Jacobi" };
-        draft.ContactPositionSolver = GUILayout.SelectionGrid(
-            Mathf.Clamp(draft.ContactPositionSolver, 0, 1),
-            contactSolverModes,
-            2,
-            _tabStyle);
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(
-            $"当前有效：{ContactSolverLabel(snapshot.EffectiveSettings.ContactPositionSolver)}",
-            _mutedStyle);
-        GUILayout.EndHorizontal();
-        DrawDetailRow(
-            "当前实验编号",
-            $"{snapshot.Experiment.ShortId} / 配置 #{snapshot.Experiment.ConfigurationId}");
-        DrawDetailRow(
-            "统计阶段",
-            snapshot.Experiment.IsWarmup != 0
-                ? $"预热中（{snapshot.Experiment.FramesSinceChanged + 1} 帧）"
-                : "可纳入正式对比");
 
-        GUILayout.Space(6f);
-        GUILayout.Label("全局与 XPBD", _sectionStyle);
         draft.SubstepCount = DrawIntSlider(
-            "子步数量",
+            "XPBD 子步数量",
             draft.SubstepCount,
             snapshot.EffectiveSettings.SubstepCount,
             1,
@@ -827,6 +993,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             snapshot.EffectiveSettings.IterationCount,
             1,
             24);
+
         GUILayout.BeginHorizontal();
         GUILayout.Label("接触位置求解器", _mutedStyle, GUILayout.Width(170f));
         draft.ContactPositionSolver = GUILayout.SelectionGrid(
@@ -836,261 +1003,398 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             _tabStyle);
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
-        draft.Compliance = DrawFloatSlider(
-            "柔顺度",
-            draft.Compliance,
-            snapshot.EffectiveSettings.Compliance,
-            0f,
-            0.1f,
-            "0.0000");
-        draft.EnableDiagnostics = DrawToggle(
-            "求解器详细诊断",
-            draft.EnableDiagnostics,
-            snapshot.EffectiveSettings.EnableDiagnostics);
 
-        GUILayout.Space(6f);
-        GUILayout.Label("软避让参数", _sectionStyle);
-        DrawDetailRow("当前求解器", SoftSolverLabel(draft.SoftAvoidanceVelocitySolver));
-        draft.SoftAvoidanceResponseRate = DrawFloatSlider(
-            "响应速度",
-            draft.SoftAvoidanceResponseRate,
-            snapshot.EffectiveSettings.SoftAvoidanceResponseRate,
-            0f,
-            20f,
-            "0.00");
-        draft.SoftAvoidanceShell = DrawFloatSlider(
-            "表面缓冲距离",
-            draft.SoftAvoidanceShell,
-            snapshot.EffectiveSettings.SoftAvoidanceShell,
-            0f,
-            4f,
-            "0.00");
-        draft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
-            "已到达单位避让倍率",
-            draft.SettledSoftAvoidanceMultiplier,
-            snapshot.EffectiveSettings.SettledSoftAvoidanceMultiplier,
-            0f,
-            2f,
-            "0.00");
-        bool previousEnabled = GUI.enabled;
-        GUI.enabled = previousEnabled && draft.SoftAvoidanceVelocitySolver == 1;
-        draft.RvoTimeHorizon = DrawFloatSlider(
-            "RVO 预测时间",
-            draft.RvoTimeHorizon,
-            snapshot.EffectiveSettings.RvoTimeHorizon,
-            0.05f,
-            5f,
-            "0.00");
-        GUI.enabled = previousEnabled;
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("软避让求解器", _mutedStyle, GUILayout.Width(170f));
+        draft.SoftAvoidanceVelocitySolver = GUILayout.SelectionGrid(
+            Mathf.Clamp(draft.SoftAvoidanceVelocitySolver, 0, 1),
+            new[] { "预测引导", "RVO 互惠避让" },
+            2,
+            _tabStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.EndHorizontal();
 
-        GUILayout.Space(6f);
-        GUILayout.Label("跨帧接触缓存参数", _sectionStyle);
-        bool persistentCacheEnabled = draft.EnablePersistentContactCache != 0;
-        GUI.enabled = persistentCacheEnabled;
-        draft.PersistentGuardEnvelopeMargin = DrawFloatSlider(
-            "跨帧预测包络余量",
-            draft.PersistentGuardEnvelopeMargin,
-            snapshot.EffectiveSettings.PersistentGuardEnvelopeMargin,
-            0f,
-            5f,
-            "0.00");
-        GUI.enabled = previousEnabled && draft.EnableAdaptiveFatAabb != 0;
-        draft.AdaptiveDetectionCellSpan = DrawIntSlider(
-            "检测格子跨度",
-            draft.AdaptiveDetectionCellSpan,
-            snapshot.EffectiveSettings.AdaptiveDetectionCellSpan,
-            1,
-            8);
-        draft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
-            "每格最少单位数",
-            draft.AdaptiveMinimumUnitsPerCell,
-            snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerCell,
-            1,
-            32);
-        draft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
-            "每区最少单位数",
-            draft.AdaptiveMinimumUnitsPerRegion,
-            snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerRegion,
-            1,
-            128);
-        draft.AdaptiveEnableScore = DrawFloatSlider(
-            "启用阈值",
-            draft.AdaptiveEnableScore,
-            snapshot.EffectiveSettings.AdaptiveEnableScore,
-            0f,
-            1f,
-            "0.00");
-        draft.AdaptiveDisableScore = DrawFloatSlider(
-            "关闭阈值",
-            draft.AdaptiveDisableScore,
-            snapshot.EffectiveSettings.AdaptiveDisableScore,
-            0f,
-            draft.AdaptiveEnableScore,
-            "0.00");
-        GUI.enabled = previousEnabled;
-
-        GUILayout.Space(6f);
-        GUILayout.Label("跨子步接触集参数", _sectionStyle);
+        GUILayout.Space(8f);
+        GUILayout.Label("性能对比", _sectionStyle);
+        GUILayout.Label(
+            "系统自动按相同单位数、时间步和求解配置积累 OFF/ON 样本；预热样本不会进入对比。",
+            _mutedStyle);
+        DrawComparisonSettingsRow(
+            "Timestep 缓存",
+            SimulationDebuggerRuntime.GetTimestepCacheComparison());
+        DrawComparisonSettingsRow(
+            "Substep 缓存",
+            SimulationDebuggerRuntime.GetSubstepCacheComparison());
         DrawDetailRow(
-            "生成生命周期",
-            draft.EnableTimestepContactSetCache != 0
-                ? "每时间步生成一次，跨全部子步复用"
-                : "每个子步重新生成");
-        draft.EnablePredictivePairGeneration = DrawToggle(
-            "生成预测接触对",
-            draft.EnablePredictivePairGeneration,
-            snapshot.EffectiveSettings.EnablePredictivePairGeneration);
-        GUI.enabled = previousEnabled && draft.EnablePredictivePairGeneration != 0;
-        draft.EnablePredictiveContacts = DrawToggle(
-            "启用预测半空间约束",
-            draft.EnablePredictiveContacts,
-            snapshot.EffectiveSettings.EnablePredictiveContacts);
-        draft.PredictiveSkin = DrawFloatSlider(
-            "预测接触外扩距离",
-            draft.PredictiveSkin,
-            snapshot.EffectiveSettings.PredictiveSkin,
-            0f,
-            3f,
-            "0.00");
-        draft.TimestepContactMargin = DrawFloatSlider(
-            "时间步接触包络余量",
-            draft.TimestepContactMargin,
-            snapshot.EffectiveSettings.TimestepContactMargin,
-            0f,
-            5f,
-            "0.00");
-        GUI.enabled = previousEnabled;
+            "当前采样状态",
+            snapshot.Experiment.IsWarmup != 0
+                ? $"预热 {snapshot.Experiment.FramesSinceChanged + 1} / " +
+                  $"{SimulationDebuggerRuntime.ExperimentWarmupFrames}"
+                : "有效样本");
+        if (GUILayout.Button("清除性能对比样本", GUILayout.Height(24f)))
+            SimulationDebuggerRuntime.ClearCacheComparisons();
 
-        GUILayout.Space(6f);
-        GUILayout.Label("诊断与显示", _sectionStyle);
-        SimulationDebuggerRuntime.SummarySampleIntervalFrames = DrawIntSlider(
-            "汇总采样间隔（帧）",
-            SimulationDebuggerRuntime.SummarySampleIntervalFrames,
-            SimulationDebuggerRuntime.SummarySampleIntervalFrames,
-            1,
-            30);
-        SimulationDebuggerRuntime.SpatialSampleIntervalFrames = DrawIntSlider(
-            "空间采样间隔（帧）",
-            SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
-            SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
-            1,
-            30);
-        SimulationDebuggerRuntime.ExperimentWarmupFrames = DrawIntSlider(
-            "实验预热帧数",
-            SimulationDebuggerRuntime.ExperimentWarmupFrames,
-            SimulationDebuggerRuntime.ExperimentWarmupFrames,
-            0,
-            300);
-        SimulationDebuggerRuntime.MaximumVisualizedPairs = DrawIntSlider(
-            "最多绘制接触线",
-            SimulationDebuggerRuntime.MaximumVisualizedPairs,
-            SimulationDebuggerRuntime.MaximumVisualizedPairs,
-            1,
-            128);
-        GUILayout.Space(6f);
-        GUILayout.Label("摄像机跟随与时间减缓", _sectionStyle);
-        SimulationDebuggerRuntime.SlowTimeScale = DrawFloatSlider(
-            "选中单位时减缓倍率",
-            SimulationDebuggerRuntime.SlowTimeScale,
-            SimulationDebuggerRuntime.SlowTimeScale,
-            0.01f,
-            1f,
-            "0.00");
-        DrawDetailRow(
-            "说明",
-            "中键点击单位→自动跟随+时间减缓；中键点击空地→退出。跟随模式下仍可边缘滚动和缩放。");
+        DrawDetailsToggle();
+        if (_showDetails)
+        {
+            bool previousEnabled = GUI.enabled;
+            GUILayout.Space(6f);
+            GUILayout.Label("XPBD 与预测接触", _sectionStyle);
+            draft.Compliance = DrawFloatSlider(
+                "柔顺度",
+                draft.Compliance,
+                snapshot.EffectiveSettings.Compliance,
+                0f,
+                0.1f,
+                "0.0000");
+            draft.EnablePredictivePairGeneration = DrawToggle(
+                "生成预测接触对",
+                draft.EnablePredictivePairGeneration,
+                snapshot.EffectiveSettings.EnablePredictivePairGeneration);
+            GUI.enabled =
+                previousEnabled && draft.EnablePredictivePairGeneration != 0;
+            draft.EnablePredictiveContacts = DrawToggle(
+                "启用预测半空间约束",
+                draft.EnablePredictiveContacts,
+                snapshot.EffectiveSettings.EnablePredictiveContacts);
+            draft.PredictiveSkin = DrawFloatSlider(
+                "预测接触外扩距离",
+                draft.PredictiveSkin,
+                snapshot.EffectiveSettings.PredictiveSkin,
+                0f,
+                3f,
+                "0.00");
+            draft.TimestepContactMargin = DrawFloatSlider(
+                "时间步接触包络余量",
+                draft.TimestepContactMargin,
+                snapshot.EffectiveSettings.TimestepContactMargin,
+                0f,
+                5f,
+                "0.00");
+            GUI.enabled = previousEnabled;
 
-        SimulationDebuggerRuntime.HeatmapOpacity = DrawFloatSlider(
-            "场景热力图透明度",
-            SimulationDebuggerRuntime.HeatmapOpacity,
-            SimulationDebuggerRuntime.HeatmapOpacity,
-            0f,
-            0.8f,
-            "0.00");
+            GUILayout.Space(6f);
+            GUILayout.Label("软避让参数", _sectionStyle);
+            draft.SoftAvoidanceResponseRate = DrawFloatSlider(
+                "响应速度",
+                draft.SoftAvoidanceResponseRate,
+                snapshot.EffectiveSettings.SoftAvoidanceResponseRate,
+                0f,
+                20f,
+                "0.00");
+            draft.SoftAvoidanceShell = DrawFloatSlider(
+                "表面缓冲距离",
+                draft.SoftAvoidanceShell,
+                snapshot.EffectiveSettings.SoftAvoidanceShell,
+                0f,
+                4f,
+                "0.00");
+            draft.SettledSoftAvoidanceMultiplier = DrawFloatSlider(
+                "已到达单位避让倍率",
+                draft.SettledSoftAvoidanceMultiplier,
+                snapshot.EffectiveSettings.SettledSoftAvoidanceMultiplier,
+                0f,
+                2f,
+                "0.00");
+            GUI.enabled =
+                previousEnabled && draft.SoftAvoidanceVelocitySolver == 1;
+            draft.RvoTimeHorizon = DrawFloatSlider(
+                "RVO 预测时间",
+                draft.RvoTimeHorizon,
+                snapshot.EffectiveSettings.RvoTimeHorizon,
+                0.05f,
+                5f,
+                "0.00");
+            GUI.enabled = previousEnabled;
+
+            GUILayout.Space(6f);
+            GUILayout.Label("缓存参数", _sectionStyle);
+            GUI.enabled =
+                previousEnabled && draft.EnablePersistentContactCache != 0;
+            draft.PersistentGuardEnvelopeMargin = DrawFloatSlider(
+                "跨时间步预测包络余量",
+                draft.PersistentGuardEnvelopeMargin,
+                snapshot.EffectiveSettings.PersistentGuardEnvelopeMargin,
+                0f,
+                5f,
+                "0.00");
+            GUI.enabled = previousEnabled;
+
+            GUILayout.Space(6f);
+            GUILayout.Label("深度正确性诊断", _sectionStyle);
+            draft.EnableDiagnostics = DrawToggle(
+                "逐 Pair / Oracle 诊断",
+                draft.EnableDiagnostics,
+                snapshot.EffectiveSettings.EnableDiagnostics);
+            GUILayout.Label(
+                "Oracle 为 O(N²) 验证，只用于正确性检查；基础阶段计时不依赖此开关。",
+                _mutedStyle);
+            draft.EnableAdaptiveFatAabb = DrawToggle(
+                "热点网格诊断（非执行路径）",
+                draft.EnableAdaptiveFatAabb,
+                snapshot.EffectiveSettings.EnableAdaptiveFatAabb);
+            GUI.enabled = previousEnabled && draft.EnableAdaptiveFatAabb != 0;
+            draft.AdaptiveDetectionCellSpan = DrawIntSlider(
+                "检测格子跨度",
+                draft.AdaptiveDetectionCellSpan,
+                snapshot.EffectiveSettings.AdaptiveDetectionCellSpan,
+                1,
+                8);
+            draft.AdaptiveMinimumUnitsPerCell = DrawIntSlider(
+                "每格最少单位数",
+                draft.AdaptiveMinimumUnitsPerCell,
+                snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerCell,
+                1,
+                32);
+            draft.AdaptiveMinimumUnitsPerRegion = DrawIntSlider(
+                "每区最少单位数",
+                draft.AdaptiveMinimumUnitsPerRegion,
+                snapshot.EffectiveSettings.AdaptiveMinimumUnitsPerRegion,
+                1,
+                128);
+            draft.AdaptiveEnableScore = DrawFloatSlider(
+                "启用阈值",
+                draft.AdaptiveEnableScore,
+                snapshot.EffectiveSettings.AdaptiveEnableScore,
+                0f,
+                1f,
+                "0.00");
+            draft.AdaptiveDisableScore = DrawFloatSlider(
+                "关闭阈值",
+                draft.AdaptiveDisableScore,
+                snapshot.EffectiveSettings.AdaptiveDisableScore,
+                0f,
+                draft.AdaptiveEnableScore,
+                "0.00");
+            GUI.enabled = previousEnabled;
+
+            GUILayout.Space(6f);
+            GUILayout.Label("采样与显示", _sectionStyle);
+            SimulationDebuggerRuntime.SummarySampleIntervalFrames = DrawIntSlider(
+                "汇总采样间隔（帧）",
+                SimulationDebuggerRuntime.SummarySampleIntervalFrames,
+                SimulationDebuggerRuntime.SummarySampleIntervalFrames,
+                1,
+                30);
+            SimulationDebuggerRuntime.SpatialSampleIntervalFrames = DrawIntSlider(
+                "空间采样间隔（帧）",
+                SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
+                SimulationDebuggerRuntime.SpatialSampleIntervalFrames,
+                1,
+                30);
+            SimulationDebuggerRuntime.ExperimentWarmupFrames = DrawIntSlider(
+                "实验预热帧数",
+                SimulationDebuggerRuntime.ExperimentWarmupFrames,
+                SimulationDebuggerRuntime.ExperimentWarmupFrames,
+                0,
+                300);
+            SimulationDebuggerRuntime.MaximumVisualizedPairs = DrawIntSlider(
+                "最多绘制接触线",
+                SimulationDebuggerRuntime.MaximumVisualizedPairs,
+                SimulationDebuggerRuntime.MaximumVisualizedPairs,
+                1,
+                128);
+            SimulationDebuggerRuntime.HeatmapOpacity = DrawFloatSlider(
+                "场景热力图透明度",
+                SimulationDebuggerRuntime.HeatmapOpacity,
+                SimulationDebuggerRuntime.HeatmapOpacity,
+                0f,
+                0.8f,
+                "0.00");
+            SimulationDebuggerRuntime.SlowTimeScale = DrawFloatSlider(
+                "选中单位时减缓倍率",
+                SimulationDebuggerRuntime.SlowTimeScale,
+                SimulationDebuggerRuntime.SlowTimeScale,
+                0.01f,
+                1f,
+                "0.00");
+        }
 
         // 自动提交：每帧检查 draft 是否与有效值有差异，有则提交。
         if (!draft.Equals(snapshot.EffectiveSettings))
             SimulationDebuggerRuntime.SubmitSettings(draft);
     }
 
-    private static string SoftSolverLabel(int solverMode)
-    {
-        return solverMode == 1 ? "RVO 互惠避让" : "预测引导";
-    }
-
-    private static string ContactSolverLabel(int solverMode)
-    {
-        return solverMode == 1 ? "Jacobi" : "Gauss-Seidel";
-    }
-
-    private void DrawTrendChart(
-        SimulationDebuggerHistory history,
+    private void DrawMultiTrendChart(
+        ref Texture2D texture,
         string title,
-        int width = 120,
-        int height = 44)
+        SimulationDebuggerHistory[] histories,
+        string[] labels,
+        Color[] colors,
+        string unit,
+        int height)
     {
-        if (history == null)
+        if (histories == null || histories.Length == 0)
             return;
 
-        if (_chartTexture == null || _chartTexture.width != width || _chartTexture.height != height)
+        int width = Mathf.Clamp(
+            Mathf.RoundToInt(
+                (_activeWindowState?.Rect.width ?? 460f) - 40f),
+            180,
+            640);
+        if (texture == null || texture.width != width || texture.height != height)
         {
-            DestroyRuntimeTexture(ref _chartTexture);
-            _chartTexture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            DestroyRuntimeTexture(ref texture);
+            texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
             {
                 hideFlags = HideFlags.HideAndDontSave,
-                filterMode = FilterMode.Point
+                filterMode = FilterMode.Bilinear
             };
         }
 
-        // 清空
         Color bg = new Color(0.06f, 0.07f, 0.09f, 1f);
         Color[] pixels = new Color[width * height];
         for (int i = 0; i < pixels.Length; i++)
             pixels[i] = bg;
 
-        // 画网格线
         Color gridColor = new Color(0.12f, 0.14f, 0.18f);
-        for (int y = 0; y < height; y += height / 4)
+        int gridStep = Mathf.Max(1, height / 4);
+        for (int y = 0; y < height; y += gridStep)
             for (int x = 0; x < width; x++)
                 pixels[y * width + x] = gridColor;
 
-        // 拷贝数据
-        System.Array.Clear(_chartBuffer, 0, _chartBuffer.Length);
-        history.CopyTo(_chartBuffer, Math.Min(width, _chartBuffer.Length));
-
-        // 找范围
-        float min = float.MaxValue, max = float.MinValue;
-        int startIdx = Math.Max(0, _chartBuffer.Length - width);
-        for (int i = startIdx; i < _chartBuffer.Length; i++)
+        int seriesCount = Mathf.Min(
+            Mathf.Min(histories.Length, labels?.Length ?? 0),
+            Mathf.Min(colors?.Length ?? 0, 4));
+        int[] counts = new int[seriesCount];
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        for (int series = 0; series < seriesCount; series++)
         {
-            float v = _chartBuffer[i];
-            if (v < min) min = v;
-            if (v > max) max = v;
-        }
-        if (max <= min) max = min + 1f;
-
-        // 画曲线
-        Color lineColor = new Color(0.2f, 0.6f, 0.95f);
-        int bufStart = _chartBuffer.Length - width;
-        for (int x = 0; x < width; x++)
-        {
-            float v = _chartBuffer[bufStart + x];
-            float t = (v - min) / (max - min);
-            int plotY = Mathf.Clamp(Mathf.RoundToInt(t * (height - 1)), 0, height - 1);
-            pixels[plotY * width + x] = lineColor;
-            // 加粗：上下各 1px
-            if (plotY > 0) pixels[(plotY - 1) * width + x] = lineColor;
-            if (plotY < height - 1) pixels[(plotY + 1) * width + x] = lineColor;
+            SimulationDebuggerHistory history = histories[series];
+            if (history == null)
+                continue;
+            float[] buffer = GetChartBuffer(series);
+            int count = history.CopyLatestTo(
+                buffer,
+                Mathf.Min(width, buffer.Length));
+            counts[series] = count;
+            for (int i = 0; i < count; i++)
+            {
+                float value = buffer[i];
+                min = Mathf.Min(min, value);
+                max = Mathf.Max(max, value);
+            }
         }
 
-        _chartTexture.SetPixels(pixels);
-        _chartTexture.Apply();
+        bool hasSamples = min != float.MaxValue;
+        if (hasSamples)
+        {
+            if (max <= min)
+                max = min + 0.0001f;
+            for (int series = 0; series < seriesCount; series++)
+            {
+                int count = counts[series];
+                if (count <= 0)
+                    continue;
+                float[] buffer = GetChartBuffer(series);
+                int previousX = count == 1 ? width - 1 : 0;
+                int previousY = ChartY(buffer[0], min, max, height);
+                if (count == 1)
+                {
+                    DrawChartLine(
+                        pixels,
+                        width,
+                        height,
+                        previousX,
+                        previousY,
+                        previousX,
+                        previousY,
+                        colors[series]);
+                    continue;
+                }
+                for (int i = 1; i < count; i++)
+                {
+                    int x = Mathf.RoundToInt(
+                        i * (width - 1f) / (count - 1f));
+                    int y = ChartY(buffer[i], min, max, height);
+                    DrawChartLine(
+                        pixels,
+                        width,
+                        height,
+                        previousX,
+                        previousY,
+                        x,
+                        y,
+                        colors[series]);
+                    previousX = x;
+                    previousY = y;
+                }
+            }
+        }
 
+        texture.SetPixels(pixels);
+        texture.Apply();
+
+        GUILayout.Space(7f);
         GUILayout.BeginHorizontal();
-        GUILayout.Label(title, _mutedStyle, GUILayout.Width(80f));
-        GUILayout.Label($"{min:F1}…{max:F1}", _mutedStyle, GUILayout.Width(80f));
+        GUILayout.Label(title, _sectionStyle);
+        GUILayout.FlexibleSpace();
+        GUILayout.Label(
+            hasSamples ? $"{min:0.###}…{max:0.###} {unit}" : "暂无有效采样",
+            _mutedStyle);
         GUILayout.EndHorizontal();
-        GUILayout.Box(_chartTexture, GUIStyle.none, GUILayout.Width(width), GUILayout.Height(height));
+        GUILayout.BeginHorizontal();
+        for (int series = 0; series < seriesCount; series++)
+        {
+            Color saved = GUI.color;
+            GUI.color = colors[series];
+            float current = histories[series]?.Current ?? 0f;
+            GUILayout.Label(
+                $"{labels[series]} {current:0.###}",
+                _mutedStyle,
+                GUILayout.ExpandWidth(false));
+            GUI.color = saved;
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.Box(
+            texture,
+            GUIStyle.none,
+            GUILayout.Width(width),
+            GUILayout.Height(height));
+    }
+
+    private float[] GetChartBuffer(int index)
+    {
+        return index switch
+        {
+            0 => _chartBufferA,
+            1 => _chartBufferB,
+            2 => _chartBufferC,
+            _ => _chartBufferD
+        };
+    }
+
+    private static int ChartY(float value, float min, float max, int height)
+    {
+        float normalized = Mathf.InverseLerp(min, max, value);
+        return Mathf.Clamp(
+            Mathf.RoundToInt(normalized * (height - 1)),
+            0,
+            height - 1);
+    }
+
+    private static void DrawChartLine(
+        Color[] pixels,
+        int width,
+        int height,
+        int x0,
+        int y0,
+        int x1,
+        int y1,
+        Color color)
+    {
+        int steps = Mathf.Max(Mathf.Abs(x1 - x0), Mathf.Abs(y1 - y0));
+        steps = Mathf.Max(1, steps);
+        for (int step = 0; step <= steps; step++)
+        {
+            float t = step / (float)steps;
+            int x = Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(x0, x1, t)), 0, width - 1);
+            int y = Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(y0, y1, t)), 0, height - 1);
+            pixels[y * width + x] = color;
+            if (y > 0)
+                pixels[(y - 1) * width + x] = color;
+        }
     }
 
     private static void DrawTrendRow(
@@ -1117,12 +1421,88 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
         GUILayout.Label(
             trend.SampleCount > 0
-                ? $"{trend.Current.ToString(format)}{unit}  [{trend.Minimum.ToString(format)}…{trend.Average.ToString(format)}…{trend.Maximum.ToString(format)}]{unit}"
+                ? $"当前 {trend.Current.ToString(format)}{unit}  ·  " +
+                  $"P50 {trend.Median.ToString(format)}{unit}  ·  " +
+                  $"P95 {trend.Percentile95.ToString(format)}{unit}"
                 : $"---",
             GUILayout.ExpandWidth(true));
 
         GUILayout.EndHorizontal();
         GUI.color = savedColor;
+    }
+
+    private static string OnOff(byte enabled) => enabled != 0 ? "开" : "关";
+
+    private static string ComparisonStatus(
+        SimulationDebuggerCacheComparison comparison)
+    {
+        int required = SimulationDebuggerRuntime.CacheComparisonMinimumSamples;
+        if (comparison.Eligible == 0)
+            return "当前组合不可建立独立对比";
+        if (comparison.BaselineAvailable == 0)
+            return $"OFF 基线 {comparison.BaselineSampleCount}/{required}";
+        if (comparison.ComparisonAvailable == 0)
+            return comparison.TargetEnabled != 0
+                ? $"ON 样本 {comparison.EnabledSampleCount}/{required}"
+                : "OFF 基线已就绪，开启缓存后继续采样";
+        return "OFF/ON 对比有效";
+    }
+
+    private static string ComparisonTimeDelta(
+        SimulationDebuggerCacheComparison comparison)
+    {
+        if (comparison.ComparisonAvailable == 0)
+            return ComparisonStatus(comparison);
+        return $"{comparison.DeltaMilliseconds:+0.000;-0.000;0.000} ms " +
+               $"({comparison.DeltaPercent:+0.0%;-0.0%;0.0%})";
+    }
+
+    private static string ComparisonPairDelta(
+        SimulationDebuggerCacheComparison comparison)
+    {
+        if (comparison.ComparisonAvailable == 0)
+            return ComparisonStatus(comparison);
+        return $"{comparison.PairDelta:+0;-0;0} " +
+               $"({comparison.PairDeltaPercent:+0.0%;-0.0%;0.0%})";
+    }
+
+    private void DrawComparisonDetails(
+        SimulationDebuggerCacheComparison comparison)
+    {
+        GUILayout.Space(6f);
+        GUILayout.Label("同配置 OFF / ON 对比", _sectionStyle);
+        DrawDetailRow(
+            "有效样本",
+            $"{comparison.BaselineSampleCount:N0} / {comparison.EnabledSampleCount:N0}");
+        DrawDetailRow(
+            "管线 P50",
+            comparison.ComparisonAvailable != 0
+                ? $"{comparison.BaselineMedianMilliseconds:0.000} / " +
+                  $"{comparison.EnabledMedianMilliseconds:0.000} ms"
+                : ComparisonStatus(comparison));
+        DrawDetailRow(
+            "管线 P95",
+            comparison.ComparisonAvailable != 0
+                ? $"{comparison.BaselineP95Milliseconds:0.000} / " +
+                  $"{comparison.EnabledP95Milliseconds:0.000} ms"
+                : "--");
+        DrawDetailRow(
+            "候选评估 P50",
+            comparison.ComparisonAvailable != 0
+                ? $"{comparison.BaselineMedianPairCount:0} / " +
+                  $"{comparison.EnabledMedianPairCount:0}"
+                : "--");
+    }
+
+    private void DrawComparisonSettingsRow(
+        string label,
+        SimulationDebuggerCacheComparison comparison)
+    {
+        DrawDetailRow(
+            label,
+            comparison.ComparisonAvailable != 0
+                ? ComparisonTimeDelta(comparison)
+                : ComparisonStatus(comparison));
     }
 
     private int DrawIntSlider(
@@ -1527,16 +1907,25 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             return;
         }
 
-        long known = metrics.SoftAvoidanceNanoseconds +
-                     metrics.PairGenerationNanoseconds +
-                     metrics.IterationNanoseconds;
-        long other = Math.Max(0, metrics.SolverNanoseconds - known);
         DrawDetailRow("接触管线总计", Nanoseconds(metrics.SolverNanoseconds));
+        DrawDetailRow("Broad Phase", Nanoseconds(metrics.BroadPhaseNanoseconds));
+        DrawDetailRow("Narrow Phase", Nanoseconds(metrics.NarrowPhaseNanoseconds));
+        DrawDetailRow(
+            "Substep 激活调度",
+            Nanoseconds(metrics.ContactActivationNanoseconds));
         DrawDetailRow("软避让", Nanoseconds(metrics.SoftAvoidanceNanoseconds));
-        DrawDetailRow("接触对生成与分类", Nanoseconds(metrics.PairGenerationNanoseconds));
         DrawDetailRow("XPBD 投影总计", Nanoseconds(metrics.IterationNanoseconds));
         DrawDetailRow("XPBD 平均每轮", Nanoseconds(metrics.AverageIterationNanoseconds));
-        DrawDetailRow("其他阶段", Nanoseconds(other));
+        DrawDetailRow("其他阶段", Nanoseconds(metrics.OtherStageNanoseconds));
+        if (metrics.OverlappingStageNanoseconds > 0)
+        {
+            DrawDetailRow(
+                "计时重叠",
+                $"{Nanoseconds(metrics.OverlappingStageNanoseconds)}（阶段不可直接相加）");
+        }
+        DrawDetailRow(
+            "旧版生成+分类计时",
+            Nanoseconds(metrics.PairGenerationNanoseconds));
     }
 
     private void DrawContactWorkload(SimulationOverviewMetrics metrics)
@@ -1693,30 +2082,6 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 : "最大接触纠偏正在升高。";
         }
         return "接触管线成本和最大纠偏处于正常范围。";
-    }
-
-    private static string BroadPhaseStatus(PersistentBroadPhaseMetrics metrics)
-    {
-        if (metrics.Enabled == 0)
-            return "缓存未启用，当前使用普通 Broad Phase。";
-        if (metrics.Health == SimulationDebuggerHealth.Critical)
-            return "缓存发生回退或已经成为负收益。";
-        if (metrics.Health == SimulationDebuggerHealth.Warning)
-            return "候选膨胀或重建频率偏高。";
-        return "缓存稳定复用，候选膨胀可控。";
-    }
-
-    private static string ContactSetStatus(TimestepContactSetMetrics metrics)
-    {
-        if (metrics.CacheEnabled == 0)
-            return "对比模式：每个子步重新生成接触集，不进行跨子步持久化。";
-        if (metrics.FallbackAddedPairCount > 0)
-            return "本时间步出现 fallback 补充 Pair，初始接触集存在遗漏。";
-        if (metrics.FullRebuildCount > 0)
-            return "本时间步执行了完整重建；正确性已保留，但缓存复用中断。";
-        if (metrics.Health == SimulationDebuggerHealth.Warning)
-            return "缓存中未激活接触较多，生成范围可能过于保守。";
-        return "同一接触集正在跨子步稳定复用。";
     }
 
     private static string HeatmapLabel(SimulationDebuggerHeatmap mode)

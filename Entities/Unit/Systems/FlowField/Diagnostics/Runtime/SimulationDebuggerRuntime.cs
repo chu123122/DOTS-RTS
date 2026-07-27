@@ -21,6 +21,8 @@ public static class SimulationDebuggerRuntime
     private const int HistorySize = 300;
     private const int ComparisonHistorySize = 120;
     private const int ComparisonMinimumSamples = 30;
+    public static int CacheComparisonMinimumSamples =>
+        ComparisonMinimumSamples;
 
     private sealed class CacheComparisonBucket
     {
@@ -885,6 +887,7 @@ public static class SimulationDebuggerRuntime
 #else
 public static class SimulationDebuggerRuntime
 {
+    public static int CacheComparisonMinimumSamples => 0;
     public static ulong TargetWorldId { get => 0; set { } }
     public static void RegisterWorld(ulong worldId) { }
     public static void UnregisterWorld(ulong worldId) { }
