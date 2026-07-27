@@ -375,10 +375,7 @@ public static class SimulationDebuggerRuntime
         lock (Gate)
         {
             WorldState state = GetStateLocked(worldId);
-            int key = (settings.EnablePersistentContactCache != 0 ? 1 : 0) |
-                      (settings.EnableTimestepContactSetCache != 0 ? 2 : 0) |
-                      ((settings.SoftAvoidanceVelocitySolver & 1) << 2) |
-                      ((settings.ContactPositionSolver & 1) << 3);
+            int key = BuildSettingsKey(settings);
             if (state.ExperimentLastKey != key)
             {
                 state.ExperimentLastKey = key;
@@ -697,11 +694,31 @@ public static class SimulationDebuggerRuntime
     {
         SimulationDebuggerEffectiveSettings settings =
             snapshot.EffectiveSettings;
+        // Do not key by observed frame DeltaTime. It is an outcome of the
+        // workload on this variable-rate simulation group, so exact float
+        // hashing fragmented every OFF/ON sample into a separate bucket.
         unchecked
         {
             int hash = 17;
             AddHash(ref hash, snapshot.Overview.UnitCount);
-            AddHash(ref hash, snapshot.DeltaTime.GetHashCode());
+            AddHash(
+                ref hash,
+                BuildSettingsKey(
+                    settings,
+                    ignorePersistentCache,
+                    ignoreSubstepCache));
+            return hash;
+        }
+    }
+
+    private static int BuildSettingsKey(
+        SimulationDebuggerEffectiveSettings settings,
+        bool ignorePersistentCache = false,
+        bool ignoreSubstepCache = false)
+    {
+        unchecked
+        {
+            int hash = 17;
             AddHash(ref hash, settings.SubstepCount);
             AddHash(ref hash, settings.IterationCount);
             AddHash(ref hash, settings.ContactPositionSolver);
@@ -721,6 +738,12 @@ public static class SimulationDebuggerRuntime
             AddHash(ref hash, settings.SettledSoftAvoidanceMultiplier.GetHashCode());
             AddHash(ref hash, settings.SoftAvoidanceVelocitySolver);
             AddHash(ref hash, settings.RvoTimeHorizon.GetHashCode());
+            AddHash(ref hash, settings.EnableAdaptiveFatAabb);
+            AddHash(ref hash, settings.AdaptiveDetectionCellSpan);
+            AddHash(ref hash, settings.AdaptiveMinimumUnitsPerCell);
+            AddHash(ref hash, settings.AdaptiveMinimumUnitsPerRegion);
+            AddHash(ref hash, settings.AdaptiveEnableScore.GetHashCode());
+            AddHash(ref hash, settings.AdaptiveDisableScore.GetHashCode());
             return hash;
         }
     }

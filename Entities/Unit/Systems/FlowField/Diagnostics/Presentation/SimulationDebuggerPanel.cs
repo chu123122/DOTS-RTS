@@ -683,7 +683,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             "校验、局部查询、Pair Diff、映射与回退");
         DrawMetric(
             "管线净变化",
-            ComparisonTimeDelta(comparison),
+            ComparisonTimeDelta(comparison, "先开启跨子步接触集缓存"),
             "同配置 OFF/ON 各 30 次有效采样的 P50 差值");
         DrawMetric(
             "候选评估变化",
@@ -841,7 +841,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             $"实际构建 {metrics.ContactGenerationCount} / {metrics.SubstepCount} 次");
         DrawMetric(
             "管线净变化",
-            ComparisonTimeDelta(comparison),
+            ComparisonTimeDelta(comparison, "先关闭跨时间步候选缓存"),
             "要求跨时间步缓存关闭，OFF/ON 各 30 次有效采样");
         GUILayout.EndHorizontal();
 
@@ -1028,14 +1028,16 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.Space(8f);
         GUILayout.Label("性能对比", _sectionStyle);
         GUILayout.Label(
-            "系统自动按相同单位数、时间步和求解配置积累 OFF/ON 样本；预热样本不会进入对比。",
+            "按顺序采样：双缓存关闭 → 仅开启跨子步缓存 → 两者都开启。每次切换先预热，再各取 30 个有效样本。",
             _mutedStyle);
         DrawComparisonSettingsRow(
             "Timestep 缓存",
-            SimulationDebuggerRuntime.GetTimestepCacheComparison());
+            SimulationDebuggerRuntime.GetTimestepCacheComparison(),
+            "先开启跨子步接触集缓存");
         DrawComparisonSettingsRow(
             "Substep 缓存",
-            SimulationDebuggerRuntime.GetSubstepCacheComparison());
+            SimulationDebuggerRuntime.GetSubstepCacheComparison(),
+            "先关闭跨时间步候选缓存");
         DrawDetailRow(
             "当前采样状态",
             snapshot.Experiment.IsWarmup != 0
@@ -1445,25 +1447,27 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private static string OnOff(byte enabled) => enabled != 0 ? "开" : "关";
 
     private static string ComparisonStatus(
-        SimulationDebuggerCacheComparison comparison)
+        SimulationDebuggerCacheComparison comparison,
+        string ineligibleMessage = "当前组合不可建立独立对比")
     {
         int required = SimulationDebuggerRuntime.CacheComparisonMinimumSamples;
         if (comparison.Eligible == 0)
-            return "当前组合不可建立独立对比";
+            return ineligibleMessage;
         if (comparison.BaselineAvailable == 0)
-            return $"OFF 基线 {comparison.BaselineSampleCount}/{required}";
+            return $"正在采集关闭缓存基线 {comparison.BaselineSampleCount}/{required}";
         if (comparison.ComparisonAvailable == 0)
             return comparison.TargetEnabled != 0
-                ? $"ON 样本 {comparison.EnabledSampleCount}/{required}"
-                : "OFF 基线已就绪，开启缓存后继续采样";
-        return "OFF/ON 对比有效";
+                ? $"正在采集开启缓存样本 {comparison.EnabledSampleCount}/{required}"
+                : "关闭缓存基线已就绪，开启缓存后继续采样";
+        return "关闭/开启对比有效";
     }
 
     private static string ComparisonTimeDelta(
-        SimulationDebuggerCacheComparison comparison)
+        SimulationDebuggerCacheComparison comparison,
+        string ineligibleMessage = "当前组合不可建立独立对比")
     {
         if (comparison.ComparisonAvailable == 0)
-            return ComparisonStatus(comparison);
+            return ComparisonStatus(comparison, ineligibleMessage);
         return $"{comparison.DeltaMilliseconds:+0.000;-0.000;0.000} ms " +
                $"({comparison.DeltaPercent:+0.0%;-0.0%;0.0%})";
     }
@@ -1507,13 +1511,14 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 
     private void DrawComparisonSettingsRow(
         string label,
-        SimulationDebuggerCacheComparison comparison)
+        SimulationDebuggerCacheComparison comparison,
+        string ineligibleMessage)
     {
         DrawDetailRow(
             label,
             comparison.ComparisonAvailable != 0
                 ? ComparisonTimeDelta(comparison)
-                : ComparisonStatus(comparison));
+                : ComparisonStatus(comparison, ineligibleMessage));
     }
 
     private int DrawIntSlider(
