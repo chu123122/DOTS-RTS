@@ -17,6 +17,31 @@ public enum ContactPositionSolverMode : byte
     Jacobi
 }
 
+public enum ContactSolverSkipReason : byte
+{
+    None,
+    CertificateUnavailable,
+    CertificateNotIssued,
+    CertificateStructureNotVerified,
+    CertificateInteractionCountInvalid,
+    CertificateViewUnavailable,
+    CertificateInteractionPairInvalid,
+    CertificateSoftPairInvalid,
+    CertificateContactPairInvalid,
+    CertificateScheduleInvalid,
+    CertificateEntityMappingNotVerified,
+    CertificateConfigurationNotVerified,
+    CertificateTopologyNotVerified,
+    CertificateClassificationNotVerified,
+    CertificateConsumerViewsNotCommitted,
+    CertificateScopeMismatch,
+    BodySetMismatch,
+    ConfigurationMismatch,
+    SoftPairCountMismatch,
+    ContactConstraintCountMismatch,
+    DormantScheduleCountMismatch
+}
+
 public enum ContactHeatmapMode : byte
 {
     ContactLoad,
@@ -132,6 +157,8 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public int SoftAvoidanceActivatedPairCount;
     public int SoftAvoidanceFatAabbUseCount;
     public int ActiveConstraintCount;
+    public ContactSolverSkipReason SolverSkipReason;
+    public int SolverSkippedSubstepCount;
     public int PredictiveActivatedCount;
     public int UnactivatedPairCount;
     public int PredictiveUnactivatedCount;
@@ -179,6 +206,8 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public int SoftAvoidanceActivatedPairCount { get => default; set { } }
     public int SoftAvoidanceFatAabbUseCount { get => default; set { } }
     public int ActiveConstraintCount { get => default; set { } }
+    public ContactSolverSkipReason SolverSkipReason { get => default; set { } }
+    public int SolverSkippedSubstepCount { get => default; set { } }
     public int PredictiveActivatedCount { get => default; set { } }
     public int UnactivatedPairCount { get => default; set { } }
     public int PredictiveUnactivatedCount { get => default; set { } }

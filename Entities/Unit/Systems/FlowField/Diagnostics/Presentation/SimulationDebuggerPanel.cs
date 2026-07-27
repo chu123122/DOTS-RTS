@@ -524,9 +524,15 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             "候选几何分类与接触构造");
         DrawMetric(
             "约束求解阶段",
-            AvailableNanoseconds(metrics.TimingAvailable, metrics.IterationNanoseconds),
-            $"墙约束、XPBD 接触投影及恢复处理 · " +
-            $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
+            metrics.SolverSkipReason != ContactSolverSkipReason.None
+                ? "已跳过"
+                : AvailableNanoseconds(
+                    metrics.TimingAvailable,
+                    metrics.IterationNanoseconds),
+            metrics.SolverSkipReason != ContactSolverSkipReason.None
+                ? $"证书校验失败：{SolverSkipReasonLabel(metrics.SolverSkipReason)}"
+                : $"墙约束、XPBD 接触投影及恢复处理 · " +
+                  $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
         GUILayout.EndHorizontal();
 
         DrawMultiTrendChart(
@@ -819,10 +825,14 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 : "关闭缓存时只表示最后一次构建，不参与利用率");
         DrawMetric(
             "唯一激活利用率",
-            metrics.ActivationAvailable != 0
+            snapshot.Overview.SolverSkipReason != ContactSolverSkipReason.None
+                ? "求解已跳过"
+                : metrics.ActivationAvailable != 0
                 ? Percent(metrics.ActivationRatio)
                 : "不适用",
-            "至少一个 Substep 中产生有效 XPBD 约束的唯一 Pair");
+            snapshot.Overview.SolverSkipReason != ContactSolverSkipReason.None
+                ? SolverSkipReasonLabel(snapshot.Overview.SolverSkipReason)
+                : "至少一个 Substep 中产生有效 XPBD 约束的唯一 Pair");
         DrawMetric(
             "避免重复构建",
             cacheEnabled
@@ -1917,6 +1927,13 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawDetailRow("软避让", Nanoseconds(metrics.SoftAvoidanceNanoseconds));
         DrawDetailRow("约束求解阶段总计", Nanoseconds(metrics.IterationNanoseconds));
         DrawDetailRow("约束阶段摊销 / 轮", Nanoseconds(metrics.AverageIterationNanoseconds));
+        if (metrics.SolverSkipReason != ContactSolverSkipReason.None)
+        {
+            DrawDetailRow(
+                "求解跳过",
+                $"{SolverSkipReasonLabel(metrics.SolverSkipReason)} · " +
+                $"{metrics.SolverSkippedSubstepCount} 次");
+        }
         DrawDetailRow("其他阶段", Nanoseconds(metrics.OtherStageNanoseconds));
         if (metrics.OverlappingStageNanoseconds > 0)
         {
@@ -2063,6 +2080,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             return "等待参与接触仿真的单位。";
         if (metrics.TimingAvailable == 0 || metrics.StabilityAvailable == 0)
             return "单位仿真正在运行；等待接触管线摘要遥测。";
+        if (metrics.SolverSkipReason != ContactSolverSkipReason.None)
+        {
+            return $"约束求解被跳过：{SolverSkipReasonLabel(metrics.SolverSkipReason)}。";
+        }
 
         if (metrics.Health == SimulationDebuggerHealth.Critical)
         {
@@ -2083,6 +2104,34 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 : "最大接触纠偏正在升高。";
         }
         return "接触管线成本和最大纠偏处于正常范围。";
+    }
+
+    private static string SolverSkipReasonLabel(ContactSolverSkipReason reason)
+    {
+        return reason switch
+        {
+            ContactSolverSkipReason.CertificateUnavailable => "证书容器不可用",
+            ContactSolverSkipReason.CertificateNotIssued => "证书未签发",
+            ContactSolverSkipReason.CertificateStructureNotVerified => "视图结构未验证",
+            ContactSolverSkipReason.CertificateInteractionCountInvalid => "交互 Pair 数非法",
+            ContactSolverSkipReason.CertificateViewUnavailable => "消费者视图不可用",
+            ContactSolverSkipReason.CertificateInteractionPairInvalid => "交互 Pair 非法",
+            ContactSolverSkipReason.CertificateSoftPairInvalid => "软避让 Pair 非法",
+            ContactSolverSkipReason.CertificateContactPairInvalid => "接触 Pair 非法",
+            ContactSolverSkipReason.CertificateScheduleInvalid => "预测调度越界",
+            ContactSolverSkipReason.CertificateEntityMappingNotVerified => "实体映射未验证",
+            ContactSolverSkipReason.CertificateConfigurationNotVerified => "配置未验证",
+            ContactSolverSkipReason.CertificateTopologyNotVerified => "拓扑覆盖未验证",
+            ContactSolverSkipReason.CertificateClassificationNotVerified => "分类未验证",
+            ContactSolverSkipReason.CertificateConsumerViewsNotCommitted => "消费者视图未提交",
+            ContactSolverSkipReason.CertificateScopeMismatch => "证书作用域不匹配",
+            ContactSolverSkipReason.BodySetMismatch => "单位集合不匹配",
+            ContactSolverSkipReason.ConfigurationMismatch => "配置指纹不匹配",
+            ContactSolverSkipReason.SoftPairCountMismatch => "软避让 Pair 数不匹配",
+            ContactSolverSkipReason.ContactConstraintCountMismatch => "接触 Pair 数不匹配",
+            ContactSolverSkipReason.DormantScheduleCountMismatch => "休眠调度数不匹配",
+            _ => reason.ToString()
+        };
     }
 
     private static string HeatmapLabel(SimulationDebuggerHeatmap mode)

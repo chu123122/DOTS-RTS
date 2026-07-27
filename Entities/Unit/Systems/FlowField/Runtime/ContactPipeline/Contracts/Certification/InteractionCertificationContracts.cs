@@ -79,6 +79,7 @@ public struct InteractionCertificate
     public float HorizonDuration;
     public CertifiedInteractionSourceMode SourceMode;
     public InteractionCertificationFlags Flags;
+    public ContactSolverSkipReason StructureFailure;
     public int InteractionPairCount;
     public int SoftPairCount;
     public int ContactConstraintCount;

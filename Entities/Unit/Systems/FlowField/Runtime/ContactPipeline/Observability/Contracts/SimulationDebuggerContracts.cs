@@ -133,6 +133,8 @@ public struct SimulationOverviewMetrics
     public long ContactActivationNanoseconds;
     public long IterationNanoseconds;
     public long AverageIterationNanoseconds;
+    public ContactSolverSkipReason SolverSkipReason;
+    public int SolverSkippedSubstepCount;
     public int CandidatePairCount;
     public int ContactPairCount;
     public int CurrentActualPairCount;

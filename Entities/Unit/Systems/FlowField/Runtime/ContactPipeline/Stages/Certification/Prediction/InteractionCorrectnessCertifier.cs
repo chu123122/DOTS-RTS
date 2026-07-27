@@ -108,11 +108,16 @@ public partial struct InteractionCertificationJob
 
     private bool HasValidConsumerViewStructure()
     {
+        return GetConsumerViewStructureFailure() == ContactSolverSkipReason.None;
+    }
+
+    private ContactSolverSkipReason GetConsumerViewStructureFailure()
+    {
         if (!TimestepInteractionPairs.IsCreated ||
             !SoftAvoidancePairs.IsCreated ||
             !TimestepContactPairs.IsCreated ||
             !PredictiveContactSchedule.IsCreated)
-            return false;
+            return ContactSolverSkipReason.CertificateViewUnavailable;
 
         int bodyCount = Bodies.Length;
         for (int i = 0; i < TimestepInteractionPairs.Length; i++)
@@ -120,30 +125,35 @@ public partial struct InteractionCertificationJob
             BodyPair pair = TimestepInteractionPairs[i];
             if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
                 pair.BodyB >= bodyCount)
-                return false;
+                return ContactSolverSkipReason.CertificateInteractionPairInvalid;
         }
         for (int i = 0; i < SoftAvoidancePairs.Length; i++)
         {
             BodyPair pair = SoftAvoidancePairs[i];
             if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
                 pair.BodyB >= bodyCount)
-                return false;
+                return ContactSolverSkipReason.CertificateSoftPairInvalid;
         }
         for (int i = 0; i < TimestepContactPairs.Length; i++)
         {
             ContactConstraint pair = TimestepContactPairs[i];
             if (pair.BodyA < 0 || pair.BodyB <= pair.BodyA ||
                 pair.BodyB >= bodyCount)
-                return false;
+                return ContactSolverSkipReason.CertificateContactPairInvalid;
         }
 
         int substepCount = math.max(1, SubstepCount);
         for (int i = 0; i < PredictiveContactSchedule.Length; i++)
         {
-            if (PredictiveContactSchedule[i].Substep >= substepCount)
-                return false;
+            ushort scheduledSubstep = PredictiveContactSchedule[i].Substep;
+            // ushort.MaxValue is the explicit "do not wake this timestep"
+            // sentinel for dormant pairs without relative motion. It is valid
+            // schedule state, not an out-of-range consumer view.
+            if (scheduledSubstep != ushort.MaxValue &&
+                scheduledSubstep >= substepCount)
+                return ContactSolverSkipReason.CertificateScheduleInvalid;
         }
-        return true;
+        return ContactSolverSkipReason.None;
     }
 
     private bool HasValidPersistentEntityMapping()
@@ -220,6 +230,10 @@ public partial struct InteractionCertificationJob
 
         InteractionCertificationFlags flags =
             BuildCertificationFlags(result, evidence);
+        ContactSolverSkipReason structureFailure =
+            result.InteractionPairCount < 0
+                ? ContactSolverSkipReason.CertificateInteractionCountInvalid
+                : GetConsumerViewStructureFailure();
         const InteractionCertificationFlags required =
             InteractionCertificationFlags.StructureVerified |
             InteractionCertificationFlags.EntityMappingVerified |
@@ -243,6 +257,7 @@ public partial struct InteractionCertificationJob
             HorizonDuration = evidence.HorizonDuration,
             SourceMode = ToCertifiedSourceMode(result.SourceMode),
             Flags = flags,
+            StructureFailure = structureFailure,
             InteractionPairCount = math.max(0, result.InteractionPairCount),
             SoftPairCount = SoftAvoidancePairs.Length,
             ContactConstraintCount = TimestepContactPairs.Length,
@@ -252,37 +267,82 @@ public partial struct InteractionCertificationJob
             InteractionCertificateViolations.Clear();
     }
 
-    private bool IsConsumerCertificateValid(int substepIndex)
+    private ContactSolverSkipReason GetConsumerCertificateFailure(
+        int substepIndex)
     {
         if (!InteractionCertificate.IsCreated)
-            return false;
+            return ContactSolverSkipReason.CertificateUnavailable;
 
         InteractionCertificate certificate = InteractionCertificate.Value;
         int certificateSubstep = EnableTimestepContactSetCache
             ? substepIndex
             : 0;
+        if (!certificate.IsIssued)
+        {
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.StructureVerified) == 0)
+            {
+                return certificate.StructureFailure != ContactSolverSkipReason.None
+                    ? certificate.StructureFailure
+                    : ContactSolverSkipReason.CertificateStructureNotVerified;
+            }
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.EntityMappingVerified) == 0)
+                return ContactSolverSkipReason.CertificateEntityMappingNotVerified;
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.ConfigurationVerified) == 0)
+                return ContactSolverSkipReason.CertificateConfigurationNotVerified;
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.TopologyCoverageVerified) == 0)
+                return ContactSolverSkipReason.CertificateTopologyNotVerified;
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.ClassificationVerified) == 0)
+                return ContactSolverSkipReason.CertificateClassificationNotVerified;
+            if ((certificate.Flags &
+                 InteractionCertificationFlags.ConsumerViewsCommitted) == 0)
+                return ContactSolverSkipReason.CertificateConsumerViewsNotCommitted;
+            return ContactSolverSkipReason.CertificateNotIssued;
+        }
         if (!certificate.Covers(
                 Configuration.WorldId,
                 Configuration.SimulationStepId,
                 certificateSubstep))
-            return false;
-        if (certificate.BodySetFingerprint != CalculateBodySetFingerprint() ||
-            certificate.ConfigurationFingerprint !=
-                Configuration.CalculateCertificationFingerprint() ||
-            certificate.SoftPairCount != SoftAvoidancePairs.Length ||
-            certificate.ContactConstraintCount != TimestepContactPairs.Length ||
-            certificate.DormantScheduleCount != PredictiveContactSchedule.Length)
-            return false;
-        return true;
+            return ContactSolverSkipReason.CertificateScopeMismatch;
+        if (certificate.BodySetFingerprint != CalculateBodySetFingerprint())
+            return ContactSolverSkipReason.BodySetMismatch;
+        if (certificate.ConfigurationFingerprint !=
+            Configuration.CalculateCertificationFingerprint())
+            return ContactSolverSkipReason.ConfigurationMismatch;
+        if (certificate.SoftPairCount != SoftAvoidancePairs.Length)
+            return ContactSolverSkipReason.SoftPairCountMismatch;
+        if (certificate.ContactConstraintCount != TimestepContactPairs.Length)
+            return ContactSolverSkipReason.ContactConstraintCountMismatch;
+        if (certificate.DormantScheduleCount != PredictiveContactSchedule.Length)
+            return ContactSolverSkipReason.DormantScheduleCountMismatch;
+        return ContactSolverSkipReason.None;
+    }
+
+    private void RecordSolverSkip(ContactSolverSkipReason reason)
+    {
+#if RTS_CONTACT_DIAGNOSTICS
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        statistics.SolverSkipReason = reason;
+        statistics.SolverSkippedSubstepCount++;
+        StoreContactStatistics(statistics);
+#endif
     }
 
     private void ValidateConsumerViewsSerial()
     {
         SerialContactPipelineControlState control = SerialControl.Value;
-        if (control.IsValid == 0 ||
-            IsConsumerCertificateValid(SubstepIndex))
+        if (control.IsValid == 0)
+            return;
+        ContactSolverSkipReason failure =
+            GetConsumerCertificateFailure(SubstepIndex);
+        if (failure == ContactSolverSkipReason.None)
             return;
 
+        RecordSolverSkip(failure);
         RevokeInteractionCertificate(
             -1,
             SubstepIndex,
@@ -297,10 +357,14 @@ public partial struct InteractionCertificationJob
     private void ValidateConsumerViewsP1P6()
     {
         ParallelJacobiExecutionState runtime = RuntimeState.Value;
-        if (runtime.IsValid == 0 ||
-            IsConsumerCertificateValid(SubstepIndex))
+        if (runtime.IsValid == 0)
+            return;
+        ContactSolverSkipReason failure =
+            GetConsumerCertificateFailure(SubstepIndex);
+        if (failure == ContactSolverSkipReason.None)
             return;
 
+        RecordSolverSkip(failure);
         RevokeInteractionCertificate(
             -1,
             SubstepIndex,

@@ -148,17 +148,29 @@ public abstract partial class BaseFlowMovementSystem
                 raw.TimestepContactSetFallbackAddedPairCount;
         bool targetWorldMismatch =
             SimulationDebuggerRuntime.TargetWorldId != worldId;
+        bool solverWorkMissing =
+            raw.IterationNanoseconds == 0 &&
+            raw.TimestepContactSetUniquePairCount > 0;
+        bool activationMissing =
+            raw.TimestepContactSetUniqueActivatedPairCount == 0 &&
+            pipeline.Statistics.CurrentActualPairCount > 0;
         bool suspicious =
             settingsMismatch ||
             mappingMismatch ||
             targetWorldMismatch ||
+            solverWorkMissing ||
+            activationMissing ||
+            raw.SolverSkipReason != ContactSolverSkipReason.None ||
             (diagnosticsEnabled && rawCoreTelemetryZero);
         int signature =
             (diagnosticsEnabled ? 1 : 0) |
             (configurationEnabled ? 1 << 1 : 0) |
             (rawCoreTelemetryZero ? 1 << 2 : 0) |
             (mappingMismatch ? 1 << 3 : 0) |
-            (targetWorldMismatch ? 1 << 4 : 0);
+            (targetWorldMismatch ? 1 << 4 : 0) |
+            (solverWorkMissing ? 1 << 5 : 0) |
+            (activationMissing ? 1 << 6 : 0) |
+            ((int)raw.SolverSkipReason << 8);
         uint step = snapshot.SimulationStepId;
         bool stateChanged =
             signature != _simulationDebuggerTraceSignature;
@@ -170,7 +182,13 @@ public abstract partial class BaseFlowMovementSystem
 
         _simulationDebuggerTraceSignature = signature;
         _simulationDebuggerLastTraceStep = step;
-        string reason = !diagnosticsEnabled
+        string reason = raw.SolverSkipReason != ContactSolverSkipReason.None
+            ? $"SOLVER_SKIPPED_{raw.SolverSkipReason}"
+            : solverWorkMissing
+                ? "SOLVER_WORK_ZERO"
+                : activationMissing
+                    ? "ACTIVATION_ZERO"
+                    : !diagnosticsEnabled
             ? "DIAGNOSTICS_DISABLED"
             : settingsMismatch
                 ? "SETTINGS_MISMATCH"
@@ -185,7 +203,10 @@ public abstract partial class BaseFlowMovementSystem
             $"[CONTACT-DIAG-TRACE] reason={reason} world={worldId} " +
             $"targetWorld={SimulationDebuggerRuntime.TargetWorldId} step={step} " +
             $"settings(effective={snapshot.EffectiveSettings.EnableDiagnostics}," +
-            $"pipeline={pipeline.Configuration.DiagnosticsEnabled}) " +
+            $"pipeline={pipeline.Configuration.DiagnosticsEnabled},dt={snapshot.DeltaTime}," +
+            $"solver={snapshot.EffectiveSettings.ContactPositionSolver}," +
+            $"substeps={snapshot.SubstepCount},iterations={snapshot.IterationCount}," +
+            $"timestepCache={snapshot.EffectiveSettings.EnableTimestepContactSetCache}) " +
             $"raw(solverNs={raw.SolverNanoseconds},pairNs={raw.PairGenerationNanoseconds}," +
             $"iterationNs={raw.IterationNanoseconds},candidates={raw.CandidatePairCount}," +
             $"contacts={raw.ContactPairCount},predictive={raw.PredictivePairCount}," +
@@ -193,7 +214,9 @@ public abstract partial class BaseFlowMovementSystem
             $"{raw.TimestepContactSetUniqueActivatedPairCount}/" +
             $"{raw.TimestepContactSetUniquePairCount},rebuild=" +
             $"{raw.TimestepContactSetFullRebuildCount},fallback=" +
-            $"{raw.TimestepContactSetFallbackAddedPairCount}) " +
+            $"{raw.TimestepContactSetFallbackAddedPairCount},substepUses=" +
+            $"{raw.TimestepContactSetSubstepUseCount},skip=" +
+            $"{raw.SolverSkipReason}/{raw.SolverSkippedSubstepCount}) " +
             $"lifecycle(currentPredictive=" +
             $"{pipeline.Statistics.CurrentPredictivePairCount},currentActual=" +
             $"{pipeline.Statistics.CurrentActualPairCount},currentApproaching=" +
@@ -365,6 +388,8 @@ public abstract partial class BaseFlowMovementSystem
             incremental.ContactActivationNanoseconds;
         result.IterationNanoseconds = statistics.IterationNanoseconds;
         result.AverageIterationNanoseconds = statistics.AverageIterationNanoseconds;
+        result.SolverSkipReason = statistics.SolverSkipReason;
+        result.SolverSkippedSubstepCount = statistics.SolverSkippedSubstepCount;
         result.CandidatePairCount = statistics.CandidatePairCount;
         result.ContactPairCount = statistics.ContactPairCount;
         result.CurrentActualPairCount = incremental.CurrentActualPairCount;
@@ -375,7 +400,9 @@ public abstract partial class BaseFlowMovementSystem
         result.MaxWallCorrection = statistics.MaxWallPositionCorrection;
         result.MaxVelocityChange = statistics.MaxVelocityChange;
 
-        if (result.MaxContactCorrection > 0.25f || result.SolverMilliseconds > 4f)
+        if (result.SolverSkipReason != ContactSolverSkipReason.None ||
+            result.MaxContactCorrection > 0.25f ||
+            result.SolverMilliseconds > 4f)
             result.Health = SimulationDebuggerHealth.Critical;
         else if (result.MaxContactCorrection > 0.08f || result.SolverMilliseconds > 2f)
             result.Health = SimulationDebuggerHealth.Warning;
