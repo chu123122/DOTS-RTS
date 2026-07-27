@@ -667,9 +667,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         IncrementalContactPipelineStatistics statistics = pipeline.Statistics;
         bool cacheEnabled = snapshot.EffectiveSettings.EnablePersistentContactCache != 0;
         bool hasPipelineSnapshot = statistics.Timestep != 0;
+        bool hasPersistentTelemetry = cacheEnabled && hasPipelineSnapshot;
         bool oracleAvailable =
-            snapshot.EffectiveSettings.EnableDiagnostics != 0 &&
-            hasPipelineSnapshot;
+            hasPersistentTelemetry &&
+            snapshot.EffectiveSettings.EnableDiagnostics != 0;
         SimulationDebuggerCacheComparison comparison =
             SimulationDebuggerRuntime.GetTimestepCacheComparison();
         SimulationDebuggerHealth health;
@@ -677,9 +678,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (!cacheEnabled)
         {
             health = SimulationDebuggerHealth.Disabled;
-            status = "缓存已关闭：正在收集同配置 OFF 基线；开启后才能计算净收益。";
+            status = "缓存已关闭：不执行跨帧维护；当前只收集同配置 OFF 基线。";
         }
-        else if (!hasPipelineSnapshot)
+        else if (!hasPersistentTelemetry)
         {
             health = SimulationDebuggerHealth.Warning;
             status = "等待增量接触管线发布首个时间步快照。";
@@ -695,6 +696,14 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         {
             health = SimulationDebuggerHealth.Warning;
             status = "本时间步发生完整重建；缓存仍正确，但本步收益可能下降。";
+        }
+        else if (snapshot.Overview.SolverSkipReason == ContactSolverSkipReason.None &&
+                 snapshot.ContactSet.ContactSetSize >= 32 &&
+                 snapshot.ContactSet.ActivationAvailable != 0 &&
+                 snapshot.ContactSet.ActivationRatio < 0.1f)
+        {
+            health = SimulationDebuggerHealth.Warning;
+            status = "缓存复用有效，但送入 XPBD 的约束大多未生效；查看下方压缩漏斗。";
         }
         else
         {
@@ -714,7 +723,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.BeginHorizontal();
         DrawMetric(
             "缓存维护耗时",
-            hasPipelineSnapshot ? Nanoseconds(maintenanceNanoseconds) : "--",
+            hasPersistentTelemetry ? Nanoseconds(maintenanceNanoseconds) : "--",
             "校验、局部查询、Pair Diff、映射与回退");
         DrawMetric(
             "管线净变化",
@@ -728,96 +737,175 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             "Oracle 最终漏对",
             oracleAvailable
                 ? statistics.OracleMissingPairCount.ToString("N0")
-                : "未验证",
+                : cacheEnabled ? "未验证" : "不适用",
             oracleAvailable
                 ? $"Oracle 对数 {statistics.OraclePairCount:N0}"
-                : "开启深度正确性诊断后才有真值");
+                : cacheEnabled
+                    ? "开启深度正确性诊断后才有真值"
+                    : "跨帧缓存关闭，不展示跨帧正确性指标");
         GUILayout.EndHorizontal();
 
-        DrawMultiTrendChart(
-            ref _timestepCostChartTexture,
-            "成本趋势",
-            new[]
-            {
-                SimulationDebuggerRuntime.GetSolverHistory(),
-                SimulationDebuggerRuntime.GetPersistentMaintenanceHistory()
-            },
-            new[] { "管线总计", "缓存维护" },
-            new[]
-            {
-                new Color(0.35f, 0.78f, 1f),
-                new Color(1f, 0.66f, 0.2f)
-            },
-            "ms",
-            86);
-        DrawMultiTrendChart(
-            ref _timestepLoadChartTexture,
-            "候选负载趋势",
-            new[] { SimulationDebuggerRuntime.GetPersistentCandidateHistory() },
-            new[] { "持久候选对" },
-            new[] { new Color(0.3f, 0.88f, 0.5f) },
-            " pair",
-            70);
+        GUILayout.Space(6f);
+        GUILayout.BeginHorizontal();
+        DrawMetric(
+            "跨帧候选池",
+            hasPersistentTelemetry
+                ? statistics.PersistentNeighborPairCount.ToString("N0")
+                : "--",
+            "跨帧缓存保守保留的邻居 Pair");
+        DrawMetric(
+            "当前接触池",
+            hasPersistentTelemetry
+                ? statistics.CurrentSweptContactCount.ToString("N0")
+                : "--",
+            "本 Timestep 分类后仍可能相关，包含 Dormant");
+        DrawMetric(
+            "送入 XPBD",
+            hasPersistentTelemetry
+                ? snapshot.ContactSet.ContactSetSize.ToString("N0")
+                : "--",
+            "移除 Dormant 后由跨 Substep 接触集复用的唯一 Pair");
+        DrawMetric(
+            "实际生效",
+            hasPersistentTelemetry
+                ? snapshot.ContactSet.ActiveContactCount.ToString("N0")
+                : "--",
+            "至少一次产生有效 XPBD lambda 的唯一 Pair");
+        GUILayout.EndHorizontal();
 
-        DrawHeatmapSelector(
-            "候选缓存热力图",
-            new[]
-            {
-                SimulationDebuggerHeatmap.AabbBenefit,
-                SimulationDebuggerHeatmap.AabbSlack,
-                SimulationDebuggerHeatmap.CandidateExpansion,
-                SimulationDebuggerHeatmap.EscapeRisk
-            });
-        DrawHeatmapLegend();
-        DrawPanelGridHeatmap(snapshot);
-        DrawSelectedUnitSection(snapshot);
+        if (hasPersistentTelemetry)
+        {
+            DrawMultiTrendChart(
+                ref _timestepCostChartTexture,
+                "成本趋势",
+                new[]
+                {
+                    SimulationDebuggerRuntime.GetSolverHistory(),
+                    SimulationDebuggerRuntime.GetPersistentMaintenanceHistory()
+                },
+                new[] { "管线总计", "缓存维护" },
+                new[]
+                {
+                    new Color(0.35f, 0.78f, 1f),
+                    new Color(1f, 0.66f, 0.2f)
+                },
+                "ms",
+                86);
+            DrawMultiTrendChart(
+                ref _timestepLoadChartTexture,
+                "候选负载趋势",
+                new[] { SimulationDebuggerRuntime.GetPersistentCandidateHistory() },
+                new[] { "持久候选对" },
+                new[] { new Color(0.3f, 0.88f, 0.5f) },
+                " pair",
+                70);
+
+            DrawHeatmapSelector(
+                "候选缓存热力图",
+                new[]
+                {
+                    SimulationDebuggerHeatmap.AabbBenefit,
+                    SimulationDebuggerHeatmap.AabbSlack,
+                    SimulationDebuggerHeatmap.CandidateExpansion,
+                    SimulationDebuggerHeatmap.EscapeRisk
+                });
+            DrawHeatmapLegend();
+            DrawPanelGridHeatmap(snapshot);
+            DrawSelectedUnitSection(snapshot);
+        }
+        else
+        {
+            GUILayout.Space(6f);
+            GUILayout.Label(
+                "跨帧缓存已关闭：缓存曲线、热力图和缓存明细停止采样。",
+                _mutedStyle);
+        }
 
         DrawDetailsToggle();
         if (!_showDetails)
             return;
+        if (!hasPersistentTelemetry)
+        {
+            DrawComparisonDetails(comparison);
+            return;
+        }
 
         GUILayout.Label("成本与避免工作", _sectionStyle);
-        DrawDetailRow("当前模式", hasPipelineSnapshot ? pipeline.Mode.ToString() : "--");
+        DrawDetailRow("当前模式", pipeline.Mode.ToString());
         DrawDetailRow(
             "代理校验 / Pair 映射",
-            hasPipelineSnapshot
-                ? $"{Nanoseconds(statistics.ProxyValidationNanoseconds)} / " +
-                  $"{Nanoseconds(statistics.PersistentPairMappingNanoseconds)}"
-                : "--");
+            $"{Nanoseconds(statistics.ProxyValidationNanoseconds)} / " +
+            $"{Nanoseconds(statistics.PersistentPairMappingNanoseconds)}");
         DrawDetailRow(
             "局部 Broad / Pair Diff",
-            hasPipelineSnapshot
-                ? $"{Nanoseconds(statistics.LocalBroadPhaseNanoseconds)} / " +
-                  $"{Nanoseconds(statistics.PairDiffNanoseconds)}"
-                : "--");
+            $"{Nanoseconds(statistics.LocalBroadPhaseNanoseconds)} / " +
+            $"{Nanoseconds(statistics.PairDiffNanoseconds)}");
         DrawDetailRow(
             "完整扫描 / Fallback",
-            hasPipelineSnapshot
-                ? $"{Nanoseconds(statistics.FullSweepSourceNanoseconds)} / " +
-                  $"{Nanoseconds(statistics.FallbackNanoseconds)}"
-                : "--");
+            $"{Nanoseconds(statistics.FullSweepSourceNanoseconds)} / " +
+            $"{Nanoseconds(statistics.FallbackNanoseconds)}");
         DrawDetailRow(
             "分类复用 / 跳过",
-            hasPipelineSnapshot
-                ? $"{statistics.ClassificationReuseCount:N0} / " +
-                  $"{statistics.ClassificationSkippedCount:N0}"
-                : "--");
+            $"{statistics.ClassificationReuseCount:N0} / " +
+            $"{statistics.ClassificationSkippedCount:N0}");
+
+        GUILayout.Space(6f);
+        GUILayout.Label("候选压缩漏斗", _sectionStyle);
+        int filteredBeforeContact = Math.Max(
+            0,
+            statistics.PersistentNeighborPairCount -
+            statistics.CurrentSweptContactCount);
+        int deferredBeforeSolver = Math.Max(
+            0,
+            statistics.CurrentSweptContactCount -
+            snapshot.ContactSet.ContactSetSize);
+        int solverNoOp = Math.Max(
+            0,
+            snapshot.ContactSet.ContactSetSize -
+            snapshot.ContactSet.ActiveContactCount);
+        DrawDetailRow(
+            "候选池 → 当前接触池",
+            $"{statistics.PersistentNeighborPairCount:N0} → " +
+            $"{statistics.CurrentSweptContactCount:N0} " +
+            $"（筛除 {filteredBeforeContact:N0}）");
+        DrawDetailRow(
+            "当前接触池 → XPBD",
+            $"{statistics.CurrentSweptContactCount:N0} → " +
+            $"{snapshot.ContactSet.ContactSetSize:N0} " +
+            $"（Dormant 暂缓 {deferredBeforeSolver:N0}）");
+        DrawDetailRow(
+            "XPBD → 实际生效",
+            $"{snapshot.ContactSet.ContactSetSize:N0} → " +
+            $"{snapshot.ContactSet.ActiveContactCount:N0} " +
+            $"（未生效 {solverNoOp:N0}）");
+        DrawDetailRow(
+            "约束实际生效率",
+            snapshot.ContactSet.ActivationAvailable != 0
+                ? Percent(snapshot.ContactSet.ActivationRatio)
+                : "不适用");
 
         GUILayout.Space(6f);
         GUILayout.Label("拓扑与正确性", _sectionStyle);
-        DrawDetailRow("拓扑脏体 / 总代理", hasPipelineSnapshot
-            ? $"{statistics.TopologyDirtyBodyCount:N0} / {statistics.ProxyCount:N0}"
-            : "--");
-        DrawDetailRow("运动脏体 / 逃逸", hasPipelineSnapshot
-            ? $"{statistics.MotionDirtyBodyCount:N0} / {statistics.CorrectedEscapeBodyCount:N0}"
-            : "--");
-        DrawDetailRow("新增 / 移除 / 保留 Pair", hasPipelineSnapshot
-            ? $"{statistics.NeighborPairAddedCount} / {statistics.NeighborPairRemovedCount} / {statistics.NeighborPairRetainedCount}" : "--");
-        DrawDetailRow("完整重建 / 局部修复", hasPipelineSnapshot
-            ? $"{statistics.FullRebuildCount} / {statistics.IncrementalRepairCount}" : "--");
-        DrawDetailRow("干净代理 / Pair 保留率", hasPipelineSnapshot
-            ? $"{pipeline.CleanProxyRatio:P1} / {pipeline.RetainedNeighborPairRatio:P1}"
-            : "--");
+        DrawDetailRow(
+            "拓扑脏体 / 总代理",
+            $"{statistics.TopologyDirtyBodyCount:N0} / {statistics.ProxyCount:N0}");
+        DrawDetailRow(
+            "运动脏体 / 逃逸",
+            $"{statistics.MotionDirtyBodyCount:N0} / " +
+            $"{statistics.CorrectedEscapeBodyCount:N0}");
+        DrawDetailRow(
+            "新增 / 移除 / 保留 Pair",
+            $"{statistics.NeighborPairAddedCount} / " +
+            $"{statistics.NeighborPairRemovedCount} / " +
+            $"{statistics.NeighborPairRetainedCount}");
+        DrawDetailRow(
+            "完整重建 / 局部修复",
+            $"{statistics.FullRebuildCount} / " +
+            $"{statistics.IncrementalRepairCount}");
+        DrawDetailRow(
+            "干净代理 / Pair 保留率",
+            $"{pipeline.CleanProxyRatio:P1} / " +
+            $"{pipeline.RetainedNeighborPairRatio:P1}");
         DrawDetailRow(
             "Oracle 缺失 / 额外",
             oracleAvailable
@@ -859,7 +947,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 ? "整个 Timestep 内唯一 Pair 数"
                 : "关闭缓存时只表示最后一次构建，不参与利用率");
         DrawMetric(
-            "唯一激活利用率",
+            "约束实际生效率",
             snapshot.Overview.SolverSkipReason != ContactSolverSkipReason.None
                 ? "求解已跳过"
                 : metrics.ActivationAvailable != 0
@@ -867,7 +955,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 : "不适用",
             snapshot.Overview.SolverSkipReason != ContactSolverSkipReason.None
                 ? SolverSkipReasonLabel(snapshot.Overview.SolverSkipReason)
-                : "至少一个 Substep 中产生有效 XPBD 约束的唯一 Pair");
+                : "送入 XPBD 的唯一 Pair 中，至少一个 Substep 产生有效 lambda 的比例");
         DrawMetric(
             "避免重复构建",
             cacheEnabled
