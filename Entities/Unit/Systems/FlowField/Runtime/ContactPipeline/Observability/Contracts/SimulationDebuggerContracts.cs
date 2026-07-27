@@ -133,6 +133,9 @@ public struct SimulationOverviewMetrics
     public long ContactActivationNanoseconds;
     public long IterationNanoseconds;
     public long AverageIterationNanoseconds;
+    public long MotionNanoseconds;
+    public long ValidationRepairNanoseconds;
+    public long DiagnosticsNanoseconds;
     public ContactSolverSkipReason SolverSkipReason;
     public int SolverSkippedSubstepCount;
     public int CandidatePairCount;
@@ -151,13 +154,20 @@ public struct SimulationOverviewMetrics
         NarrowPhaseNanoseconds +
         ContactActivationNanoseconds +
         SoftAvoidanceNanoseconds +
-        IterationNanoseconds;
+        IterationNanoseconds +
+        MotionNanoseconds +
+        ValidationRepairNanoseconds +
+        DiagnosticsNanoseconds;
     public long OtherStageNanoseconds =>
         Math.Max(0L, SolverNanoseconds - AccountedStageNanoseconds);
     public long OverlappingStageNanoseconds =>
         Math.Max(0L, AccountedStageNanoseconds - SolverNanoseconds);
     public int CurrentContactCount =>
         CurrentActualPairCount + CurrentPredictivePairCount;
+    public float OtherStageRatio =>
+        SolverNanoseconds > 0
+            ? Math.Min(1f, (float)OtherStageNanoseconds / SolverNanoseconds)
+            : 0f;
 }
 
 [Serializable]

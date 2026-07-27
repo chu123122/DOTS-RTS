@@ -447,6 +447,8 @@ public partial struct InteractionCertificationJob
         statistics.TimestepContactSetSubstepUseCount++;
 #if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+        runtime.IterationAccountedStartNanoseconds =
+            AccountedCandidateNanoseconds(incremental);
 #endif
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);

@@ -208,7 +208,16 @@ public abstract partial class BaseFlowMovementSystem
             $"substeps={snapshot.SubstepCount},iterations={snapshot.IterationCount}," +
             $"timestepCache={snapshot.EffectiveSettings.EnableTimestepContactSetCache}) " +
             $"raw(solverNs={raw.SolverNanoseconds},pairNs={raw.PairGenerationNanoseconds}," +
-            $"iterationNs={raw.IterationNanoseconds},candidates={raw.CandidatePairCount}," +
+            $"iterationNs={raw.IterationNanoseconds},motionNs={raw.MotionNanoseconds}," +
+            $"validationNs={raw.ValidationRepairNanoseconds}," +
+            $"diagnosticsNs={raw.DiagnosticsNanoseconds}," +
+            $"otherNs={snapshot.Overview.OtherStageNanoseconds}," +
+            $"broadNs={snapshot.Overview.BroadPhaseNanoseconds}," +
+            $"narrowNs={snapshot.Overview.NarrowPhaseNanoseconds}," +
+            $"activationNs={snapshot.Overview.ContactActivationNanoseconds}," +
+            $"softNs={raw.SoftAvoidanceNanoseconds}," +
+            $"overlapNs={snapshot.Overview.OverlappingStageNanoseconds}," +
+            $"candidates={raw.CandidatePairCount}," +
             $"contacts={raw.ContactPairCount},predictive={raw.PredictivePairCount}," +
             $"active={raw.ActiveConstraintCount},unique=" +
             $"{raw.TimestepContactSetUniqueActivatedPairCount}/" +
@@ -388,6 +397,10 @@ public abstract partial class BaseFlowMovementSystem
             incremental.ContactActivationNanoseconds;
         result.IterationNanoseconds = statistics.IterationNanoseconds;
         result.AverageIterationNanoseconds = statistics.AverageIterationNanoseconds;
+        result.MotionNanoseconds = statistics.MotionNanoseconds;
+        result.ValidationRepairNanoseconds =
+            statistics.ValidationRepairNanoseconds;
+        result.DiagnosticsNanoseconds = statistics.DiagnosticsNanoseconds;
         result.SolverSkipReason = statistics.SolverSkipReason;
         result.SolverSkippedSubstepCount = statistics.SolverSkippedSubstepCount;
         result.CandidatePairCount = statistics.CandidatePairCount;

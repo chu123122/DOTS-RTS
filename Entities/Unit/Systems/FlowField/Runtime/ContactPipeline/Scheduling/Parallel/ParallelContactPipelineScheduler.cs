@@ -25,6 +25,9 @@ public partial struct CrowdContactPipelineScheduler
         JobHandle dependency)
     {
         JobHandle handle = ParallelLifecycle.Schedule(dependency);
+#if RTS_CONTACT_DIAGNOSTICS
+        handle = BeginStageTiming(runtimeState, handle);
+#endif
 
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
@@ -122,9 +125,18 @@ public partial struct CrowdContactPipelineScheduler
             buildInitial.RuntimeState = runtimeState;
             handle = buildInitial.Schedule(handle);
         }
+#if RTS_CONTACT_DIAGNOSTICS
+        handle = EndStageTiming(
+            runtimeState,
+            ContactPipelineTimingOperation.EndValidationRepair,
+            handle);
+#endif
 
         for (int substepIndex = 0; substepIndex < substepCount; substepIndex++)
         {
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = BeginStageTiming(runtimeState, handle);
+#endif
             handle = new PrepareBaseVelocityBodiesJob
             {
                 Bodies = Bodies,
@@ -136,6 +148,13 @@ public partial struct CrowdContactPipelineScheduler
                 GridOrigin = GridOrigin,
                 CellRadius = CellRadius
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = EndStageTiming(
+                runtimeState,
+                ContactPipelineTimingOperation.EndMotion,
+                handle);
+            handle = BeginStageTiming(runtimeState, handle);
+#endif
 
             if (!Configuration.EnableTimestepContactSetCache)
             {
@@ -281,6 +300,12 @@ public partial struct CrowdContactPipelineScheduler
             gateSoftViews.RuntimeState = runtimeState;
             gateSoftViews.SubstepIndex = substepIndex;
             handle = gateSoftViews.Schedule(handle);
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = EndStageTiming(
+                runtimeState,
+                ContactPipelineTimingOperation.EndValidationRepair,
+                handle);
+#endif
 
             SoftAvoidanceJob prepareSoft = SoftAvoidance;
             prepareSoft.Operation = SoftAvoidanceOperation.PrepareParallelWorkset;
@@ -380,6 +405,9 @@ public partial struct CrowdContactPipelineScheduler
             }
 #endif
 
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = BeginStageTiming(runtimeState, handle);
+#endif
             handle = new PredictUnconstrainedBodiesJob
             {
                 Bodies = Bodies,
@@ -391,6 +419,13 @@ public partial struct CrowdContactPipelineScheduler
                 SettledMultiplier = Configuration.SettledSoftAvoidanceMultiplier,
                 SubstepDeltaTime = substepDeltaTime
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = EndStageTiming(
+                runtimeState,
+                ContactPipelineTimingOperation.EndMotion,
+                handle);
+            handle = BeginStageTiming(runtimeState, handle);
+#endif
 
             handle = new ValidatePredictedContactEnvelopeBodiesJob
             {
@@ -451,6 +486,12 @@ public partial struct CrowdContactPipelineScheduler
             {
                 Pairs = TimestepContactPairs.AsDeferredJobArray()
             }.Schedule(TimestepContactPairs, SoftPairBatchSize, handle);
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = EndStageTiming(
+                runtimeState,
+                ContactPipelineTimingOperation.EndValidationRepair,
+                handle);
+#endif
 
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
             {
@@ -637,6 +678,9 @@ public partial struct CrowdContactPipelineScheduler
             }
 #endif
 
+#if RTS_CONTACT_DIAGNOSTICS
+            handle = BeginStageTiming(runtimeState, handle);
+#endif
             handle = new ReconstructVelocityBodiesJob
             {
                 Bodies = Bodies,
@@ -664,6 +708,10 @@ public partial struct CrowdContactPipelineScheduler
                 finalizeVelocity.BlockCount = escapeBlockCount;
                 handle = finalizeVelocity.Schedule(handle);
             }
+            handle = EndStageTiming(
+                runtimeState,
+                ContactPipelineTimingOperation.EndMotion,
+                handle);
 #endif
         }
 
@@ -681,5 +729,30 @@ public partial struct CrowdContactPipelineScheduler
         return handle;
 #endif
     }
+
+#if RTS_CONTACT_DIAGNOSTICS
+    private JobHandle BeginStageTiming(
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        JobHandle dependency) =>
+        new ContactPipelineTimingJob
+        {
+            Operation = ContactPipelineTimingOperation.Begin,
+            RuntimeState = runtimeState,
+            Statistics = Statistics,
+            IncrementalStatistics = IncrementalStatistics
+        }.Schedule(dependency);
+
+    private JobHandle EndStageTiming(
+        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        ContactPipelineTimingOperation operation,
+        JobHandle dependency) =>
+        new ContactPipelineTimingJob
+        {
+            Operation = operation,
+            RuntimeState = runtimeState,
+            Statistics = Statistics,
+            IncrementalStatistics = IncrementalStatistics
+        }.Schedule(dependency);
+#endif
 }
 }

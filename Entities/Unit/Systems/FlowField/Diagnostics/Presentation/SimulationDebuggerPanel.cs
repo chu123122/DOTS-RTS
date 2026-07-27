@@ -89,6 +89,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
     private readonly float[] _chartBufferB = new float[120];
     private readonly float[] _chartBufferC = new float[120];
     private readonly float[] _chartBufferD = new float[120];
+    private readonly float[] _chartBufferE = new float[120];
 
     private void OnEnable()
     {
@@ -535,6 +536,33 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                   $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
         GUILayout.EndHorizontal();
 
+        GUILayout.BeginHorizontal();
+        DrawMetric(
+            "软避让",
+            AvailableNanoseconds(
+                metrics.StageTimingAvailable,
+                metrics.SoftAvoidanceNanoseconds),
+            "接触前的速度级避让");
+        DrawMetric(
+            "Substep 激活与索引",
+            AvailableNanoseconds(
+                metrics.StageTimingAvailable,
+                metrics.ContactActivationNanoseconds),
+            "唤醒候选对并构建活跃约束索引");
+        DrawMetric(
+            "其他 / 调度",
+            AvailableNanoseconds(
+                metrics.StageTimingAvailable,
+                metrics.OtherStageNanoseconds),
+            metrics.StageTimingAvailable == 0
+                ? "暂无阶段计时"
+                : $"未归属墙钟跨度 {metrics.OtherStageRatio:P1}",
+            metrics.StageTimingAvailable != 0 &&
+            metrics.OtherStageRatio >= 0.2f
+                ? SimulationDebuggerHealth.Warning
+                : (SimulationDebuggerHealth?)null);
+        GUILayout.EndHorizontal();
+
         DrawMultiTrendChart(
             ref _overviewChartTexture,
             "阶段耗时趋势（最近有效采样）",
@@ -543,15 +571,17 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerRuntime.GetSolverHistory(),
                 SimulationDebuggerRuntime.GetBroadPhaseHistory(),
                 SimulationDebuggerRuntime.GetNarrowPhaseHistory(),
-                SimulationDebuggerRuntime.GetXpbdHistory()
+                SimulationDebuggerRuntime.GetXpbdHistory(),
+                SimulationDebuggerRuntime.GetOtherStageHistory()
             },
-            new[] { "总计", "Broad", "Narrow", "约束" },
+            new[] { "总计", "Broad", "Narrow", "约束", "其他" },
             new[]
             {
                 new Color(0.35f, 0.78f, 1f),
                 new Color(0.28f, 0.85f, 0.45f),
                 new Color(1f, 0.67f, 0.2f),
-                new Color(0.78f, 0.45f, 1f)
+                new Color(0.78f, 0.45f, 1f),
+                new Color(1f, 0.82f, 0.2f)
             },
             "ms",
             112);
@@ -573,6 +603,11 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         DrawTrendRow(
             "约束求解阶段",
             SimulationDebuggerRuntime.GetXpbdTrend(),
+            "0.000",
+            " ms");
+        DrawTrendRow(
+            "其他 / 调度",
+            SimulationDebuggerRuntime.GetOtherStageTrend(),
             "0.000",
             " ms");
 
@@ -1374,7 +1409,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             0 => _chartBufferA,
             1 => _chartBufferB,
             2 => _chartBufferC,
-            _ => _chartBufferD
+            3 => _chartBufferD,
+            _ => _chartBufferE
         };
     }
 
@@ -1454,11 +1490,14 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         if (comparison.Eligible == 0)
             return ineligibleMessage;
         if (comparison.BaselineAvailable == 0)
-            return $"正在采集关闭缓存基线 {comparison.BaselineSampleCount}/{required}";
+            return comparison.TargetEnabled != 0
+                ? $"缺关闭基线 {comparison.BaselineSampleCount}/{required} · " +
+                  $"开启样本 {comparison.EnabledSampleCount}/{required}"
+                : $"关闭基线 {comparison.BaselineSampleCount}/{required}";
         if (comparison.ComparisonAvailable == 0)
             return comparison.TargetEnabled != 0
-                ? $"正在采集开启缓存样本 {comparison.EnabledSampleCount}/{required}"
-                : "关闭缓存基线已就绪，开启缓存后继续采样";
+                ? $"开启样本 {comparison.EnabledSampleCount}/{required}"
+                : "关闭基线已就绪，开启缓存";
         return "关闭/开启对比有效";
     }
 
@@ -1924,13 +1963,28 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         }
 
         DrawDetailRow("接触管线总计", Nanoseconds(metrics.SolverNanoseconds));
-        DrawDetailRow("Broad Phase", Nanoseconds(metrics.BroadPhaseNanoseconds));
-        DrawDetailRow("Narrow Phase", Nanoseconds(metrics.NarrowPhaseNanoseconds));
         DrawDetailRow(
-            "Substep 激活调度",
-            Nanoseconds(metrics.ContactActivationNanoseconds));
+            "候选维护 Broad Phase",
+            Nanoseconds(metrics.BroadPhaseNanoseconds));
+        DrawDetailRow(
+            "几何分类 Narrow Phase",
+            Nanoseconds(metrics.NarrowPhaseNanoseconds));
         DrawDetailRow("软避让", Nanoseconds(metrics.SoftAvoidanceNanoseconds));
-        DrawDetailRow("约束求解阶段总计", Nanoseconds(metrics.IterationNanoseconds));
+        DrawDetailRow(
+            "Substep 激活与索引",
+            Nanoseconds(metrics.ContactActivationNanoseconds));
+        DrawDetailRow(
+            "约束求解（含轮内恢复）",
+            Nanoseconds(metrics.IterationNanoseconds));
+        DrawDetailRow(
+            "运动准备与写回",
+            Nanoseconds(metrics.MotionNanoseconds));
+        DrawDetailRow(
+            "验证、证书与缓存修复",
+            Nanoseconds(metrics.ValidationRepairNanoseconds));
+        DrawDetailRow(
+            "诊断采集",
+            Nanoseconds(metrics.DiagnosticsNanoseconds));
         DrawDetailRow("约束阶段摊销 / 轮", Nanoseconds(metrics.AverageIterationNanoseconds));
         if (metrics.SolverSkipReason != ContactSolverSkipReason.None)
         {
@@ -1939,7 +1993,10 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 $"{SolverSkipReasonLabel(metrics.SolverSkipReason)} · " +
                 $"{metrics.SolverSkippedSubstepCount} 次");
         }
-        DrawDetailRow("其他阶段", Nanoseconds(metrics.OtherStageNanoseconds));
+        DrawDetailRow(
+            "未归属 / 调度等待",
+            $"{Nanoseconds(metrics.OtherStageNanoseconds)} · " +
+            $"{metrics.OtherStageRatio:P1}");
         if (metrics.OverlappingStageNanoseconds > 0)
         {
             DrawDetailRow(
@@ -1992,9 +2049,17 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
         GUILayout.EndVertical();
     }
 
-    private void DrawMetric(string label, string value, string hint)
+    private void DrawMetric(
+        string label,
+        string value,
+        string hint,
+        SimulationDebuggerHealth? health = null)
     {
+        Color previous = GUI.color;
+        if (health.HasValue)
+            GUI.color = HealthColor(health.Value);
         GUILayout.BeginVertical(_sectionStyle, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+        GUI.color = previous;
         GUILayout.Label(label, _metricLabelStyle);
         GUILayout.Label(value, _metricValueStyle);
         GUILayout.Label(hint, _mutedStyle, GUILayout.MinHeight(30f));

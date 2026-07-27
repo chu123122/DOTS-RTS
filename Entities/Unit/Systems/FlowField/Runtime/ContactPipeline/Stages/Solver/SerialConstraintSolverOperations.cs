@@ -92,8 +92,18 @@ public partial struct ConstraintSolverJob
 #if RTS_CONTACT_DIAGNOSTICS
         // Iteration timing + constraint counters: no EnableDiagnostics gate so
         // benchmarks (diagnostics off, oracle off) still capture valid numbers.
-        statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - control.IterationStartTimestamp);
+        IncrementalContactPipelineStatistics incremental =
+            LoadIncrementalStatistics();
+        // Escape repair can rebuild/reclassify pairs between solver rounds.
+        // Those costs belong to Broad/Narrow/Activation, not to both buckets.
+        long nestedCandidateNanoseconds =
+            AccountedCandidateNanoseconds(incremental) -
+            control.IterationAccountedStartNanoseconds;
+        statistics.IterationNanoseconds += math.max(
+            0L,
+            elapsed - math.max(0L, nestedCandidateNanoseconds));
         AccumulateConstraintStatistics(ref statistics, ref control.PenetrationSum);
 #endif
         SerialControl.Value = control;
@@ -106,9 +116,13 @@ public partial struct ConstraintSolverJob
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
+        long diagnosticsStart = ProfilerUnsafeUtility.Timestamp;
         if (EnableDiagnostics)
             CaptureSelectedBodyAndPairs(math.max(0, SubstepCount - 1));
         BuildContactHeatSamples();
+        statistics.DiagnosticsNanoseconds +=
+            ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - diagnosticsStart);
 #endif
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
             ? control.PenetrationSum / statistics.PenetratingPairCount

@@ -107,7 +107,7 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         try
         {
             _overviewWriter = CreateWriter("01_overview.csv",
-                "elapsed_s,frame,units,solver_us,soft_avoidance_us,pair_generation_us,iteration_us,other_us,candidate_pairs,contact_pairs,max_contact_correction,max_wall_correction,max_velocity_change,substeps,iterations");
+                "elapsed_s,frame,units,pipeline_us,broadphase_us,narrowphase_us,soft_avoidance_us,activation_us,constraint_us,motion_us,validation_repair_us,diagnostics_us,other_scheduling_us,candidate_pairs,contact_pairs,max_contact_correction,max_wall_correction,max_velocity_change,substeps,iterations");
             _topologyWriter = CreateWriter("02_incremental_topology.csv",
                 "elapsed_s,frame,simulation_step,cache_generation,mode,proxy_count,topology_dirty_bodies,motion_dirty_bodies,escaped_bodies,local_proxy_queries,persistent_neighbor_pairs,pairs_added,pairs_removed,pairs_retained,full_rebuilds,incremental_repairs,clean_proxy_ratio,retained_pair_ratio,proxy_validation_us,local_broadphase_us,pair_diff_us,oracle_missing_pairs,oracle_extra_pairs");
             _contactWriter = CreateWriter("03_timestep_contact_set.csv",
@@ -163,16 +163,19 @@ public sealed class SimulationDebuggerLocalRecorder : MonoBehaviour
         TimestepContactSetMetrics contactSet = snapshot.ContactSet;
         SimulationDebuggerEffectiveSettings settings = snapshot.EffectiveSettings;
 
-        long known = overview.SoftAvoidanceNanoseconds +
-                     overview.PairGenerationNanoseconds +
-                     overview.IterationNanoseconds;
-        long other = Math.Max(0, overview.SolverNanoseconds - known);
-
         _overviewWriter.WriteLine(string.Join(",",
             Number(elapsed), snapshot.FrameId, overview.UnitCount,
-            Microseconds(overview.SolverNanoseconds), Microseconds(overview.SoftAvoidanceNanoseconds),
-            Microseconds(overview.PairGenerationNanoseconds), Microseconds(overview.IterationNanoseconds),
-            Microseconds(other), overview.CandidatePairCount, overview.ContactPairCount,
+            Microseconds(overview.SolverNanoseconds),
+            Microseconds(overview.BroadPhaseNanoseconds),
+            Microseconds(overview.NarrowPhaseNanoseconds),
+            Microseconds(overview.SoftAvoidanceNanoseconds),
+            Microseconds(overview.ContactActivationNanoseconds),
+            Microseconds(overview.IterationNanoseconds),
+            Microseconds(overview.MotionNanoseconds),
+            Microseconds(overview.ValidationRepairNanoseconds),
+            Microseconds(overview.DiagnosticsNanoseconds),
+            Microseconds(overview.OtherStageNanoseconds),
+            overview.CandidatePairCount, overview.ContactPairCount,
             Number(overview.MaxContactCorrection), Number(overview.MaxWallCorrection),
             Number(overview.MaxVelocityChange), snapshot.SubstepCount, snapshot.IterationCount));
 

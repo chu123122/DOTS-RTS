@@ -14,7 +14,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 /// </summary>
 public struct IncrementalContactPipelineStatistics
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
 #if RTS_CONTACT_DIAGNOSTICS
     // Timestep is the scheduled simulation-step identity. CacheGeneration is the

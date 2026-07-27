@@ -178,6 +178,9 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public long PairGenerationNanoseconds;
     public long SoftAvoidanceNanoseconds;
     public long IterationNanoseconds;
+    public long MotionNanoseconds;
+    public long ValidationRepairNanoseconds;
+    public long DiagnosticsNanoseconds;
     public long SolverNanoseconds;
     public long AverageSoftAvoidanceNanoseconds;
     public long AverageIterationNanoseconds;
@@ -227,6 +230,9 @@ public struct PredictiveDiscContactStatistics : IComponentData
     public long PairGenerationNanoseconds { get => default; set { } }
     public long SoftAvoidanceNanoseconds { get => default; set { } }
     public long IterationNanoseconds { get => default; set { } }
+    public long MotionNanoseconds { get => default; set { } }
+    public long ValidationRepairNanoseconds { get => default; set { } }
+    public long DiagnosticsNanoseconds { get => default; set { } }
     public long SolverNanoseconds { get => default; set { } }
     public long AverageSoftAvoidanceNanoseconds { get => default; set { } }
     public long AverageIterationNanoseconds { get => default; set { } }

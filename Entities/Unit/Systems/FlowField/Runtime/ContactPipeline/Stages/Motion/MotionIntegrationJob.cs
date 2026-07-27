@@ -38,6 +38,9 @@ public partial struct MotionIntegrationJob : IJob
     private FlowGridGeometry EnvironmentGeometry => new FlowGridGeometry(GridOrigin, GridDimensions, CellRadius);
     public void Execute()
     {
+#if RTS_CONTACT_DIAGNOSTICS
+        long timingStart = ProfilerUnsafeUtility.Timestamp;
+#endif
         float dt = Configuration.DeltaTime / math.max(1, Configuration.SubstepCount);
         switch (Operation)
         {
@@ -58,6 +61,13 @@ public partial struct MotionIntegrationJob : IJob
 #endif
                 break;
         }
+#if RTS_CONTACT_DIAGNOSTICS
+        PredictiveDiscContactStatistics timingStatistics = Statistics.Value;
+        timingStatistics.MotionNanoseconds +=
+            ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - timingStart);
+        Statistics.Value = timingStatistics;
+#endif
     }
 }
 }

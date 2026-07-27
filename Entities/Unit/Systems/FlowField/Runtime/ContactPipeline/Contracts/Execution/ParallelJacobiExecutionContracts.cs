@@ -18,10 +18,16 @@ public struct ParallelJacobiExecutionState
     public float PenetrationSum;
     public long SolverStartTimestamp;
     public long IterationStartTimestamp;
+    public long IterationAccountedStartNanoseconds;
+    public long StageStartTimestamp;
+    public long StageAccountedStartNanoseconds;
 #else
     public float PenetrationSum;
     public long SolverStartTimestamp { get => default; set { } }
     public long IterationStartTimestamp { get => default; set { } }
+    public long IterationAccountedStartNanoseconds { get => default; set { } }
+    public long StageStartTimestamp { get => default; set { } }
+    public long StageAccountedStartNanoseconds { get => default; set { } }
 #endif
 }
 

@@ -45,8 +45,18 @@ public partial struct ConstraintSolverJob
         if (runtime.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        statistics.IterationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - runtime.IterationStartTimestamp);
+        IncrementalContactPipelineStatistics incremental =
+            LoadIncrementalStatistics();
+        // Escape repair can rebuild/reclassify pairs between solver rounds.
+        // Those costs belong to Broad/Narrow/Activation, not to both buckets.
+        long nestedCandidateNanoseconds =
+            AccountedCandidateNanoseconds(incremental) -
+            runtime.IterationAccountedStartNanoseconds;
+        statistics.IterationNanoseconds += math.max(
+            0L,
+            elapsed - math.max(0L, nestedCandidateNanoseconds));
         AccumulateConstraintStatistics(ref statistics, ref runtime.PenetrationSum);
         StoreContactStatistics(statistics);
         runtimeState.Value = runtime;
@@ -83,6 +93,19 @@ public partial struct ConstraintSolverJob
         }
         StoreContactStatistics(statistics);
     }
+#endif
+
+#if RTS_CONTACT_DIAGNOSTICS
+    private static long AccountedCandidateNanoseconds(
+        IncrementalContactPipelineStatistics statistics) =>
+        statistics.ProxyValidationNanoseconds +
+        statistics.FullSweepSourceNanoseconds +
+        statistics.PersistentPairMappingNanoseconds +
+        statistics.LocalBroadPhaseNanoseconds +
+        statistics.PairDiffNanoseconds +
+        statistics.FallbackNanoseconds +
+        statistics.SweptClassificationNanoseconds +
+        statistics.ContactActivationNanoseconds;
 #endif
 
 }

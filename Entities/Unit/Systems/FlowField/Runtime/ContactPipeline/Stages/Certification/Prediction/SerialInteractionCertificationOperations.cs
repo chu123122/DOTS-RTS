@@ -141,6 +141,10 @@ public partial struct InteractionCertificationJob
         EnsureActiveConstraintIncidentIndexP1P6();
         statistics.TimestepContactSetSubstepUseCount++;
         control.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
+#if RTS_CONTACT_DIAGNOSTICS
+        control.IterationAccountedStartNanoseconds =
+            AccountedCandidateNanoseconds(incremental);
+#endif
         SerialControl.Value = control;
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);

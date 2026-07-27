@@ -101,6 +101,7 @@ public static class SimulationDebuggerRuntime
         public readonly SimulationDebuggerHistory NarrowPhaseHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory XpbdHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory SoftAvoidanceHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory OtherStageHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory CorrectionHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory CacheHitHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory PersistentMaintenanceHistory = new SimulationDebuggerHistory(HistorySize);
@@ -130,6 +131,7 @@ public static class SimulationDebuggerRuntime
             NarrowPhaseHistory.Clear();
             XpbdHistory.Clear();
             SoftAvoidanceHistory.Clear();
+            OtherStageHistory.Clear();
             CorrectionHistory.Clear();
             CacheHitHistory.Clear();
             PersistentMaintenanceHistory.Clear();
@@ -576,6 +578,8 @@ public static class SimulationDebuggerRuntime
                     snapshot.Overview.IterationNanoseconds / 1_000_000f);
                 state.SoftAvoidanceHistory.PushValue(
                     snapshot.Overview.SoftAvoidanceNanoseconds / 1_000_000f);
+                state.OtherStageHistory.PushValue(
+                    snapshot.Overview.OtherStageNanoseconds / 1_000_000f);
             }
             if (snapshot.Overview.StabilityAvailable != 0)
                 state.CorrectionHistory.PushValue(
@@ -776,6 +780,8 @@ public static class SimulationDebuggerRuntime
     { lock (Gate) return GetTargetStateLocked().NarrowPhaseHistory.GetTrend(windowSamples); }
     public static SimulationDebuggerTrend GetXpbdTrend(int windowSamples = 60)
     { lock (Gate) return GetTargetStateLocked().XpbdHistory.GetTrend(windowSamples); }
+    public static SimulationDebuggerTrend GetOtherStageTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().OtherStageHistory.GetTrend(windowSamples); }
     public static SimulationDebuggerTrend GetPersistentMaintenanceTrend(int windowSamples = 60)
     { lock (Gate) return GetTargetStateLocked().PersistentMaintenanceHistory.GetTrend(windowSamples); }
     public static SimulationDebuggerTrend GetContactSetBuildTrend(int windowSamples = 60)
@@ -800,6 +806,8 @@ public static class SimulationDebuggerRuntime
     { lock (Gate) return GetTargetStateLocked().XpbdHistory; }
     public static SimulationDebuggerHistory GetSoftAvoidanceHistory()
     { lock (Gate) return GetTargetStateLocked().SoftAvoidanceHistory; }
+    public static SimulationDebuggerHistory GetOtherStageHistory()
+    { lock (Gate) return GetTargetStateLocked().OtherStageHistory; }
     public static SimulationDebuggerHistory GetPersistentMaintenanceHistory()
     { lock (Gate) return GetTargetStateLocked().PersistentMaintenanceHistory; }
     public static SimulationDebuggerHistory GetPersistentCandidateHistory()
@@ -969,6 +977,7 @@ public static class SimulationDebuggerRuntime
     public static SimulationDebuggerTrend GetBroadPhaseTrend(int windowSamples=60) => default;
     public static SimulationDebuggerTrend GetNarrowPhaseTrend(int windowSamples=60) => default;
     public static SimulationDebuggerTrend GetXpbdTrend(int windowSamples=60) => default;
+    public static SimulationDebuggerTrend GetOtherStageTrend(int windowSamples=60) => default;
     public static SimulationDebuggerTrend GetPersistentMaintenanceTrend(int windowSamples=60) => default;
     public static SimulationDebuggerTrend GetContactSetBuildTrend(int windowSamples=60) => default;
     public static void CopyHistoryTo(SimulationDebuggerHistory target, float[] buffer) { }
@@ -981,6 +990,7 @@ public static class SimulationDebuggerRuntime
     public static SimulationDebuggerHistory GetNarrowPhaseHistory() => null;
     public static SimulationDebuggerHistory GetXpbdHistory() => null;
     public static SimulationDebuggerHistory GetSoftAvoidanceHistory() => null;
+    public static SimulationDebuggerHistory GetOtherStageHistory() => null;
     public static SimulationDebuggerHistory GetPersistentMaintenanceHistory() => null;
     public static SimulationDebuggerHistory GetPersistentCandidateHistory() => null;
     public static SimulationDebuggerHistory GetPersistentDirtyRatioHistory() => null;

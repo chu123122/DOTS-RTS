@@ -16,6 +16,7 @@ public struct SerialContactPipelineControlState
     public float PenetrationSum;
     public long SolverStartTimestamp;
     public long IterationStartTimestamp;
+    public long IterationAccountedStartNanoseconds;
     public float MaxViolationBeforeSolve;
     public float AverageViolationBeforeSolve;
     public float TotalWallPositionCorrection;
@@ -143,6 +144,15 @@ public partial struct InteractionCertificationJob : IJob
 
     public void Execute()
     {
+#if RTS_CONTACT_DIAGNOSTICS
+        bool measureSerialValidation = IsSerialValidationTimingOperation(Operation);
+        long timingStart = measureSerialValidation
+            ? ProfilerUnsafeUtility.Timestamp
+            : 0L;
+        long accountedStart = measureSerialValidation
+            ? AccountedCandidateNanoseconds(LoadIncrementalStatistics())
+            : 0L;
+#endif
         switch (Operation)
         {
             case InteractionCertificationOperation.InitializeSerial:
@@ -211,6 +221,44 @@ public partial struct InteractionCertificationJob : IJob
                 );
                 break;
         }
+#if RTS_CONTACT_DIAGNOSTICS
+        if (measureSerialValidation)
+        {
+            long elapsed = ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - timingStart);
+            long nestedCandidateNanoseconds =
+                AccountedCandidateNanoseconds(LoadIncrementalStatistics()) -
+                accountedStart;
+            PredictiveDiscContactStatistics statistics =
+                LoadContactStatistics();
+            statistics.ValidationRepairNanoseconds += math.max(
+                0L,
+                elapsed - math.max(0L, nestedCandidateNanoseconds));
+            StoreContactStatistics(statistics);
+        }
+#endif
     }
+
+#if RTS_CONTACT_DIAGNOSTICS
+    private static bool IsSerialValidationTimingOperation(
+        InteractionCertificationOperation operation) =>
+        operation == InteractionCertificationOperation.InitializeSerial ||
+        operation == InteractionCertificationOperation.BuildInitialSerial ||
+        operation == InteractionCertificationOperation.BuildSubstepInteractionSerial ||
+        operation == InteractionCertificationOperation.ValidateBaseMotionSerial ||
+        operation == InteractionCertificationOperation.ClampSoftOutputSerial ||
+        operation == InteractionCertificationOperation.ValidatePredictedAndActivateSerial;
+
+    private static long AccountedCandidateNanoseconds(
+        IncrementalContactPipelineStatistics statistics) =>
+        statistics.ProxyValidationNanoseconds +
+        statistics.FullSweepSourceNanoseconds +
+        statistics.PersistentPairMappingNanoseconds +
+        statistics.LocalBroadPhaseNanoseconds +
+        statistics.PairDiffNanoseconds +
+        statistics.FallbackNanoseconds +
+        statistics.SweptClassificationNanoseconds +
+        statistics.ContactActivationNanoseconds;
+#endif
 }
 }

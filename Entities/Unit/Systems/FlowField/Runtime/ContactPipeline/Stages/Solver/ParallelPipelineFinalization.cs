@@ -19,9 +19,13 @@ public partial struct ConstraintSolverJob
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
 
+        long diagnosticsStart = ProfilerUnsafeUtility.Timestamp;
         if (EnableDiagnostics)
             CaptureSelectedBodyAndPairs(substepCount - 1);
         BuildContactHeatSamples();
+        statistics.DiagnosticsNanoseconds +=
+            ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - diagnosticsStart);
         statistics.AveragePenetration = statistics.PenetratingPairCount > 0
             ? runtime.PenetrationSum / statistics.PenetratingPairCount
             : 0f;

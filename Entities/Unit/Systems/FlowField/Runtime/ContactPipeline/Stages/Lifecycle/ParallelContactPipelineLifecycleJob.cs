@@ -7,6 +7,73 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+public enum ContactPipelineTimingOperation : byte
+{
+    Begin,
+    EndMotion,
+    EndValidationRepair
+}
+
+#if RTS_CONTACT_DIAGNOSTICS
+[BurstCompile]
+public struct ContactPipelineTimingJob : IJob
+{
+    public ContactPipelineTimingOperation Operation;
+    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    [ReadOnly]
+    public NativeReference<IncrementalContactPipelineStatistics>
+        IncrementalStatistics;
+
+    public void Execute()
+    {
+        ParallelJacobiExecutionState runtime = RuntimeState.Value;
+        if (runtime.IsValid == 0)
+            return;
+
+        long now = Unity.Profiling.LowLevel.Unsafe
+            .ProfilerUnsafeUtility.Timestamp;
+        if (Operation == ContactPipelineTimingOperation.Begin)
+        {
+            runtime.StageStartTimestamp = now;
+            runtime.StageAccountedStartNanoseconds =
+                AccountedCandidateNanoseconds(IncrementalStatistics.Value);
+            RuntimeState.Value = runtime;
+            return;
+        }
+
+        long elapsed = ContactPipelineMath.TimestampToNanoseconds(
+            now - runtime.StageStartTimestamp);
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        if (Operation == ContactPipelineTimingOperation.EndMotion)
+        {
+            statistics.MotionNanoseconds += elapsed;
+        }
+        else
+        {
+            long nestedCandidateNanoseconds =
+                AccountedCandidateNanoseconds(IncrementalStatistics.Value) -
+                runtime.StageAccountedStartNanoseconds;
+            statistics.ValidationRepairNanoseconds += math.max(
+                0L,
+                elapsed - math.max(0L, nestedCandidateNanoseconds));
+        }
+        Statistics.Value = statistics;
+    }
+
+    private static long AccountedCandidateNanoseconds(
+        IncrementalContactPipelineStatistics statistics) =>
+        statistics.ProxyValidationNanoseconds +
+        statistics.FullSweepSourceNanoseconds +
+        statistics.PersistentPairMappingNanoseconds +
+        statistics.LocalBroadPhaseNanoseconds +
+        statistics.PairDiffNanoseconds +
+        statistics.FallbackNanoseconds +
+        statistics.SweptClassificationNanoseconds +
+        statistics.ContactActivationNanoseconds;
+}
+#endif
+
 /// <summary>
 /// Initializes parallel execution and candidate indexes. Every NativeContainer field
 /// is required on the parallel path; no optional serial container is carried.
