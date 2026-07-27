@@ -523,8 +523,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 metrics.NarrowPhaseNanoseconds),
             "候选几何分类与接触构造");
         DrawMetric(
-            "XPBD Solve",
+            "约束求解阶段",
             AvailableNanoseconds(metrics.TimingAvailable, metrics.IterationNanoseconds),
+            $"墙约束、XPBD 接触投影及恢复处理 · " +
             $"{snapshot.SubstepCount} 子步 × {snapshot.IterationCount} 轮");
         GUILayout.EndHorizontal();
 
@@ -538,7 +539,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
                 SimulationDebuggerRuntime.GetNarrowPhaseHistory(),
                 SimulationDebuggerRuntime.GetXpbdHistory()
             },
-            new[] { "总计", "Broad", "Narrow", "XPBD" },
+            new[] { "总计", "Broad", "Narrow", "约束" },
             new[]
             {
                 new Color(0.35f, 0.78f, 1f),
@@ -564,7 +565,7 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             "0.000",
             " ms");
         DrawTrendRow(
-            "XPBD Solve",
+            "约束求解阶段",
             SimulationDebuggerRuntime.GetXpbdTrend(),
             "0.000",
             " ms");
@@ -1914,8 +1915,8 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             "Substep 激活调度",
             Nanoseconds(metrics.ContactActivationNanoseconds));
         DrawDetailRow("软避让", Nanoseconds(metrics.SoftAvoidanceNanoseconds));
-        DrawDetailRow("XPBD 投影总计", Nanoseconds(metrics.IterationNanoseconds));
-        DrawDetailRow("XPBD 平均每轮", Nanoseconds(metrics.AverageIterationNanoseconds));
+        DrawDetailRow("约束求解阶段总计", Nanoseconds(metrics.IterationNanoseconds));
+        DrawDetailRow("约束阶段摊销 / 轮", Nanoseconds(metrics.AverageIterationNanoseconds));
         DrawDetailRow("其他阶段", Nanoseconds(metrics.OtherStageNanoseconds));
         if (metrics.OverlappingStageNanoseconds > 0)
         {
