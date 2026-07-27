@@ -45,14 +45,13 @@ public partial struct CrowdContactPipelineScheduler
         if (substepDeltaTime <= 0f)
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            if (EnableDiagnostics)
-            {
-                ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
-                finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
-                finalizeEmptyPipeline.RuntimeState = runtimeState;
-                return finalizeEmptyPipeline.Schedule(handle);
-            }
-            return handle;
+            // Degenerate-dt early-out still publishes an (empty) pipeline
+            // snapshot via FinalizeParallelPipeline (no runtime gate) so the
+            // publish chain stays consistent with the oracle disabled.
+            ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
+            finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizeEmptyPipeline.RuntimeState = runtimeState;
+            return finalizeEmptyPipeline.Schedule(handle);
 #else
             return handle;
 #endif
@@ -325,7 +324,9 @@ public partial struct CrowdContactPipelineScheduler
                 handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            if (EnableDiagnostics)
+            // ReduceSoftAvoidanceBlocksJob carries block telemetry counters
+            // (no EnableDiagnostics runtime gate) so benchmarks with the oracle
+            // off still capture valid soft-avoidance stats.
             {
                 handle = new ReduceSoftAvoidanceBlocksJob
                 {
@@ -358,7 +359,9 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            if (EnableDiagnostics)
+            // Soft-avoidance finalize carries timing/escape counters (no
+            // EnableDiagnostics runtime gate) so benchmarks with the oracle
+            // disabled still capture valid soft-avoidance telemetry.
             {
                 handle = new ReduceP1P6SoftEscapeBlocksJob
                 {
@@ -622,7 +625,10 @@ public partial struct CrowdContactPipelineScheduler
             }
 
 #if RTS_CONTACT_DIAGNOSTICS
-            if (EnableDiagnostics)
+            // BeginParallelFinalizeSubstep accumulates IterationNanoseconds and
+            // constraint counters (no EnableDiagnostics runtime gate) so
+            // benchmarks with the oracle disabled still capture valid iteration
+            // timing.
             {
                 ConstraintSolverJob beginFinalizeSubstep = ConstraintSolver;
                 beginFinalizeSubstep.Operation = ConstraintSolverOperation.BeginParallelFinalizeSubstep;
@@ -643,7 +649,8 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
-            if (EnableDiagnostics)
+            // Velocity-body block reduce + finalize carry timing/counters
+            // (no EnableDiagnostics runtime gate) for benchmarks with oracle off.
             {
                 handle = new ReduceP1P6VelocityBodyBlocksJob
                 {
@@ -661,14 +668,15 @@ public partial struct CrowdContactPipelineScheduler
         }
 
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics)
+        // FinalizeParallelPipeline publishes SolverNanoseconds, UniqueActivatedPairCount
+        // and the cross-stage ratios. No EnableDiagnostics runtime gate so benchmarks
+        // with the oracle disabled still get valid pipeline-total telemetry.
         {
             ConstraintSolverJob finalizePipeline = ConstraintSolver;
             finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
             finalizePipeline.RuntimeState = runtimeState;
             return finalizePipeline.Schedule(handle);
         }
-        return handle;
 #else
         return handle;
 #endif
