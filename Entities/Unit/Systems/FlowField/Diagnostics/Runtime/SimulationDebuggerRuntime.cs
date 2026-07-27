@@ -19,6 +19,52 @@ public static class SimulationDebuggerWorldIdentity
 public static class SimulationDebuggerRuntime
 {
     private const int HistorySize = 300;
+    private const int ComparisonHistorySize = 120;
+    private const int ComparisonMinimumSamples = 30;
+
+    private sealed class CacheComparisonBucket
+    {
+        public readonly SimulationDebuggerHistory BaselinePipeline =
+            new SimulationDebuggerHistory(ComparisonHistorySize);
+        public readonly SimulationDebuggerHistory EnabledPipeline =
+            new SimulationDebuggerHistory(ComparisonHistorySize);
+        public readonly SimulationDebuggerHistory BaselinePairs =
+            new SimulationDebuggerHistory(ComparisonHistorySize);
+        public readonly SimulationDebuggerHistory EnabledPairs =
+            new SimulationDebuggerHistory(ComparisonHistorySize);
+
+        public void Push(bool enabled, SimulationDebuggerFrameSnapshot snapshot)
+        {
+            float milliseconds = snapshot.Overview.SolverNanoseconds / 1_000_000f;
+            float pairCount = snapshot.Overview.CandidatePairCount;
+            if (enabled)
+            {
+                EnabledPipeline.PushValue(milliseconds);
+                EnabledPairs.PushValue(pairCount);
+            }
+            else
+            {
+                BaselinePipeline.PushValue(milliseconds);
+                BaselinePairs.PushValue(pairCount);
+            }
+        }
+
+        public SimulationDebuggerCacheComparison Build(
+            bool eligible,
+            bool targetEnabled) =>
+            new SimulationDebuggerCacheComparison(
+                eligible,
+                targetEnabled,
+                ComparisonMinimumSamples,
+                BaselinePipeline.Count,
+                EnabledPipeline.Count,
+                BaselinePipeline.GetPercentile(0.5f),
+                EnabledPipeline.GetPercentile(0.5f),
+                BaselinePipeline.GetPercentile(0.95f),
+                EnabledPipeline.GetPercentile(0.95f),
+                BaselinePairs.GetPercentile(0.5f),
+                EnabledPairs.GetPercentile(0.5f));
+    }
 
     private sealed class WorldState
     {
@@ -47,11 +93,53 @@ public static class SimulationDebuggerRuntime
         public int ExperimentWarmupFrames = 45;
         public float HeatmapOpacity = 0.28f;
         public float SlowTimeScale = 0.1f;
+        public uint HistoryConfigurationId = uint.MaxValue;
         public readonly SimulationDebuggerHistory SolverHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory BroadPhaseHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory NarrowPhaseHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory XpbdHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory SoftAvoidanceHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory CorrectionHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory CacheHitHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory PersistentMaintenanceHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory PersistentCandidateHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory PersistentDirtyRatioHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory PersistentMissingHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory ContactPairHistory = new SimulationDebuggerHistory(HistorySize);
         public readonly SimulationDebuggerHistory ActiveContactHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory ContactSetBuildHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory ContactSetSizeHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly SimulationDebuggerHistory ContactSetActivationHistory = new SimulationDebuggerHistory(HistorySize);
+        public readonly Dictionary<int, CacheComparisonBucket> TimestepComparisons =
+            new Dictionary<int, CacheComparisonBucket>();
+        public readonly Dictionary<int, CacheComparisonBucket> SubstepComparisons =
+            new Dictionary<int, CacheComparisonBucket>();
+        public int CurrentTimestepComparisonKey = int.MinValue;
+        public int CurrentSubstepComparisonKey = int.MinValue;
+        public bool CurrentTimestepComparisonEligible;
+        public bool CurrentSubstepComparisonEligible;
+        public bool CurrentTimestepCacheEnabled;
+        public bool CurrentSubstepCacheEnabled;
+
+        public void ClearVisibleHistories()
+        {
+            SolverHistory.Clear();
+            BroadPhaseHistory.Clear();
+            NarrowPhaseHistory.Clear();
+            XpbdHistory.Clear();
+            SoftAvoidanceHistory.Clear();
+            CorrectionHistory.Clear();
+            CacheHitHistory.Clear();
+            PersistentMaintenanceHistory.Clear();
+            PersistentCandidateHistory.Clear();
+            PersistentDirtyRatioHistory.Clear();
+            PersistentMissingHistory.Clear();
+            ContactPairHistory.Clear();
+            ActiveContactHistory.Clear();
+            ContactSetBuildHistory.Clear();
+            ContactSetSizeHistory.Clear();
+            ContactSetActivationHistory.Clear();
+        }
     }
 
     private static readonly object Gate = new object();
@@ -470,19 +558,176 @@ public static class SimulationDebuggerRuntime
         lock (Gate)
         {
             WorldState state = GetStateLocked(worldId);
+            if (state.HistoryConfigurationId !=
+                snapshot.Experiment.ConfigurationId)
+            {
+                state.HistoryConfigurationId =
+                    snapshot.Experiment.ConfigurationId;
+                state.ClearVisibleHistories();
+            }
             if (snapshot.Overview.TimingAvailable != 0)
+            {
                 state.SolverHistory.PushValue(
                     snapshot.Overview.SolverNanoseconds / 1_000_000f);
+                state.BroadPhaseHistory.PushValue(
+                    snapshot.Overview.BroadPhaseNanoseconds / 1_000_000f);
+                state.NarrowPhaseHistory.PushValue(
+                    snapshot.Overview.NarrowPhaseNanoseconds / 1_000_000f);
+                state.XpbdHistory.PushValue(
+                    snapshot.Overview.IterationNanoseconds / 1_000_000f);
+                state.SoftAvoidanceHistory.PushValue(
+                    snapshot.Overview.SoftAvoidanceNanoseconds / 1_000_000f);
+            }
             if (snapshot.Overview.StabilityAvailable != 0)
                 state.CorrectionHistory.PushValue(
                     snapshot.Overview.MaxContactCorrection);
-            state.CacheHitHistory.PushValue(snapshot.BroadPhase.ReuseRatio);
+            IncrementalContactPipelineStatistics statistics =
+                pipeline.Statistics;
+            int classified =
+                statistics.ReclassifiedPairEvaluationCount +
+                statistics.ClassificationReuseCount +
+                statistics.ClassificationSkippedCount;
+            float reuseRatio = classified > 0
+                ? (statistics.ClassificationReuseCount +
+                   statistics.ClassificationSkippedCount) / (float)classified
+                : 0f;
+            state.CacheHitHistory.PushValue(reuseRatio);
+            long maintenanceNanoseconds =
+                statistics.ProxyValidationNanoseconds +
+                statistics.PersistentPairMappingNanoseconds +
+                statistics.LocalBroadPhaseNanoseconds +
+                statistics.PairDiffNanoseconds +
+                statistics.FallbackNanoseconds;
+            state.PersistentMaintenanceHistory.PushValue(
+                maintenanceNanoseconds / 1_000_000f);
+            state.PersistentCandidateHistory.PushValue(
+                statistics.PersistentNeighborPairCount);
+            state.PersistentDirtyRatioHistory.PushValue(
+                pipeline.TopologyDirtyRatio);
+            if (snapshot.EffectiveSettings.EnableDiagnostics != 0)
+            {
+                state.PersistentMissingHistory.PushValue(
+                    statistics.OracleMissingPairCount);
+            }
             if (snapshot.Overview.WorkloadAvailable != 0)
             {
                 state.ContactPairHistory.PushValue(
                     snapshot.Overview.CurrentContactCount);
                 state.ActiveContactHistory.PushValue(snapshot.ContactSet.ActiveContactCount);
             }
+            if (snapshot.ContactSet.MetricsAvailable != 0)
+            {
+                state.ContactSetBuildHistory.PushValue(
+                    snapshot.ContactSet.BuildNanoseconds / 1_000_000f);
+                state.ContactSetSizeHistory.PushValue(
+                    snapshot.ContactSet.ContactSetSize);
+                if (snapshot.ContactSet.ActivationAvailable != 0)
+                {
+                    state.ContactSetActivationHistory.PushValue(
+                        snapshot.ContactSet.ActivationRatio);
+                }
+            }
+            TrackCacheComparisons(state, snapshot);
+        }
+    }
+
+    private static void TrackCacheComparisons(
+        WorldState state,
+        SimulationDebuggerFrameSnapshot snapshot)
+    {
+        bool telemetryAvailable = snapshot.Overview.TimingAvailable != 0;
+        bool persistentEnabled =
+            snapshot.EffectiveSettings.EnablePersistentContactCache != 0;
+        bool substepEnabled =
+            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
+
+        state.CurrentTimestepComparisonEligible =
+            telemetryAvailable && substepEnabled;
+        state.CurrentTimestepCacheEnabled = persistentEnabled;
+        state.CurrentTimestepComparisonKey =
+            state.CurrentTimestepComparisonEligible
+                ? BuildComparisonKey(snapshot, ignorePersistentCache: true)
+                : int.MinValue;
+
+        state.CurrentSubstepComparisonEligible =
+            telemetryAvailable && !persistentEnabled;
+        state.CurrentSubstepCacheEnabled = substepEnabled;
+        state.CurrentSubstepComparisonKey =
+            state.CurrentSubstepComparisonEligible
+                ? BuildComparisonKey(snapshot, ignoreSubstepCache: true)
+                : int.MinValue;
+
+        if (snapshot.Experiment.IsWarmup != 0)
+            return;
+
+        if (state.CurrentTimestepComparisonEligible)
+        {
+            CacheComparisonBucket bucket = GetComparisonBucket(
+                state.TimestepComparisons,
+                state.CurrentTimestepComparisonKey);
+            bucket.Push(persistentEnabled, snapshot);
+        }
+        if (state.CurrentSubstepComparisonEligible)
+        {
+            CacheComparisonBucket bucket = GetComparisonBucket(
+                state.SubstepComparisons,
+                state.CurrentSubstepComparisonKey);
+            bucket.Push(substepEnabled, snapshot);
+        }
+    }
+
+    private static CacheComparisonBucket GetComparisonBucket(
+        Dictionary<int, CacheComparisonBucket> buckets,
+        int key)
+    {
+        if (!buckets.TryGetValue(key, out CacheComparisonBucket bucket))
+        {
+            bucket = new CacheComparisonBucket();
+            buckets.Add(key, bucket);
+        }
+        return bucket;
+    }
+
+    private static int BuildComparisonKey(
+        SimulationDebuggerFrameSnapshot snapshot,
+        bool ignorePersistentCache = false,
+        bool ignoreSubstepCache = false)
+    {
+        SimulationDebuggerEffectiveSettings settings =
+            snapshot.EffectiveSettings;
+        unchecked
+        {
+            int hash = 17;
+            AddHash(ref hash, snapshot.Overview.UnitCount);
+            AddHash(ref hash, snapshot.DeltaTime.GetHashCode());
+            AddHash(ref hash, settings.SubstepCount);
+            AddHash(ref hash, settings.IterationCount);
+            AddHash(ref hash, settings.ContactPositionSolver);
+            AddHash(ref hash, settings.Compliance.GetHashCode());
+            AddHash(ref hash, settings.PredictiveSkin.GetHashCode());
+            AddHash(ref hash, settings.EnablePredictivePairGeneration);
+            AddHash(ref hash, settings.EnablePredictiveContacts);
+            if (!ignorePersistentCache)
+                AddHash(ref hash, settings.EnablePersistentContactCache);
+            if (!ignoreSubstepCache)
+                AddHash(ref hash, settings.EnableTimestepContactSetCache);
+            AddHash(ref hash, settings.PersistentGuardEnvelopeMargin.GetHashCode());
+            AddHash(ref hash, settings.TimestepContactMargin.GetHashCode());
+            AddHash(ref hash, settings.EnableDiagnostics);
+            AddHash(ref hash, settings.SoftAvoidanceResponseRate.GetHashCode());
+            AddHash(ref hash, settings.SoftAvoidanceShell.GetHashCode());
+            AddHash(ref hash, settings.SettledSoftAvoidanceMultiplier.GetHashCode());
+            AddHash(ref hash, settings.SoftAvoidanceVelocitySolver);
+            AddHash(ref hash, settings.RvoTimeHorizon.GetHashCode());
+            return hash;
+        }
+    }
+
+    private static void AddHash(ref int hash, int value)
+    {
+        unchecked
+        {
+            hash = hash * 31 + value;
         }
     }
     public static void Publish(
@@ -500,6 +745,16 @@ public static class SimulationDebuggerRuntime
     { lock (Gate) return GetTargetStateLocked().ContactPairHistory.GetTrend(windowFrames); }
     public static SimulationDebuggerTrend GetActiveContactTrend(int windowFrames = 60)
     { lock (Gate) return GetTargetStateLocked().ActiveContactHistory.GetTrend(windowFrames); }
+    public static SimulationDebuggerTrend GetBroadPhaseTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().BroadPhaseHistory.GetTrend(windowSamples); }
+    public static SimulationDebuggerTrend GetNarrowPhaseTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().NarrowPhaseHistory.GetTrend(windowSamples); }
+    public static SimulationDebuggerTrend GetXpbdTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().XpbdHistory.GetTrend(windowSamples); }
+    public static SimulationDebuggerTrend GetPersistentMaintenanceTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().PersistentMaintenanceHistory.GetTrend(windowSamples); }
+    public static SimulationDebuggerTrend GetContactSetBuildTrend(int windowSamples = 60)
+    { lock (Gate) return GetTargetStateLocked().ContactSetBuildHistory.GetTrend(windowSamples); }
     public static void CopyHistoryTo(SimulationDebuggerHistory target, float[] buffer)
     { if (target != null) target.CopyTo(buffer, buffer.Length); }
     public static SimulationDebuggerHistory GetSolverHistory()
@@ -512,6 +767,96 @@ public static class SimulationDebuggerRuntime
     { lock (Gate) return GetTargetStateLocked().ContactPairHistory; }
     public static SimulationDebuggerHistory GetActiveContactHistoryObj()
     { lock (Gate) return GetTargetStateLocked().ActiveContactHistory; }
+    public static SimulationDebuggerHistory GetBroadPhaseHistory()
+    { lock (Gate) return GetTargetStateLocked().BroadPhaseHistory; }
+    public static SimulationDebuggerHistory GetNarrowPhaseHistory()
+    { lock (Gate) return GetTargetStateLocked().NarrowPhaseHistory; }
+    public static SimulationDebuggerHistory GetXpbdHistory()
+    { lock (Gate) return GetTargetStateLocked().XpbdHistory; }
+    public static SimulationDebuggerHistory GetSoftAvoidanceHistory()
+    { lock (Gate) return GetTargetStateLocked().SoftAvoidanceHistory; }
+    public static SimulationDebuggerHistory GetPersistentMaintenanceHistory()
+    { lock (Gate) return GetTargetStateLocked().PersistentMaintenanceHistory; }
+    public static SimulationDebuggerHistory GetPersistentCandidateHistory()
+    { lock (Gate) return GetTargetStateLocked().PersistentCandidateHistory; }
+    public static SimulationDebuggerHistory GetPersistentDirtyRatioHistory()
+    { lock (Gate) return GetTargetStateLocked().PersistentDirtyRatioHistory; }
+    public static SimulationDebuggerHistory GetPersistentMissingHistory()
+    { lock (Gate) return GetTargetStateLocked().PersistentMissingHistory; }
+    public static SimulationDebuggerHistory GetContactSetBuildHistory()
+    { lock (Gate) return GetTargetStateLocked().ContactSetBuildHistory; }
+    public static SimulationDebuggerHistory GetContactSetSizeHistory()
+    { lock (Gate) return GetTargetStateLocked().ContactSetSizeHistory; }
+    public static SimulationDebuggerHistory GetContactSetActivationHistory()
+    { lock (Gate) return GetTargetStateLocked().ContactSetActivationHistory; }
+
+    public static SimulationDebuggerCacheComparison GetTimestepCacheComparison()
+    {
+        lock (Gate)
+        {
+            WorldState state = GetTargetStateLocked();
+            if (!state.CurrentTimestepComparisonEligible ||
+                !state.TimestepComparisons.TryGetValue(
+                    state.CurrentTimestepComparisonKey,
+                    out CacheComparisonBucket bucket))
+            {
+                return new SimulationDebuggerCacheComparison(
+                    state.CurrentTimestepComparisonEligible,
+                    state.CurrentTimestepCacheEnabled,
+                    ComparisonMinimumSamples,
+                    0,
+                    0,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f);
+            }
+            return bucket.Build(
+                true,
+                state.CurrentTimestepCacheEnabled);
+        }
+    }
+
+    public static SimulationDebuggerCacheComparison GetSubstepCacheComparison()
+    {
+        lock (Gate)
+        {
+            WorldState state = GetTargetStateLocked();
+            if (!state.CurrentSubstepComparisonEligible ||
+                !state.SubstepComparisons.TryGetValue(
+                    state.CurrentSubstepComparisonKey,
+                    out CacheComparisonBucket bucket))
+            {
+                return new SimulationDebuggerCacheComparison(
+                    state.CurrentSubstepComparisonEligible,
+                    state.CurrentSubstepCacheEnabled,
+                    ComparisonMinimumSamples,
+                    0,
+                    0,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f);
+            }
+            return bucket.Build(
+                true,
+                state.CurrentSubstepCacheEnabled);
+        }
+    }
+
+    public static void ClearCacheComparisons()
+    {
+        lock (Gate)
+        {
+            WorldState state = GetTargetStateLocked();
+            state.TimestepComparisons.Clear();
+            state.SubstepComparisons.Clear();
+        }
+    }
 
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot) =>
         TryGetLatest(TargetWorldId, out snapshot);
@@ -595,12 +940,31 @@ public static class SimulationDebuggerRuntime
     public static SimulationDebuggerTrend GetCacheHitTrend(int windowFrames=60) => default;
     public static SimulationDebuggerTrend GetContactPairTrend(int windowFrames=60) => default;
     public static SimulationDebuggerTrend GetActiveContactTrend(int windowFrames=60) => default;
+    public static SimulationDebuggerTrend GetBroadPhaseTrend(int windowSamples=60) => default;
+    public static SimulationDebuggerTrend GetNarrowPhaseTrend(int windowSamples=60) => default;
+    public static SimulationDebuggerTrend GetXpbdTrend(int windowSamples=60) => default;
+    public static SimulationDebuggerTrend GetPersistentMaintenanceTrend(int windowSamples=60) => default;
+    public static SimulationDebuggerTrend GetContactSetBuildTrend(int windowSamples=60) => default;
     public static void CopyHistoryTo(SimulationDebuggerHistory target, float[] buffer) { }
     public static SimulationDebuggerHistory GetSolverHistory() => null;
     public static SimulationDebuggerHistory GetCorrectionHistory() => null;
     public static SimulationDebuggerHistory GetCacheHitHistory() => null;
     public static SimulationDebuggerHistory GetContactPairHistory() => null;
     public static SimulationDebuggerHistory GetActiveContactHistoryObj() => null;
+    public static SimulationDebuggerHistory GetBroadPhaseHistory() => null;
+    public static SimulationDebuggerHistory GetNarrowPhaseHistory() => null;
+    public static SimulationDebuggerHistory GetXpbdHistory() => null;
+    public static SimulationDebuggerHistory GetSoftAvoidanceHistory() => null;
+    public static SimulationDebuggerHistory GetPersistentMaintenanceHistory() => null;
+    public static SimulationDebuggerHistory GetPersistentCandidateHistory() => null;
+    public static SimulationDebuggerHistory GetPersistentDirtyRatioHistory() => null;
+    public static SimulationDebuggerHistory GetPersistentMissingHistory() => null;
+    public static SimulationDebuggerHistory GetContactSetBuildHistory() => null;
+    public static SimulationDebuggerHistory GetContactSetSizeHistory() => null;
+    public static SimulationDebuggerHistory GetContactSetActivationHistory() => null;
+    public static SimulationDebuggerCacheComparison GetTimestepCacheComparison() => default;
+    public static SimulationDebuggerCacheComparison GetSubstepCacheComparison() => default;
+    public static void ClearCacheComparisons() { }
     public static bool TryGetLatest(out SimulationDebuggerFrameSnapshot snapshot) { snapshot=null; return false; }
     public static bool TryGetLatest(ulong worldId, out SimulationDebuggerFrameSnapshot snapshot) { snapshot=null; return false; }
     public static void Reset() { }

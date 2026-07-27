@@ -378,16 +378,27 @@ public readonly struct SimulationDebuggerTrend
 {
     public readonly float Current;
     public readonly float Average;
+    public readonly float Median;
+    public readonly float Percentile95;
     public readonly float Minimum;
     public readonly float Maximum;
     public readonly TrendDirection Direction;
     public readonly int SampleCount;
 
-    public SimulationDebuggerTrend(float current, float average, float min, float max,
-        TrendDirection direction, int count)
+    public SimulationDebuggerTrend(
+        float current,
+        float average,
+        float median,
+        float percentile95,
+        float min,
+        float max,
+        TrendDirection direction,
+        int count)
     {
         Current = current;
         Average = average;
+        Median = median;
+        Percentile95 = percentile95;
         Minimum = min;
         Maximum = max;
         Direction = direction;
@@ -402,6 +413,69 @@ public readonly struct SimulationDebuggerTrend
     };
 }
 
+[Serializable]
+public readonly struct SimulationDebuggerCacheComparison
+{
+    public readonly byte Eligible;
+    public readonly byte TargetEnabled;
+    public readonly byte BaselineAvailable;
+    public readonly byte ComparisonAvailable;
+    public readonly int BaselineSampleCount;
+    public readonly int EnabledSampleCount;
+    public readonly float BaselineMedianMilliseconds;
+    public readonly float EnabledMedianMilliseconds;
+    public readonly float BaselineP95Milliseconds;
+    public readonly float EnabledP95Milliseconds;
+    public readonly float DeltaMilliseconds;
+    public readonly float DeltaPercent;
+    public readonly float BaselineMedianPairCount;
+    public readonly float EnabledMedianPairCount;
+    public readonly float PairDelta;
+    public readonly float PairDeltaPercent;
+
+    public SimulationDebuggerCacheComparison(
+        bool eligible,
+        bool targetEnabled,
+        int minimumSamples,
+        int baselineSampleCount,
+        int enabledSampleCount,
+        float baselineMedianMilliseconds,
+        float enabledMedianMilliseconds,
+        float baselineP95Milliseconds,
+        float enabledP95Milliseconds,
+        float baselineMedianPairCount,
+        float enabledMedianPairCount)
+    {
+        Eligible = (byte)(eligible ? 1 : 0);
+        TargetEnabled = (byte)(targetEnabled ? 1 : 0);
+        BaselineAvailable =
+            (byte)(eligible && baselineSampleCount >= minimumSamples ? 1 : 0);
+        ComparisonAvailable =
+            (byte)(eligible &&
+                   baselineSampleCount >= minimumSamples &&
+                   enabledSampleCount >= minimumSamples
+                ? 1
+                : 0);
+        BaselineSampleCount = baselineSampleCount;
+        EnabledSampleCount = enabledSampleCount;
+        BaselineMedianMilliseconds = baselineMedianMilliseconds;
+        EnabledMedianMilliseconds = enabledMedianMilliseconds;
+        BaselineP95Milliseconds = baselineP95Milliseconds;
+        EnabledP95Milliseconds = enabledP95Milliseconds;
+        DeltaMilliseconds =
+            enabledMedianMilliseconds - baselineMedianMilliseconds;
+        DeltaPercent = baselineMedianMilliseconds > 0.000001f
+            ? DeltaMilliseconds / baselineMedianMilliseconds
+            : 0f;
+        BaselineMedianPairCount = baselineMedianPairCount;
+        EnabledMedianPairCount = enabledMedianPairCount;
+        PairDelta = enabledMedianPairCount - baselineMedianPairCount;
+        PairDeltaPercent = baselineMedianPairCount > 0.000001f
+            ? PairDelta / baselineMedianPairCount
+            : 0f;
+    }
+}
+
 public sealed class SimulationDebuggerHistory
 {
     private readonly float[] _buffer;
@@ -414,6 +488,10 @@ public sealed class SimulationDebuggerHistory
         _capacity = Math.Max(1, capacity);
         _buffer = new float[_capacity];
     }
+
+    public int Count => _count;
+    public float Current =>
+        _count > 0 ? _buffer[(_head - 1 + _capacity) % _capacity] : 0f;
 
     public void Push(SimulationDebuggerFrameSnapshot snapshot)
     {
@@ -431,6 +509,13 @@ public sealed class SimulationDebuggerHistory
             _count++;
     }
 
+    public void Clear()
+    {
+        Array.Clear(_buffer, 0, _buffer.Length);
+        _head = 0;
+        _count = 0;
+    }
+
     public SimulationDebuggerTrend GetTrend(
         int windowFrames,
         Func<SimulationDebuggerFrameSnapshot, float> selector)
@@ -439,7 +524,15 @@ public sealed class SimulationDebuggerHistory
         // We reconstruct the value array from the latest snapshot + selector pattern.
         // Actually, the trend queries use Push/PushValue separately.
         // Simplified: just return a default trend.
-        return new SimulationDebuggerTrend(0, 0, 0, 0, TrendDirection.Stable, 0);
+        return new SimulationDebuggerTrend(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            TrendDirection.Stable,
+            0);
     }
 
     public void CopyTo(float[] dest, int windowFrames)
@@ -456,11 +549,47 @@ public sealed class SimulationDebuggerHistory
             dest[i] = 0f;
     }
 
+    public int CopyLatestTo(float[] destination, int maximumSamples)
+    {
+        if (destination == null || destination.Length == 0)
+            return 0;
+        int samples = Math.Min(
+            Math.Min(Math.Max(0, maximumSamples), _count),
+            destination.Length);
+        int tail = (_head - samples + _capacity) % _capacity;
+        for (int i = 0; i < samples; i++)
+            destination[i] = _buffer[(tail + i) % _capacity];
+        return samples;
+    }
+
+    public float GetPercentile(float percentile, int windowSamples = int.MaxValue)
+    {
+        int samples = Math.Min(Math.Max(0, windowSamples), _count);
+        if (samples == 0)
+            return 0f;
+        var values = new float[samples];
+        int tail = (_head - samples + _capacity) % _capacity;
+        for (int i = 0; i < samples; i++)
+            values[i] = _buffer[(tail + i) % _capacity];
+        Array.Sort(values);
+        float clamped = Math.Max(0f, Math.Min(1f, percentile));
+        int index = (int)Math.Ceiling(clamped * samples) - 1;
+        return values[Math.Max(0, Math.Min(samples - 1, index))];
+    }
+
     public SimulationDebuggerTrend GetTrend(int windowFrames)
     {
         int samples = Math.Min(windowFrames, _count);
         if (samples == 0)
-            return new SimulationDebuggerTrend(0, 0, 0, 0, TrendDirection.Stable, 0);
+            return new SimulationDebuggerTrend(
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                TrendDirection.Stable,
+                0);
 
         float sum = 0f, min = float.MaxValue, max = float.MinValue;
         int tail = (_head - samples + _capacity) % _capacity;
@@ -493,7 +622,15 @@ public sealed class SimulationDebuggerHistory
         else if (ratio > 1.12f) direction = TrendDirection.Degrading;
         else direction = TrendDirection.Stable;
 
-        return new SimulationDebuggerTrend(current, avg, min, max, direction, samples);
+        return new SimulationDebuggerTrend(
+            current,
+            avg,
+            GetPercentile(0.5f, samples),
+            GetPercentile(0.95f, samples),
+            min,
+            max,
+            direction,
+            samples);
     }
 }
 }
