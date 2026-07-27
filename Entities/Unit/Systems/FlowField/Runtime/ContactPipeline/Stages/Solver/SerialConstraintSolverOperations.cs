@@ -134,6 +134,9 @@ public partial struct ConstraintSolverJob
         // total-solve time with the oracle disabled.
         statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - control.SolverStartTimestamp);
+        CountFinalContactSetUtilization(
+            out statistics.TimestepContactSetUniqueActivatedPairCount,
+            out incremental.UniqueCorrectedPairCount);
 #endif
         incremental.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;

@@ -29,5 +29,21 @@ public partial struct ConstraintSolverJob
             TimestepContactPairs[pairIndex] = pair;
         }
     }
+
+#if RTS_CONTACT_DIAGNOSTICS
+    private void CountFinalContactSetUtilization(
+        out int activatedPairCount,
+        out int correctedPairCount)
+    {
+        activatedPairCount = 0;
+        correctedPairCount = 0;
+        for (int pairIndex = 0; pairIndex < TimestepContactPairs.Length; pairIndex++)
+        {
+            ContactConstraint pair = TimestepContactPairs[pairIndex];
+            activatedPairCount += pair.WasActivatedThisTimestep != 0 ? 1 : 0;
+            correctedPairCount += pair.WasCorrectedThisTimestep != 0 ? 1 : 0;
+        }
+    }
+#endif
 }
 }

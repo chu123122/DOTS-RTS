@@ -121,12 +121,16 @@ public struct SimulationOverviewMetrics
 {
     public SimulationDebuggerHealth Health;
     public byte TimingAvailable;
+    public byte StageTimingAvailable;
     public byte WorkloadAvailable;
     public byte StabilityAvailable;
     public int UnitCount;
     public long SolverNanoseconds;
     public long SoftAvoidanceNanoseconds;
     public long PairGenerationNanoseconds;
+    public long BroadPhaseNanoseconds;
+    public long NarrowPhaseNanoseconds;
+    public long ContactActivationNanoseconds;
     public long IterationNanoseconds;
     public long AverageIterationNanoseconds;
     public int CandidatePairCount;
@@ -140,6 +144,16 @@ public struct SimulationOverviewMetrics
     public float MaxVelocityChange;
 
     public float SolverMilliseconds => SolverNanoseconds / 1_000_000f;
+    public long AccountedStageNanoseconds =>
+        BroadPhaseNanoseconds +
+        NarrowPhaseNanoseconds +
+        ContactActivationNanoseconds +
+        SoftAvoidanceNanoseconds +
+        IterationNanoseconds;
+    public long OtherStageNanoseconds =>
+        Math.Max(0L, SolverNanoseconds - AccountedStageNanoseconds);
+    public long OverlappingStageNanoseconds =>
+        Math.Max(0L, AccountedStageNanoseconds - SolverNanoseconds);
     public int CurrentContactCount =>
         CurrentActualPairCount + CurrentPredictivePairCount;
 }
@@ -170,6 +184,9 @@ public struct TimestepContactSetMetrics
 {
     public SimulationDebuggerHealth Health;
     public byte CacheEnabled;
+    public byte MetricsAvailable;
+    public byte ActivationAvailable;
+    public byte OracleAvailable;
     public int ContactGenerationCount;
     public int ContactSetSize;
     public int ActiveContactCount;
@@ -181,6 +198,10 @@ public struct TimestepContactSetMetrics
     public int FallbackAddedPairCount;
     public int SubstepCount;
     public int AvoidedContactGenerationCount;
+    public long BuildNanoseconds;
+    public long ClassificationNanoseconds;
+    public long ActivationNanoseconds;
+    public long FallbackNanoseconds;
     public float ActivationRatio;
     public float PredictiveActivationRatio;
 }

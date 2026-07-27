@@ -46,6 +46,9 @@ public partial struct ConstraintSolverJob
         statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
 
+        CountFinalContactSetUtilization(
+            out statistics.TimestepContactSetUniqueActivatedPairCount,
+            out incrementalStatistics.UniqueCorrectedPairCount);
         incrementalStatistics.UniqueActivatedPairCount =
             statistics.TimestepContactSetUniqueActivatedPairCount;
         incrementalStatistics.CurrentSweptContactCount =

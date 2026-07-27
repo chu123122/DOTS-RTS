@@ -77,8 +77,10 @@ public abstract partial class BaseFlowMovementSystem
         snapshot.ContactSet = BuildContactSetMetrics(
             true,
             contactStatistics,
+            completedPipeline.Statistics,
             snapshot.SubstepCount,
-            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0);
+            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0,
+            snapshot.EffectiveSettings.EnableDiagnostics != 0);
 
         SimulationDebuggerSpatialReadback.Capture(
             snapshot,
@@ -128,14 +130,9 @@ public abstract partial class BaseFlowMovementSystem
             raw.CandidatePairCount == 0 &&
             raw.ContactPairCount == 0 &&
             raw.TimestepContactSetBuildCount == 0;
-        bool cacheEnabled =
-            snapshot.EffectiveSettings.EnableTimestepContactSetCache != 0;
-        int expectedContactSetSize = cacheEnabled
-            ? raw.TimestepContactSetUniquePairCount
-            : raw.ContactPairCount;
-        int expectedActiveContactCount = cacheEnabled
-            ? raw.TimestepContactSetUniqueActivatedPairCount
-            : raw.ActiveConstraintCount;
+        int expectedContactSetSize = raw.TimestepContactSetUniquePairCount;
+        int expectedActiveContactCount =
+            raw.TimestepContactSetUniqueActivatedPairCount;
         bool mappingMismatch =
             snapshot.Overview.IterationNanoseconds != raw.IterationNanoseconds ||
             snapshot.Overview.PairGenerationNanoseconds !=
@@ -144,7 +141,7 @@ public abstract partial class BaseFlowMovementSystem
             snapshot.ContactSet.ActiveContactCount !=
                 expectedActiveContactCount ||
             snapshot.ContactSet.PredictiveContactCount !=
-                raw.PredictivePairCount ||
+                pipeline.Statistics.CurrentPredictivePairCount ||
             snapshot.ContactSet.FullRebuildCount !=
                 raw.TimestepContactSetFullRebuildCount ||
             snapshot.ContactSet.FallbackAddedPairCount !=
@@ -342,6 +339,7 @@ public abstract partial class BaseFlowMovementSystem
         {
             UnitCount = unitCount,
             TimingAvailable = (byte)(telemetryAvailable ? 1 : 0),
+            StageTimingAvailable = (byte)(telemetryAvailable ? 1 : 0),
             WorkloadAvailable = (byte)(telemetryAvailable ? 1 : 0),
             StabilityAvailable = (byte)(telemetryAvailable ? 1 : 0),
             Health = unitCount > 0 && telemetryAvailable
@@ -354,6 +352,17 @@ public abstract partial class BaseFlowMovementSystem
         result.SolverNanoseconds = statistics.SolverNanoseconds;
         result.SoftAvoidanceNanoseconds = statistics.SoftAvoidanceNanoseconds;
         result.PairGenerationNanoseconds = statistics.PairGenerationNanoseconds;
+        result.BroadPhaseNanoseconds =
+            incremental.ProxyValidationNanoseconds +
+            incremental.FullSweepSourceNanoseconds +
+            incremental.PersistentPairMappingNanoseconds +
+            incremental.LocalBroadPhaseNanoseconds +
+            incremental.PairDiffNanoseconds +
+            incremental.FallbackNanoseconds;
+        result.NarrowPhaseNanoseconds =
+            incremental.SweptClassificationNanoseconds;
+        result.ContactActivationNanoseconds =
+            incremental.ContactActivationNanoseconds;
         result.IterationNanoseconds = statistics.IterationNanoseconds;
         result.AverageIterationNanoseconds = statistics.AverageIterationNanoseconds;
         result.CandidatePairCount = statistics.CandidatePairCount;
@@ -390,12 +399,17 @@ public abstract partial class BaseFlowMovementSystem
     private static TimestepContactSetMetrics BuildContactSetMetrics(
         bool hasStatistics,
         PredictiveDiscContactStatistics statistics,
+        IncrementalContactPipelineStatistics incremental,
         int substepCount,
-        bool cacheEnabled)
+        bool cacheEnabled,
+        bool oracleAvailable)
     {
         var result = new TimestepContactSetMetrics
         {
             CacheEnabled = (byte)(cacheEnabled ? 1 : 0),
+            MetricsAvailable = (byte)(hasStatistics ? 1 : 0),
+            ActivationAvailable = (byte)(hasStatistics && cacheEnabled ? 1 : 0),
+            OracleAvailable = (byte)(hasStatistics && oracleAvailable ? 1 : 0),
             ContactGenerationCount = hasStatistics
                 ? statistics.TimestepContactSetBuildCount
                 : (cacheEnabled ? 1 : substepCount),
@@ -406,6 +420,18 @@ public abstract partial class BaseFlowMovementSystem
                 ? statistics.TimestepContactSetFallbackAddedPairCount
                 : 0,
             SubstepCount = substepCount,
+            BuildNanoseconds = hasStatistics
+                ? statistics.TimestepContactSetBuildNanoseconds
+                : 0L,
+            ClassificationNanoseconds = hasStatistics
+                ? incremental.SweptClassificationNanoseconds
+                : 0L,
+            ActivationNanoseconds = hasStatistics
+                ? incremental.ContactActivationNanoseconds
+                : 0L,
+            FallbackNanoseconds = hasStatistics
+                ? statistics.TimestepContactSetFallbackNanoseconds
+                : 0L,
             Health = hasStatistics
                 ? SimulationDebuggerHealth.Healthy
                 : SimulationDebuggerHealth.Disabled
@@ -413,36 +439,34 @@ public abstract partial class BaseFlowMovementSystem
         if (!hasStatistics)
             return result;
 
-        // 跨子步缓存开启时，同一 Pair 可能在多个 substep 中反复激活；默认面板
-        // 应展示“唯一接触拓扑”的覆盖率。关闭缓存时则展示各子步生成工作的总量。
-        result.ContactSetSize = cacheEnabled
-            ? statistics.TimestepContactSetUniquePairCount
-            : statistics.ContactPairCount;
-        result.ActiveContactCount = cacheEnabled
-            ? statistics.TimestepContactSetUniqueActivatedPairCount
-            : statistics.ActiveConstraintCount;
+        // These two values always describe the final committed contact view. With
+        // cross-substep caching enabled that view is the timestep-wide unique set;
+        // with the cache disabled it is only the latest substep view, so utilization
+        // is explicitly marked unavailable rather than changing the denominator.
+        result.ContactSetSize = statistics.TimestepContactSetUniquePairCount;
+        result.ActiveContactCount =
+            statistics.TimestepContactSetUniqueActivatedPairCount;
         result.InactiveContactCount = math.max(
             0,
             result.ContactSetSize - result.ActiveContactCount);
-        result.PredictiveContactCount = statistics.PredictivePairCount;
+        result.PredictiveContactCount = incremental.CurrentPredictivePairCount;
         result.PredictiveActivatedCount = statistics.PredictiveActivatedCount;
-        result.ActualContactCount = math.max(
-            0,
-            result.ContactSetSize - statistics.PredictivePairCount);
-        result.ActivationRatio = result.ContactSetSize > 0
+        result.ActualContactCount = incremental.CurrentActualPairCount;
+        result.ActivationRatio =
+            result.ActivationAvailable != 0 && result.ContactSetSize > 0
             ? math.saturate(result.ActiveContactCount / (float)result.ContactSetSize)
             : 0f;
         result.PredictiveActivationRatio = statistics.PredictivePairCount > 0
             ? statistics.PredictiveActivatedCount / (float)statistics.PredictivePairCount
             : 0f;
-        result.AvoidedContactGenerationCount = cacheEnabled && result.ContactSetSize > 0
-            ? math.max(0, substepCount - 1)
+        result.AvoidedContactGenerationCount =
+            cacheEnabled && result.ContactGenerationCount > 0
+            ? math.max(0, substepCount - result.ContactGenerationCount)
             : 0;
 
         if (result.FallbackAddedPairCount > 0)
             result.Health = SimulationDebuggerHealth.Critical;
-        else if (result.FullRebuildCount > 0 ||
-                 (result.ContactSetSize > 0 && result.ActivationRatio < 0.25f))
+        else if (result.FullRebuildCount > 0)
             result.Health = SimulationDebuggerHealth.Warning;
         return result;
     }
