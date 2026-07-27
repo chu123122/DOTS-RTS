@@ -124,6 +124,15 @@ public static class SimulationDebuggerRuntime
         public bool CurrentTimestepCacheEnabled;
         public bool CurrentSubstepCacheEnabled;
 
+        public void ClearPersistentHistories()
+        {
+            CacheHitHistory.Clear();
+            PersistentMaintenanceHistory.Clear();
+            PersistentCandidateHistory.Clear();
+            PersistentDirtyRatioHistory.Clear();
+            PersistentMissingHistory.Clear();
+        }
+
         public void ClearVisibleHistories()
         {
             SolverHistory.Clear();
@@ -133,11 +142,7 @@ public static class SimulationDebuggerRuntime
             SoftAvoidanceHistory.Clear();
             OtherStageHistory.Clear();
             CorrectionHistory.Clear();
-            CacheHitHistory.Clear();
-            PersistentMaintenanceHistory.Clear();
-            PersistentCandidateHistory.Clear();
-            PersistentDirtyRatioHistory.Clear();
-            PersistentMissingHistory.Clear();
+            ClearPersistentHistories();
             ContactPairHistory.Clear();
             ActiveContactHistory.Clear();
             ContactSetBuildHistory.Clear();
@@ -586,32 +591,40 @@ public static class SimulationDebuggerRuntime
                     snapshot.Overview.MaxContactCorrection);
             IncrementalContactPipelineStatistics statistics =
                 pipeline.Statistics;
-            int classified =
-                statistics.ReclassifiedPairEvaluationCount +
-                statistics.ClassificationReuseCount +
-                statistics.ClassificationSkippedCount;
-            float reuseRatio = classified > 0
-                ? (statistics.ClassificationReuseCount +
-                   statistics.ClassificationSkippedCount) / (float)classified
-                : 0f;
-            state.CacheHitHistory.PushValue(reuseRatio);
-            long maintenanceNanoseconds =
-                statistics.ProxyValidationNanoseconds +
-                statistics.PersistentPairMappingNanoseconds +
-                statistics.LocalBroadPhaseNanoseconds +
-                statistics.PairDiffNanoseconds +
-                statistics.FallbackNanoseconds;
-            state.PersistentMaintenanceHistory.PushValue(
-                maintenanceNanoseconds / 1_000_000f);
-            state.PersistentCandidateHistory.PushValue(
-                statistics.PersistentNeighborPairCount);
-            state.PersistentDirtyRatioHistory.PushValue(
-                pipeline.TopologyDirtyRatio);
-            if (snapshot.EffectiveSettings.EnableDiagnostics != 0)
+            bool persistentTelemetryAvailable =
+                snapshot.EffectiveSettings.EnablePersistentContactCache != 0 &&
+                statistics.Timestep != 0;
+            if (persistentTelemetryAvailable)
             {
-                state.PersistentMissingHistory.PushValue(
-                    statistics.OracleMissingPairCount);
+                int classified =
+                    statistics.ReclassifiedPairEvaluationCount +
+                    statistics.ClassificationReuseCount +
+                    statistics.ClassificationSkippedCount;
+                float reuseRatio = classified > 0
+                    ? (statistics.ClassificationReuseCount +
+                       statistics.ClassificationSkippedCount) / (float)classified
+                    : 0f;
+                state.CacheHitHistory.PushValue(reuseRatio);
+                long maintenanceNanoseconds =
+                    statistics.ProxyValidationNanoseconds +
+                    statistics.PersistentPairMappingNanoseconds +
+                    statistics.LocalBroadPhaseNanoseconds +
+                    statistics.PairDiffNanoseconds +
+                    statistics.FallbackNanoseconds;
+                state.PersistentMaintenanceHistory.PushValue(
+                    maintenanceNanoseconds / 1_000_000f);
+                state.PersistentCandidateHistory.PushValue(
+                    statistics.PersistentNeighborPairCount);
+                state.PersistentDirtyRatioHistory.PushValue(
+                    pipeline.TopologyDirtyRatio);
+                if (snapshot.EffectiveSettings.EnableDiagnostics != 0)
+                {
+                    state.PersistentMissingHistory.PushValue(
+                        statistics.OracleMissingPairCount);
+                }
             }
+            else
+                state.ClearPersistentHistories();
             if (snapshot.Overview.WorkloadAvailable != 0)
             {
                 state.ContactPairHistory.PushValue(
