@@ -22,6 +22,13 @@ public struct PersistentClassificationPhaseState
     public byte NeedsCommit;
 }
 
+internal enum PersistentClassificationWorkset : byte
+{
+    ViewsReady,
+    Full,
+    DirtyIncident
+}
+
 #if RTS_CONTACT_DIAGNOSTICS
 public struct PersistentClassificationTelemetryState
 {
@@ -229,10 +236,11 @@ public partial struct InteractionCertificationJob
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         PreviousTimestepContactPairs.Clear();
 
-        bool needsClassification = RefreshPersistentPairSourceForClassification(
+        PersistentClassificationWorkset workset =
+            RefreshPersistentPairSourceForClassification(
             ref statistics,
             ref incremental);
-        if (needsClassification)
+        if (workset != PersistentClassificationWorkset.ViewsReady)
         {
 #if RTS_CONTACT_DIAGNOSTICS
             telemetry.ClassificationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
@@ -241,10 +249,23 @@ public partial struct InteractionCertificationJob
             phase.Timestep = IncrementalCacheState.Value.Timestep;
             phase.ClassificationEpoch = CalculateClassificationEpoch();
             ClassificationBodyPairs.Clear();
-            ClassificationBodyPairs.AddRange(TimestepInteractionPairs.AsArray());
+            if (workset == PersistentClassificationWorkset.DirtyIncident)
+            {
+                ContactPipelineShared.CopyConstraintsToBodyPairs(
+                    Pairs.AsArray(),
+                    ClassificationBodyPairs);
+            }
+            else
+            {
+                ClassificationBodyPairs.AddRange(
+                    TimestepInteractionPairs.AsArray());
+            }
             PersistentClassificationResults.ResizeUninitialized(
                 ClassificationBodyPairs.Length);
-            phase.NeedsCommit = 1;
+            phase.NeedsCommit =
+                workset == PersistentClassificationWorkset.DirtyIncident
+                    ? (byte)3
+                    : (byte)1;
         }
         else
         {
@@ -260,7 +281,7 @@ public partial struct InteractionCertificationJob
         PersistentClassificationState.Value = phase;
     }
 
-    private bool RefreshPersistentPairSourceForClassification(
+    private PersistentClassificationWorkset RefreshPersistentPairSourceForClassification(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
@@ -339,7 +360,26 @@ public partial struct InteractionCertificationJob
                 false);
             ValidateIncrementalContactSetAgainstQuadraticOracle(
                 ref incrementalStatistics);
-            return false;
+            return PersistentClassificationWorkset.ViewsReady;
+        }
+
+        IncrementalContactCacheState contactCacheState =
+            IncrementalCacheState.Value;
+        if (!useFullRebuild &&
+            IncrementalDirtyBodies.Length != 0 &&
+            contactCacheState.ContactViewsValid != 0 &&
+            contactCacheState.ClassificationEpoch ==
+                CalculateClassificationEpoch())
+        {
+            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            long dirtyMappingStart = ProfilerUnsafeUtility.Timestamp;
+            bool dirtyMapped =
+                MapDirtyIncidentNeighborPairsToCurrentBodies();
+            incrementalStatistics.PersistentPairMappingNanoseconds +=
+                ContactPipelineMath.TimestampToNanoseconds(
+                    ProfilerUnsafeUtility.Timestamp - dirtyMappingStart);
+            if (dirtyMapped)
+                return PersistentClassificationWorkset.DirtyIncident;
         }
 
         long mappingStart = ProfilerUnsafeUtility.Timestamp;
@@ -347,7 +387,7 @@ public partial struct InteractionCertificationJob
         incrementalStatistics.PersistentPairMappingNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - mappingStart);
         if (mapped)
-            return true;
+            return PersistentClassificationWorkset.Full;
 
         IncrementalContactCacheState invalidState = IncrementalCacheState.Value;
         invalidState.IsValid = 0;
@@ -371,7 +411,7 @@ public partial struct InteractionCertificationJob
             false);
         ValidateIncrementalContactSetAgainstQuadraticOracle(
             ref incrementalStatistics);
-        return false;
+        return PersistentClassificationWorkset.ViewsReady;
     }
     private void CommitPersistentClassificationP1P6(
         NativeReference<ParallelJacobiExecutionState> runtimeState)
@@ -383,6 +423,15 @@ public partial struct InteractionCertificationJob
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
+        if (phase.NeedsCommit == 3)
+        {
+            CommitDirtyIncidentPersistentClassificationP1P6(
+                phase,
+                ref statistics,
+                ref incremental);
+            return;
+        }
+
         PredictiveContactScratch.Clear();
         PredictiveContactSchedule.Clear();
         SoftAvoidancePairs.Clear();
@@ -472,6 +521,120 @@ public partial struct InteractionCertificationJob
             PersistentClassificationTelemetry.Value;
         incremental.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
+        FinalizePersistentBuildTimingP1P6(
+            telemetry.BuildStartTimestamp,
+            ref statistics);
+#endif
+
+        phase.NeedsCommit = 0;
+        PersistentClassificationState.Value = phase;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incremental);
+    }
+
+    private void CommitDirtyIncidentPersistentClassificationP1P6(
+        PersistentClassificationPhaseState phase,
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incremental)
+    {
+        PredictiveContactScratch.Clear();
+        for (int contactIndex = 0;
+             contactIndex < PersistentPredictiveContacts.Length;
+             contactIndex++)
+        {
+            PersistentPredictiveContact contact =
+                PersistentPredictiveContacts[contactIndex];
+            if (IsDirtyEntity(contact.Key.EntityA) ||
+                IsDirtyEntity(contact.Key.EntityB))
+                continue;
+            PredictiveContactScratch.Add(contact);
+        }
+
+        for (int pairIndex = 0;
+             pairIndex < PersistentClassificationResults.Length;
+             pairIndex++)
+        {
+            PersistentPairClassificationResult result =
+                PersistentClassificationResults[pairIndex];
+            PredictiveContactScratch.Add(result.Contact);
+            if (result.WasReclassified != 0)
+            {
+                incremental.ReclassifiedPairEvaluationCount++;
+                incremental.SweptClassificationEvaluationCount++;
+            }
+            else
+            {
+                incremental.ClassificationReuseCount++;
+            }
+        }
+
+        if (PredictiveContactScratch.Length > 1)
+            PredictiveContactScratch.AsArray().Sort(
+                new PersistentPredictiveContactComparer());
+        PersistentPredictiveContacts.Clear();
+        PersistentPredictiveContacts.AddRange(
+            PredictiveContactScratch.AsArray());
+        RebuildPersistentContactViews();
+
+        if (!TryBuildCurrentContactViewsFromPersistentState())
+        {
+            IncrementalContactCacheState invalidState =
+                IncrementalCacheState.Value;
+            invalidState.IsValid = 0;
+            invalidState.ContactViewsValid = 0;
+            IncrementalCacheState.Value = invalidState;
+            BuildOrRefreshTimestepContactViews(
+                ref statistics,
+                ref incremental,
+                true,
+                true);
+#if RTS_CONTACT_DIAGNOSTICS
+            PersistentClassificationTelemetryState fallbackTelemetry =
+                PersistentClassificationTelemetry.Value;
+            FinalizePersistentBuildTimingP1P6(
+                fallbackTelemetry.BuildStartTimestamp,
+                ref statistics);
+#endif
+            phase.NeedsCommit = 0;
+            PersistentClassificationState.Value = phase;
+            StoreContactStatistics(statistics);
+            StoreIncrementalStatistics(incremental);
+            return;
+        }
+
+        int reclassifiedCount = PersistentClassificationResults.Length;
+        int skippedCount = math.max(
+            0,
+            PersistentNeighborPairs.Length - reclassifiedCount);
+        RestorePersistentContactViewStatistics(
+            ref statistics,
+            ref incremental,
+            skippedCount,
+            true);
+        incremental.PersistentViewRebuildCount++;
+        incremental.PersistentNeighborPairCount =
+            PersistentNeighborPairs.Length;
+
+        IncrementalContactCacheState cacheState =
+            IncrementalCacheState.Value;
+        cacheState.ClassificationEpoch = phase.ClassificationEpoch;
+        IncrementalCacheState.Value = cacheState;
+
+        ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
+            ref incremental);
+        CommitTimestepContactViews(
+            ref statistics,
+            ref incremental,
+            false);
+        ValidateIncrementalContactSetAgainstQuadraticOracle(
+            ref incremental);
+#if RTS_CONTACT_DIAGNOSTICS
+        PersistentClassificationTelemetryState telemetry =
+            PersistentClassificationTelemetry.Value;
+        incremental.SweptClassificationNanoseconds +=
+            ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp -
+                telemetry.ClassificationStartTimestamp);
         FinalizePersistentBuildTimingP1P6(
             telemetry.BuildStartTimestamp,
             ref statistics);

@@ -82,6 +82,21 @@ public partial struct InteractionCertificationJob
             persistentViewReady = true;
             return true;
         }
+        if (!useFullRebuild &&
+            TryPatchDirtyIncidentPersistentContactViews(
+                ref statistics,
+                ref incrementalStatistics,
+                scheduleStartSubstep))
+        {
+            incrementalStatistics.SweptClassificationNanoseconds +=
+                ContactPipelineMath.TimestampToNanoseconds(
+                    ProfilerUnsafeUtility.Timestamp -
+                    classificationStart);
+            incrementalStatistics.PersistentNeighborPairCount =
+                PersistentNeighborPairs.Length;
+            persistentViewReady = true;
+            return true;
+        }
 
         long mappingStart = ProfilerUnsafeUtility.Timestamp;
         bool mapped = MapPersistentNeighborPairsToCurrentBodies();
@@ -112,20 +127,81 @@ public partial struct InteractionCertificationJob
         persistentViewReady = true;
         return true;
     }
+
+    private bool TryPatchDirtyIncidentPersistentContactViews(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        int scheduleStartSubstep)
+    {
+        IncrementalContactCacheState cacheState =
+            IncrementalCacheState.Value;
+        if (IncrementalDirtyBodies.Length == 0 ||
+            cacheState.ContactViewsValid == 0 ||
+            cacheState.ClassificationEpoch !=
+                CalculateClassificationEpoch())
+            return false;
+
+        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        long mappingStart = ProfilerUnsafeUtility.Timestamp;
+        bool mapped = MapDirtyIncidentNeighborPairsToCurrentBodies();
+        incrementalStatistics.PersistentPairMappingNanoseconds +=
+            ContactPipelineMath.TimestampToNanoseconds(
+                ProfilerUnsafeUtility.Timestamp - mappingStart);
+        if (!mapped)
+            return false;
+
+        int incidentPairCount = Pairs.Length;
+        PredictiveDiscContactStatistics statisticsBeforePatch =
+            statistics;
+        ClassifyAndPatchDirtyIncidentContacts(
+            ref statistics,
+            ref incrementalStatistics,
+            scheduleStartSubstep);
+        statistics = statisticsBeforePatch;
+
+        if (!TryBuildCurrentContactViewsFromPersistentState())
+            return false;
+
+        int skippedCount = math.max(
+            0,
+            PersistentNeighborPairs.Length - incidentPairCount);
+        RestorePersistentContactViewStatistics(
+            ref statistics,
+            ref incrementalStatistics,
+            skippedCount,
+            true);
+        return true;
+    }
+
     private bool TryReusePersistentContactViews(
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
         uint classificationEpoch = CalculateClassificationEpoch();
-        // Dirty bodies carry motion/topology deltas that the repair path already
-        // consumed. They are an internal pipeline signal, not a cache-validity
-        // gate. Only the explicit cache-state epoch and the per-contact validity
-        // flag determine whether the cached views are reusable.
-        if (cacheState.ContactViewsValid == 0 ||
+        // The topology can remain reusable while endpoint motion changes a
+        // contact's Actual/Approaching/Predictive/Dormant classification. The
+        // whole-view fast path bypasses the per-pair MotionVersion checks below,
+        // so it is valid only when no endpoint changed this timestep.
+        if (IncrementalDirtyBodies.Length != 0 ||
+            cacheState.ContactViewsValid == 0 ||
             cacheState.ClassificationEpoch != classificationEpoch)
             return false;
 
+        if (!TryBuildCurrentContactViewsFromPersistentState())
+            return false;
+
+        RestorePersistentContactViewStatistics(
+            ref statistics,
+            ref incrementalStatistics,
+            PersistentNeighborPairs.Length,
+            true);
+        incrementalStatistics.PersistentViewReuseCount++;
+        return true;
+    }
+
+    private bool TryBuildCurrentContactViewsFromPersistentState()
+    {
         Pairs.Clear();
         SoftAvoidancePairs.Clear();
         PredictiveContactSchedule.Clear();
@@ -166,7 +242,16 @@ public partial struct InteractionCertificationJob
             Pairs.AsArray().Sort(new ContactConstraintComparer());
         if (SoftAvoidancePairs.Length > 1)
             SoftAvoidancePairs.AsArray().Sort(new BodyPairComparer());
+        return true;
+    }
 
+    private void RestorePersistentContactViewStatistics(
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics,
+        int classificationSkippedCount,
+        bool countAsClassificationReuse)
+    {
+        IncrementalContactCacheState cacheState = IncrementalCacheState.Value;
         int sweptCount = cacheState.DormantContactCount +
                          cacheState.ApproachingContactCount +
                          cacheState.PredictiveContactCount +
@@ -184,10 +269,11 @@ public partial struct InteractionCertificationJob
         statistics.PredictivePairCount += cacheState.PredictiveContactCount;
         statistics.TimestepContactSetDormantPairCount +=
             cacheState.DormantContactCount;
-        incrementalStatistics.ClassificationReuseCount +=
-            PersistentNeighborPairs.Length;
+        if (countAsClassificationReuse)
+            incrementalStatistics.ClassificationReuseCount +=
+                classificationSkippedCount;
         incrementalStatistics.ClassificationSkippedCount +=
-            PersistentNeighborPairs.Length;
+            classificationSkippedCount;
         incrementalStatistics.CurrentInteractionPairCount =
             PersistentNeighborPairs.Length;
         incrementalStatistics.CurrentSoftAvoidancePairCount =
@@ -203,11 +289,9 @@ public partial struct InteractionCertificationJob
             cacheState.ActualContactCount;
         incrementalStatistics.ExpiredPairCount +=
             cacheState.ExpiredContactCount;
-        incrementalStatistics.PersistentViewReuseCount++;
         UpdateActiveConstraintGauges(
             ref incrementalStatistics,
             Pairs.Length);
-        return true;
     }
 
     private void RebuildPersistentContactViews()

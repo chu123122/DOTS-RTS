@@ -154,6 +154,9 @@ public abstract partial class BaseFlowMovementSystem
         bool activationMissing =
             raw.TimestepContactSetUniqueActivatedPairCount == 0 &&
             pipeline.Statistics.CurrentActualPairCount > 0;
+        bool localClassification =
+            pipeline.Statistics.SweptClassificationEvaluationCount > 0 &&
+            pipeline.Statistics.ClassificationSkippedCount > 0;
         bool suspicious =
             settingsMismatch ||
             mappingMismatch ||
@@ -170,6 +173,7 @@ public abstract partial class BaseFlowMovementSystem
             (targetWorldMismatch ? 1 << 4 : 0) |
             (solverWorkMissing ? 1 << 5 : 0) |
             (activationMissing ? 1 << 6 : 0) |
+            (localClassification ? 1 << 7 : 0) |
             ((int)raw.SolverSkipReason << 8);
         uint step = snapshot.SimulationStepId;
         bool stateChanged =
@@ -188,6 +192,8 @@ public abstract partial class BaseFlowMovementSystem
                 ? "SOLVER_WORK_ZERO"
                 : activationMissing
                     ? "ACTIVATION_ZERO"
+                    : localClassification
+                        ? "LOCAL_CLASSIFICATION"
                     : !diagnosticsEnabled
             ? "DIAGNOSTICS_DISABLED"
             : settingsMismatch
@@ -231,6 +237,12 @@ public abstract partial class BaseFlowMovementSystem
             $"{pipeline.Statistics.CurrentActualPairCount},currentApproaching=" +
             $"{pipeline.Statistics.CurrentApproachingPairCount},currentDormant=" +
             $"{pipeline.Statistics.CurrentDormantPairCount}) " +
+            $"cache(topologyDirty={pipeline.Statistics.TopologyDirtyBodyCount}," +
+            $"motionDirty={pipeline.Statistics.MotionDirtyBodyCount}," +
+            $"classify={pipeline.Statistics.SweptClassificationEvaluationCount}," +
+            $"skipped={pipeline.Statistics.ClassificationSkippedCount}," +
+            $"view={pipeline.Statistics.PersistentViewReuseCount}/" +
+            $"{pipeline.Statistics.PersistentViewRebuildCount}) " +
             $"mapped(iterationNs={snapshot.Overview.IterationNanoseconds}," +
             $"set={snapshot.ContactSet.ContactSetSize},active=" +
             $"{snapshot.ContactSet.ActiveContactCount},predictive=" +

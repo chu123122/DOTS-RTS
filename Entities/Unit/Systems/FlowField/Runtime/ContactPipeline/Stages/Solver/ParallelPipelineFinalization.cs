@@ -50,6 +50,11 @@ public partial struct ConstraintSolverJob
         statistics.SolverNanoseconds = ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - runtime.SolverStartTimestamp);
 
+        // Dormant wakeups and repair can change the committed set after its
+        // initial build. Publish the final consumer-visible denominator beside
+        // the final utilization recount below.
+        statistics.TimestepContactSetUniquePairCount =
+            TimestepContactPairs.Length;
         CountFinalContactSetUtilization(
             out statistics.TimestepContactSetUniqueActivatedPairCount,
             out incrementalStatistics.UniqueCorrectedPairCount);
