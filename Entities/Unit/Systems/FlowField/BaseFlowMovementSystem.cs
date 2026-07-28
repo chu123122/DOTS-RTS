@@ -370,6 +370,14 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         Dependency = JobHandle.CombineDependencies(
             runtimeDispose,
             diagnosticsDispose);
+
+        // 主线程调度部分到此结束——RTS.Simulation.Update 不含 Worker job 执行。
+        SimulationUpdateMarker.End();
+
+        // TODO: 后续用 #if RTS_CONTACT_DIAGNOSTICS 包裹这个 Complete，诊断关时移除，
+        //   让正常帧恢复 job 与其他系统（渲染）的重叠。当前先不包，直接量 wall time。
+        Dependency.Complete();
+        SimulationTotalMarker.End();
     }
 
     private uint NextSimulationStepId()
