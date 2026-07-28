@@ -4,7 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Navigation-only product. It carries only path semantics needed by movement intent.
+/// 仅导航产物，仅承载运动意图所需的路径语义。
 /// </summary>
 public struct CrowdNavigationState
 {

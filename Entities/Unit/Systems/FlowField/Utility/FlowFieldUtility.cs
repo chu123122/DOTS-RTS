@@ -2,7 +2,7 @@ using Unity.Mathematics;
 
 namespace RTS.Unit.FlowField
 {
-using System.Runtime.CompilerServices; // 用于提示内联
+using System.Runtime.CompilerServices; // 强制内联提示
 
 public static class FlowFieldUtils
 {

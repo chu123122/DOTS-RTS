@@ -6,7 +6,7 @@ using RTS.Unit.FlowField.Jobs;
 
 namespace RTS.Unit.FlowField.Systems
 {
-/// <summary>Frame-local coordination state, not gameplay or candidate data.</summary>
+/// <summary>帧级协调状态，非游戏或候选数据。</summary>
 internal struct ContactPipelineExecutionResources
 {
     public NativeReference<ParallelJacobiExecutionState> ParallelJacobiRuntimeState;

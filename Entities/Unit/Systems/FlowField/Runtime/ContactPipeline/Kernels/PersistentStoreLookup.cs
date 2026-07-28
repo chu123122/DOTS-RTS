@@ -5,18 +5,25 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Binary-search lookups over the sorted persistent stores (proxies by entity,
-/// predictive contacts by stable pair key). The stores are kept sorted by their
-/// respective comparers, so these are O(log N). Pure value functions: no job
-/// state, all inputs arrive as parameters.
+/// 对已排序持久存储（按实体的 proxy、按稳定 pair key 的预测接触）的二分查找。
+/// 存储由各自比较器保持有序，复杂度 O(log N)。纯值函数：无 Job 状态，所有输入作为参数传入。
 /// </summary>
 internal static class PersistentStoreLookup
 {
     /// <summary>
-    /// Index of the predictive contact matching <paramref name="key"/> in the
-    /// sorted contact list, or -1. Keys are compared with
-    /// <see cref="StableEntityPairKeyComparer"/>.
+    /// 在已排序的接触列表中，与 <paramref name="key"/> 匹配的预测接触下标；未匹配则返回 -1。
+    /// 键的比较使用 <see cref="StableEntityPairKeyComparer"/>。
     /// </summary>
+    /// <summary>
+    /// O(1) 哈希表查找：在 <paramref name="contactIndex"/> 中取 <paramref name="key"/> 对应的持久接触。
+    /// 未找到时返回 false，contact 为默认值。
+    /// </summary>
+    internal static bool TryGetPredictiveContact(
+        NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> contactIndex,
+        StableEntityPairKey key,
+        out PersistentPredictiveContact contact) =>
+        contactIndex.TryGetValue(key, out contact);
+
     internal static int FindPredictiveContactIndex(
         NativeList<PersistentPredictiveContact> contacts,
         StableEntityPairKey key)
@@ -39,9 +46,8 @@ internal static class PersistentStoreLookup
     }
 
     /// <summary>
-    /// Index of the proxy carrying <paramref name="entity"/> in the sorted
-    /// persistent-proxy list, or -1. Entities are compared with
-    /// <see cref="StableEntityPairKey.CompareEntity"/>.
+    /// 在已排序的持久 proxy 列表中承载 <paramref name="entity"/> 的 proxy 下标；未匹配则返回 -1。
+    /// 实体的比较使用 <see cref="StableEntityPairKey.CompareEntity"/>。
     /// </summary>
     internal static int FindProxyIndex(
         NativeList<PersistentSweptProxy> proxies,
@@ -65,8 +71,7 @@ internal static class PersistentStoreLookup
     }
 
     /// <summary>
-    /// Tries to fetch the persistent proxy for <paramref name="entity"/> from
-    /// the sorted list. Returns false (with a default proxy) when absent.
+    /// 尝试在已排序列表中获取 <paramref name="entity"/> 的持久 proxy。缺失时返回 false（proxy 为默认值）。
     /// </summary>
     internal static bool TryFindPersistentProxy(
         NativeList<PersistentSweptProxy> proxies,
@@ -96,9 +101,7 @@ internal static class PersistentStoreLookup
     }
 
     /// <summary>
-    /// Tries to fetch the current incremental proxy for <paramref name="entity"/>
-    /// from the sorted incremental-proxy list. Returns false (with a default
-    /// proxy) when absent.
+    /// 尝试在已排序的增量 proxy 列表中获取 <paramref name="entity"/> 的当前 proxy。缺失时返回 false（proxy 为默认值）。
     /// </summary>
     internal static bool TryFindIncrementalProxy(
         NativeList<PersistentSweptProxy> incrementalProxies,

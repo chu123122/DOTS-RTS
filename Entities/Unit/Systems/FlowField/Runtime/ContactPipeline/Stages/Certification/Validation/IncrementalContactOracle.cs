@@ -7,8 +7,7 @@ public partial struct InteractionCertificationJob
 {
 #if RTS_CONTACT_DIAGNOSTICS
     /// <summary>
-    /// Diagnostic-only O(N^2) oracle. It evaluates the exact swept-disc test
-    /// independently of the incremental topology and records false negatives.
+    /// 仅诊断用的 O(N²) Oracle。独立执行准确的 swept-disc 测试，不依赖增量拓扑，并记录漏报。
     /// </summary>
     private void ValidateIncrementalContactSetAgainstQuadraticOracle(
         ref IncrementalContactPipelineStatistics incrementalStatistics)
@@ -111,8 +110,7 @@ public partial struct InteractionCertificationJob
         if (missingPairCount <= 0)
             return;
 
-        // Validation is observation-only. Cache invalidation belongs to an
-        // explicit gameplay correctness policy, never to diagnostics.
+        // 校验仅作观测；缓存失效属于显式的玩法正确性策略，跟诊断无关。
         incrementalStatistics.OracleMismatch = 1;
     }
 #else

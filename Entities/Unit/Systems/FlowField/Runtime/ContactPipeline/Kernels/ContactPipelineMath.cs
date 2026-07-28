@@ -6,7 +6,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Small deterministic math helpers shared by pipeline phases.
+/// 管线各阶段共享的简洁确定性数学辅助函数。
 /// </summary>
 public static class ContactPipelineMath
 {

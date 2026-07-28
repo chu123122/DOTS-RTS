@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// One spatial-cell membership produced by the frame-local swept-disc source.
+/// 帧级 swept-disc 源产出的一个空间 cell 成员关系。
 /// </summary>
 public struct SweptDiscCellEntry
 {

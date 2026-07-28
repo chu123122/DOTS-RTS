@@ -5,9 +5,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Container-free grid geometry that is safe to embed in Burst jobs. NativeArray
-/// storage remains a direct job field so Collections Safety never sees a nested
-/// NativeContainer.
+/// 无容器的栅格几何体，可安全嵌入 Burst Job。NativeArray 仍是直接 Job 字段，保证 Collections Safety 看不到嵌套 NativeContainer。
 /// </summary>
 public readonly struct FlowGridGeometry
 {
@@ -40,8 +38,7 @@ public readonly struct FlowGridGeometry
 }
 
 /// <summary>
-/// Navigation semantics over the shared FlowField storage. Navigation code should
-/// use this API instead of interpreting collision policy.
+/// 共享 FlowField 存储之上的导航语义。导航代码应使用该 API 而非解读碰撞策略。
 /// </summary>
 public static class FlowNavigationView
 {
@@ -66,10 +63,8 @@ public static class FlowNavigationView
 }
 
 /// <summary>
-/// Collision-environment semantics over the same backing cells. Soft-wall and
-/// hard-wall stages depend on IsBlocked/CellCenter, not on navigation costs.
-/// A future obstacle backend can replace this implementation without changing
-/// navigation intent generation.
+/// 同一后端 cells 之上的碰撞环境语义。软墙/硬墙阶段依赖 IsBlocked/CellCenter，而非导航代价。
+/// 未来障碍后端可在不影响导航意图生成的前提下替换此实现。
 /// </summary>
 public static class GridObstacleView
 {

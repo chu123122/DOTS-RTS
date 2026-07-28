@@ -17,9 +17,7 @@ public enum SimulationDiagnosticsBuildProfile : byte
 }
 
 /// <summary>
-/// Editor-only asset that owns the RTS_CONTACT_DIAGNOSTICS scripting define.
-/// Applying a profile updates PlayerSettings and therefore triggers a Unity
-/// script recompile. The asset itself is not included in player assemblies.
+/// 仅编辑器的资源，管理 RTS_CONTACT_DIAGNOSTICS 脚本宏。应用配置会更新 PlayerSettings 并触发 Unity 脚本重编译。该资源本身不会打包进玩家程序集。
 /// </summary>
 [CreateAssetMenu(
     fileName = "SimulationDiagnosticsBuildSettings",
@@ -28,7 +26,7 @@ public sealed class SimulationDiagnosticsBuildSettings : ScriptableObject
 {
     public const string DiagnosticsDefine = "RTS_CONTACT_DIAGNOSTICS";
 
-    [Tooltip("Last profile applied through this asset.")]
+    [Tooltip("通过该资源最后应用的配置。")]
     public SimulationDiagnosticsBuildProfile Profile =
         SimulationDiagnosticsBuildProfile.EditorDiagnostics;
 
@@ -39,8 +37,7 @@ public sealed class SimulationDiagnosticsBuildSettings : ScriptableObject
     public bool WebGL;
 
     [Tooltip(
-        "Editor Diagnostics enables the define for the currently active build target. " +
-        "Unity uses the active target's scripting defines while compiling Play Mode.")]
+        "编辑器诊断为当前激活的构建目标启用脚本宏。Unity 在编译 Play Mode 时使用激活目标的脚本宏。")]
     public bool IncludeActiveTargetForEditor = true;
 }
 

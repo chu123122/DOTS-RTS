@@ -129,9 +129,7 @@ public partial struct InteractionCertificationJob
             TimestepInteractionPairs.Length;
         statistics.TimestepContactSetBuildNanoseconds += elapsed;
 
-        // B0 still publishes an explicit certificate before Soft Avoidance reads
-        // its compact pair view. Contact constraints are re-certified below after
-        // the unconstrained prediction has been classified.
+        // B0 仍在 Soft Avoidance 读取紧凑对视图前发布显式证书；下方会在未约束预测分类后重认证接触约束。
         IssueFullSweepSubstepCertificate();
     }
 
@@ -340,9 +338,7 @@ public partial struct InteractionCertificationJob
             TimestepContactPairs[pairIndex] = pair;
         }
 
-        // This is the single consumer-view commit boundary shared by the serial
-        // and staged Jacobi implementations. Candidate cache source is hidden
-        // behind the certificate before any lower stage consumes the compact views.
+        // 这是串行与分阶段 Jacobi 共享的唯一消费者视图提交边界；候选缓存来源在证书背后，对下层是不可见的。
         IssueCertificateForCommittedViews(
             incrementalStatistics,
             scheduleStartSubstep);

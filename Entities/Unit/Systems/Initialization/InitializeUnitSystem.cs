@@ -38,13 +38,13 @@ namespace RTS.Unit.Systems.Initialization
 
                 bool haveGhost = SystemAPI.HasComponent<GhostInstance>(entity);
                 bool haveLocal = SystemAPI.HasComponent<LocalInstance>(entity);
-                // --- 检查 1: 联机模式 (GhostInstance) ---
+                // 检查 1：联机模式（GhostInstance）
                 if (haveGhost)
                 {
                     unitId = SystemAPI.GetComponent<GhostInstance>(entity).ghostId;
                     readyToInitialize = true;
                 }
-                // --- 检查 2: 回放/本地模式 (LocalInstance) ---
+                // 检查 2：回放/本地模式（LocalInstance）
                 else if (haveLocal)
                 {
                     unitId = SystemAPI.GetComponent<LocalInstance>(entity).Id;
@@ -53,18 +53,18 @@ namespace RTS.Unit.Systems.Initialization
                 }
                 else
                 {
-                    continue; // 等待组件同步
+                    continue; // 等组件同步
                 }
 
                 if (readyToInitialize)
                 {
-                    // 【核心修复】解决物理报错
+                    // 核心修复：解决物理报错
                     if (isLocalReplay)
                     {
                         // 本地单位由 Flow Field 直接写 LocalTransform，不再交给
-                        // Unity Physics 积分或图形插值。若只删除 Mass/Velocity，
+                        // Unity Physics 积分或图形插值。仅删 Mass/Velocity 不够，
                         // PhysicsGraphicalSmoothing 仍会用旧缓存写 LocalToWorld，
-                        // 表现为单位在固定位置持续上下浮动。
+                        // 导致单位在固定位置上下抖动。
                         ecb.RemoveComponent<PhysicsMass>(entity);
                         ecb.RemoveComponent<PhysicsVelocity>(entity);
                         if (SystemAPI.HasComponent<PhysicsGraphicalSmoothing>(entity))
@@ -76,7 +76,7 @@ namespace RTS.Unit.Systems.Initialization
                     {
                         // 联机单位：锁定惯性
                         physicsMass.ValueRW.InverseInertia = float3.zero;
-                        physicsMass.ValueRW.InverseMass = 0; // 确保是 Kinematic
+                        physicsMass.ValueRW.InverseMass = 0; // 设为 Kinematic
                     }
 
                     OnCreateHealthBar?.Invoke(unitId, localTransform.ValueRO.Position);

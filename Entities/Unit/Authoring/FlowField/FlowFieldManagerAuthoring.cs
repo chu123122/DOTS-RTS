@@ -146,8 +146,8 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             AddComponent(entity, new FlowFieldRuntimeState());
             AddComponent(entity, new FlowFieldCostState { IsDirty = true });
             // 启动时先烘焙一次 Cost/Integration/Vector Field。
-            // RtsCommandSystem 会保留首条 MoveOrder，直到 ActiveVersion 发布，
-            // 避免 FlowFieldGrid 尚未创建时形成循环等待。
+            // RtsCommandSystem 会扣住首条 MoveOrder 直到 ActiveVersion 发布，
+            // 免得 FlowFieldGrid 还没创建就循环等待。
             AddComponent(entity, new RecalculateFlowFieldTag { RequestVersion = 1 });
             SetComponentEnabled<RecalculateFlowFieldTag>(entity, true);
             AddComponent(entity, new FlowFieldVisualizationSettings

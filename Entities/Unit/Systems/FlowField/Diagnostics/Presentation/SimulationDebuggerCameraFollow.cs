@@ -174,8 +174,7 @@ public sealed class SimulationDebuggerCameraFollow : MonoBehaviour
         if (Mathf.Abs(fy) < 0.001f)
             return unitPos + Vector3.up * height;
 
-        // 先求实际子 Camera 应处的世界坐标，再扣除其相对 Rig 的当前世界偏移。
-        // 旧实现把子 Camera 坐标直接写给 CameraController 的 Rig，导致固定偏移跟随。
+        // 求子 Camera 应处世界坐标，扣相对 Rig 偏移；旧实现写到 Rig 导致固定偏移。
         float t = height / fy;
         Vector3 desiredCameraPosition = new Vector3(
             unitPos.x + forward.x * t,

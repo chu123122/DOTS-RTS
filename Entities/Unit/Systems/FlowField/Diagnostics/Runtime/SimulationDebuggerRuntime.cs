@@ -12,9 +12,7 @@ public static class SimulationDebuggerWorldIdentity
 
 #if RTS_CONTACT_DIAGNOSTICS
 /// <summary>
-/// Managed diagnostics control plane. Authoritative simulation configuration
-/// remains in each World's ECS singletons; this registry only routes UI requests,
-/// presentation state and completed snapshots to an explicit World id.
+/// 托管诊断控制层：仿真权威配置仍在每个 World 的 ECS 单例里，本类只把 UI 请求、呈现状态和已完成快照路由到 World id。
 /// </summary>
 public static class SimulationDebuggerRuntime
 {
@@ -711,9 +709,7 @@ public static class SimulationDebuggerRuntime
     {
         SimulationDebuggerEffectiveSettings settings =
             snapshot.EffectiveSettings;
-        // Do not key by observed frame DeltaTime. It is an outcome of the
-        // workload on this variable-rate simulation group, so exact float
-        // hashing fragmented every OFF/ON sample into a separate bucket.
+        // 不用 DeltaTime 做 key：变率组的负载结果，精确浮点哈希会让每个 OFF/ON 落到独立桶。
         unchecked
         {
             int hash = 17;

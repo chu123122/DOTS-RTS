@@ -3,13 +3,12 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Normalized immutable configuration for one contact-pipeline invocation.
-/// Serialized legacy names are translated at the BaseFlowMovementSystem boundary;
-/// production modules consume this same-step snapshot only.
+/// 单次接触管线调用的不可变配置快照。遗留名称在 BaseFlowMovementSystem 边界处翻译；
+/// 生产模块只消费这个同步快照。
 /// </summary>
 public struct ContactPipelineConfiguration
 {
-    // Identity belongs to the scheduled simulation step, not to persistent-cache age.
+    // 身份属于当前仿真步，而非持久缓存寿命。
     public ulong WorldId;
     public uint SimulationStepId;
 
@@ -29,9 +28,8 @@ public struct ContactPipelineConfiguration
 #if RTS_CONTACT_DIAGNOSTICS
     public bool EnableDiagnostics;
 #else
-    // A property instead of a false field is deliberate: Burst compiles each Job
-    // independently and cannot assume every configuration came from Create().
-    // The constant getter makes every diagnostics guard a compile-time branch.
+    // 刻意用属性而非 false 字段：Burst 独立编译每个 Job，无法假定所有配置都来自 Create()。
+    // 常量 getter 让每个诊断判断成为编译期分支。
     public bool EnableDiagnostics
     {
         get => false;
@@ -44,9 +42,7 @@ public struct ContactPipelineConfiguration
     public float TimestepContactMargin;
 
     /// <summary>
-    /// Exact-input fingerprint used as one part of the certification evidence.
-    /// It is not sufficient by itself: entity mapping and guard containment must
-    /// still be verified before a certificate is issued.
+    /// 作为认证证据之一的输入指纹。单独不够：签发证书前仍需校验实体映射与 guard 包含关系。
     /// </summary>
     public uint CalculateCertificationFingerprint()
     {
@@ -110,8 +106,7 @@ public struct ContactPipelineConfiguration
 #endif
             EnablePersistentContactCache = enablePersistentContactCache,
             EnableTimestepContactSetCache = enableTimestepContactSetCache,
-            // Compatibility translation: the serialized FatAabb margin now means
-            // the persistent guarded-proxy envelope margin.
+            // 兼容性翻译：序列化的 FatAabb margin 现表示持久受守护 proxy 的包络余量。
             GuardEnvelopeMargin = solverSettings.PersistentGuardEnvelopeMargin,
             TimestepContactMargin = solverSettings.TimestepContactMargin
         };

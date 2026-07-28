@@ -9,8 +9,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Captures authoritative body facts and produces navigation and movement-intent
-/// products in separate arrays. No contact or solver state is created here.
+/// 收集权威 Body 事实，分别产出导航状态和运动意图。不创建任何接触或求解器状态。
 /// </summary>
 [BurstCompile]
 public partial struct BuildCrowdMotionIntentJob : IJobEntity

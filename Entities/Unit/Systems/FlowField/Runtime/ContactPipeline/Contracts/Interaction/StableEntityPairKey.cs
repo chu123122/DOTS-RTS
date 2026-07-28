@@ -6,8 +6,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Stable pair identity used by all cross-timestep contact containers.
-/// Body indices are intentionally excluded because query order is frame-local.
+/// 所有跨 timestep 接触容器使用的稳定对身份。Body 索引起的是帧级查询顺序，故被刻意排除。
 /// </summary>
 public struct StableEntityPairKey : IEquatable<StableEntityPairKey>
 {

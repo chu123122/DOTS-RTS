@@ -4,9 +4,7 @@ using UnityEngine;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 /// <summary>
-/// Draws all world-space debugger views from the same immutable snapshot as the GUI.
-/// Heatmaps use one translucent quad per diagnostic cell; selected-unit geometry uses
-/// bounded line overlays so normal gameplay never renders every pair in the world.
+/// 基于同一份不可变快照绘制世界空间调试视图：热力图用半透明四边形；选中单位用包围盒/线段，不全量绘制。
 /// </summary>
 public sealed class SimulationDebuggerWorldOverlay : MonoBehaviour
 {

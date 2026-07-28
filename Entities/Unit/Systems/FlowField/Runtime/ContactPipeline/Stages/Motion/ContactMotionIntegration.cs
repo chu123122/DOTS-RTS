@@ -4,7 +4,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Frame-local motion prediction and post-solve velocity reconstruction.
+/// 帧级运动预测与求解后速度重建。
 /// </summary>
 public partial struct MotionIntegrationJob
 {

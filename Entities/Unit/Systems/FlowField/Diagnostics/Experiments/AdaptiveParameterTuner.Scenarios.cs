@@ -17,17 +17,26 @@ namespace RTS.Unit.FlowField.Diagnostics
 {
 public sealed partial class AdaptiveParameterTuner
 {
-    [Header("Scenario benchmark (Inspector)")]
+    [Header("场景基准测试 (Inspector)")]
     [Tooltip("启用后使用下方三类可复现场景；关闭则保留旧版自动调优流程。")]
     public bool UseScenarioBenchmark = true;
+    [Tooltip("每个（场景×缓存配置）组合重复测量的次数。多次取中位数以消抖动，3 次是性价比之选。")]
     [Min(1)] public int BenchmarkRepetitions = 3;
+    [Tooltip("正式测量前的缓存预热帧数。让持久邻居拓扑/接触集缓存先填充，避免冷启动计入统计。")]
     [Min(0)] public int BenchmarkCachePrimingFrames = 60;
+    [Tooltip("静止密集场景（MoveThenHold）的正式测量帧数。单位到位后持续测这么多帧。")]
     [Min(1)] public int BenchmarkHoldFrames = 600;
+    [Tooltip("往返场景（Open/Obstacle PingPong）单程测量帧数。一个往返 = 2 段。")]
     [Min(1)] public int BenchmarkFramesPerLeg = 300;
+    [Tooltip("原始逐帧采样的间隔帧数。10 = 每 10 帧写一行 raw CSV，控制 raw 文件体积。")]
     [Min(1)] public int BenchmarkRawSampleInterval = 10;
+    [Tooltip("判定单位“已稳定”需连续满足的帧数。用于捕获基线快照前确认队形收敛。")]
     [Min(1)] public int BenchmarkSettledFrames = 30;
+    [Tooltip("等待单位稳定的最大帧数。超时则判失败，避免无限等待。")]
     [Min(1)] public int BenchmarkMaxPreparationFrames = 3600;
+    [Tooltip("单位速度低于此阈值视为“已稳定”（配合 SettledUnitRatio 一起判定）。")]
     [Min(0f)] public float BenchmarkSettledSpeedThreshold = 0.25f;
+    [Tooltip("“已稳定”所需达到的单位比例。0.99 = 99% 单位速度低于阈值才算稳定。")]
     [Range(0.8f, 1f)] public float BenchmarkSettledUnitRatio = 0.99f;
 
     [Tooltip("三种模式均从 PointA 稳定后的同一 ECS 快照开始。ObstaclePingPong 直接使用场景障碍物。")]
@@ -35,18 +44,18 @@ public sealed partial class AdaptiveParameterTuner
     {
         new BenchmarkScenario
         {
-            Enabled = true, Label = "settled_hold", Mode = BenchmarkScenarioMode.MoveThenHold,
+            Enabled = true, Label = "静止密集", Mode = BenchmarkScenarioMode.MoveThenHold,
             PointA = new float3(2.584251f, 3.814697E-06f, -4.022369f), RoundTripCount = 1
         },
         new BenchmarkScenario
         {
-            Enabled = true, Label = "open_ping_pong", Mode = BenchmarkScenarioMode.OpenPingPong,
+            Enabled = true, Label = "开阔往返", Mode = BenchmarkScenarioMode.OpenPingPong,
             PointA = new float3(2.584251f, 3.814697E-06f, -4.022369f),
             PointB = new float3(27.87032f, 0f, -2.884846f), RoundTripCount = 2
         },
         new BenchmarkScenario
         {
-            Enabled = true, Label = "obstacle_ping_pong", Mode = BenchmarkScenarioMode.ObstaclePingPong,
+            Enabled = true, Label = "障碍往返", Mode = BenchmarkScenarioMode.ObstaclePingPong,
             PointA = new float3(2.584251f, 3.814697E-06f, -4.022369f),
             PointB = new float3(11.11795f, 0f, 25.84306f), RoundTripCount = 2
         }
@@ -179,7 +188,7 @@ public sealed partial class AdaptiveParameterTuner
 
     private void UpdateBenchmarkPreparation()
     {
-        // 每 300 帧输出一次稳定诊断，帮助定位未稳定的根因。
+        // 每 300 帧输出一次稳定诊断，便于定位未稳定根因。
         if (_benchmarkPreparationFrames > 0 && _benchmarkPreparationFrames % 300 == 0)
             LogSettlementDiagnostics();
         if (++_benchmarkPreparationFrames > BenchmarkMaxPreparationFrames)
@@ -372,7 +381,7 @@ public sealed partial class AdaptiveParameterTuner
     private void IssueBenchmarkMoveOrder(float3 target)
     {
         _benchmarkEntityManager.CompleteAllTrackedJobs();
-        // MoveOrder 是 IEnableableComponent，不能和普通组件混在同一个 GetSingletonEntity 查询里。
+        // MoveOrder 是 IEnableableComponent，不能与普通组件混在同一 GetSingletonEntity 查询里。
         using var orderQuery = _benchmarkEntityManager.CreateEntityQuery(typeof(FlowFieldGlobalTarget));
         if (orderQuery.IsEmptyIgnoreFilter)
         {
@@ -562,8 +571,19 @@ public sealed partial class AdaptiveParameterTuner
         string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
         _benchmarkDirectory = Path.Combine(Application.dataPath, "..", "BenchmarkResults", "contact_benchmark_" + stamp);
         Directory.CreateDirectory(_benchmarkDirectory);
-        _benchmarkRawWriter = new StreamWriter(Path.Combine(_benchmarkDirectory, "adaptive_tuning_raw.csv"));
-        _benchmarkRawWriter.WriteLine("Scenario,Mode,Profile,Repetition,SampleFrame,LegIndex,BaselineHash,SolverNs,PairGenerationNs,TimestepContactSetBuildNs,IterationNs,SoftAvoidNs,FullSweepSourceNs,PersistentMapNs,ProxyValidationNs,LocalBroadPhaseNs,PairDiffNs,ClassificationNs,ContactActivationNs,FallbackNs,TopologyDirtyBodies,MotionDirtyBodies,PersistentNeighborPairs,InteractionPairs,SoftAvoidancePairs,ClassificationEvaluations,ClassificationSkipped,SoftPairEvaluations,ConstraintEvaluations,PersistentViewReuse,PersistentViewRebuild,InteractionEnvelopeEscapes,FullRebuilds,IncrementalRepairs,ContactPairs,ActivePairs,PredictivePairs,SoftOracleMissing");
+        _benchmarkRawWriter = new StreamWriter(
+            Path.Combine(_benchmarkDirectory, "adaptive_tuning_raw.csv"),
+            false, new System.Text.UTF8Encoding(true)); // UTF-8 BOM，Excel 中文不乱码
+        _benchmarkRawWriter.WriteLine(string.Join(",", new[]
+        {
+            "场景", "场景模式", "缓存配置", "重复", "采样帧", "往返段", "基线哈希",
+            "求解总耗时ns", "接触对生成耗时ns", "接触集构建耗时ns", "迭代投影耗时ns", "软避让耗时ns",
+            "全量扫描耗时ns", "持久对映射耗时ns", "代理校验耗时ns", "局部broadphase耗时ns", "对差异耗时ns", "分类耗时ns", "接触激活耗时ns", "回退耗时ns",
+            "拓扑脏体数", "运动脏体数", "持久邻居对数", "交互对数", "软避让对数",
+            "分类评估次数", "分类跳过次数", "软对评估次数", "约束评估次数",
+            "持久视图复用", "持久视图重建", "交互包络逃逸", "全量重建次数", "增量修复次数",
+            "接触对数", "活跃对数", "预测对数", "软避让漏检"
+        }));
     }
 
     private void WriteBenchmarkRawSample(SimulationDebuggerFrameSnapshot snapshot)
@@ -598,8 +618,18 @@ public sealed partial class AdaptiveParameterTuner
         _benchmarkRawWriter?.Dispose();
         _benchmarkRawWriter = null;
         string summaryPath = Path.Combine(_benchmarkDirectory, "adaptive_tuning_summary.csv");
-        using var writer = new StreamWriter(summaryPath);
-        writer.WriteLine("Scenario,Mode,Profile,Repetition,UnitCount,FrameCount,BaselineHash,FinalHash,AvgSolverNs,AvgPairGenerationNs,AvgTimestepContactSetBuildNs,AvgIterationNs,AvgSoftAvoidNs,AvgFullSweepSourceNs,AvgPersistentMapNs,AvgProxyValidationNs,AvgLocalBroadPhaseNs,AvgPairDiffNs,AvgClassificationNs,AvgContactActivationNs,AvgFallbackNs,AvgDirtyBodies,AvgMotionDirtyBodies,AvgPersistentPairs,AvgInteractionPairs,AvgSoftAvoidancePairs,AvgClassificationEvaluations,AvgClassificationSkipped,AvgSoftPairEvaluations,AvgConstraintEvaluations,AvgPersistentViewReuse,AvgPersistentViewRebuild,AvgInteractionEnvelopeEscapes,AvgFullRebuilds,AvgIncrementalRepairs,AvgContactPairs,AvgActivePairs,AvgPredictivePairs,AvgSoftOracleMissing,CrossFrameCache,CrossSubstepCache,Diagnostics,GuardMargin,Substeps,Iterations");
+        using var writer = new StreamWriter(summaryPath, false, new System.Text.UTF8Encoding(true)); // UTF-8 BOM
+        writer.WriteLine(string.Join(",", new[]
+        {
+            "场景", "场景模式", "缓存配置", "重复", "单位数", "采样帧数", "基线哈希", "终态哈希",
+            "均求解耗时ns", "均接触对生成耗时ns", "均接触集构建耗时ns", "均迭代投影耗时ns", "均软避让耗时ns",
+            "均全量扫描耗时ns", "均持久对映射耗时ns", "均代理校验耗时ns", "均局部broadphase耗时ns", "均对差异耗时ns", "均分类耗时ns", "均接触激活耗时ns", "均回退耗时ns",
+            "均拓扑脏体数", "均运动脏体数", "均持久邻居对数", "均交互对数", "均软避让对数",
+            "均分类评估次数", "均分类跳过次数", "均软对评估次数", "均约束评估次数",
+            "均持久视图复用", "均持久视图重建", "均交互包络逃逸", "均全量重建次数", "均增量修复次数",
+            "均接触对数", "均活跃对数", "均预测对数", "均软避让漏检",
+            "跨帧缓存", "跨子步缓存", "诊断", "Guard裕度", "子步数", "迭代数"
+        }));
         foreach (BenchmarkResult result in _benchmarkResults)
             writer.WriteLine(result.ToCsv());
         File.WriteAllText(Path.Combine(_benchmarkDirectory, "adaptive_tuning_manifest.txt"),
@@ -625,11 +655,17 @@ public sealed partial class AdaptiveParameterTuner
     [Serializable]
     public sealed class BenchmarkScenario
     {
+        [Tooltip("是否启用此场景参与本轮基准测试。")]
         public bool Enabled = true;
+        [Tooltip("场景名称，会写入 CSV 的“场景”列。")]
         public string Label;
+        [Tooltip("场景模式：MoveThenHold=移动到位后静止；OpenPingPong=开阔地往返；ObstaclePingPong=绕障碍往返。")]
         public BenchmarkScenarioMode Mode;
+        [Tooltip("往返/到位的目标点 A（也是 MoveThenHold 的终点）。")]
         public float3 PointA;
+        [Tooltip("往返的目标点 B（仅 PingPong 模式用）。")]
         public float3 PointB;
+        [Tooltip("往返趟数。1 = A→B 一趟；2 = A→B→A 一个来回。RoundTripCount*2 = 总测量段数。")]
         [Min(1)] public int RoundTripCount = 1;
     }
 

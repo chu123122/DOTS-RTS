@@ -6,16 +6,13 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Pure value helpers for the persistent (P1P6) contact-classification path:
-/// constraint assembly, statistics accumulation, active-gauge tracking, pair
-/// trajectory queries and neighbour-pair deduplication. No job state, no
-/// instance fields — all inputs arrive as parameters.
+/// 持久（P1P6）接触分类路径的纯值辅助：约束装配、统计累加、活动表盘追踪、对轨迹查询、相邻对去重。
+/// 不含 Job 状态、无实例字段，全部输入以参数传入。
 /// </summary>
 internal static class PersistentContactMath
 {
     /// <summary>
-    /// Builds a deterministic (lower body index first) contact constraint from
-    /// a cached predictive contact's stable normal and mode.
+    /// 由缓存预测接触的稳定法线与模式构造一条确定性（较小 body 索引在前）接触约束。
     /// </summary>
     internal static ContactConstraint BuildConstraintFromPersistentContact(
         int firstBodyIndex,
@@ -31,8 +28,7 @@ internal static class PersistentContactMath
         };
 
     /// <summary>
-    /// Accumulates one persistent contact's lifecycle into the solver-facing
-    /// statistics counters (actual / predictive / approaching / dormant).
+    /// 将一条持久接触的生命周期累加进面向求解器的统计计数器（actual / predictive / approaching / dormant）。
     /// </summary>
     internal static void AccumulateClassificationStatistics(
         PersistentPredictiveContact contact,
@@ -58,7 +54,7 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Tracks the current active-constraint count plus its running peak.
+    /// 更新当前活动约束数及其运行峰值。
     /// </summary>
     internal static void UpdateActiveConstraintGauges(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
@@ -72,11 +68,9 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Recomputes the per-lifecycle current-contact gauges (actual / predictive /
-    /// approaching / dormant) from the predictive-contact scratch and updates
-    /// the active-constraint gauge. The dormant/approaching/predictive/actual
-    /// counts mirror AccumulateClassificationStatistics but reflect the current
-    /// view rather than the cumulative generation counters.
+    /// 由预测接触 scratch 重算各生命周期的当前接触表盘（actual / predictive / approaching / dormant），
+    /// 并更新活动约束表盘。dormant/approaching/predictive/actual 计数含义同 AccumulateClassificationStatistics，
+    /// 但反映当前视图而非累计生成计数。
     /// </summary>
     internal static void RefreshCurrentContactStateGauges(
         NativeList<PersistentPredictiveContact> predictiveContactScratch,
@@ -117,9 +111,8 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Closest-time-of-approach parameter t∈[0,1] for two swept-disc bodies,
-    /// projected onto the xz-plane. Returns 0 when the relative displacement is
-    /// negligible (parallel / stationary).
+    /// 两 swept-disc body 投影至 xz 平面后的最近接近时刻参数 t∈[0,1]。
+    /// 相对位移可忽略（平行/静止）时返回 0。
     /// </summary>
     internal static float CalculatePairClosestTime(
         CrowdMotionEvidence bodyAEvidence,
@@ -142,9 +135,7 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Whether two bodies move relative to each other over the timestep on the
-    /// xz-plane (displacement above epsilon). Used to skip stationary pair
-    /// closest-time evaluation.
+    /// 两个 body 在 timestep 内是否于 xz 平面上存在相对位移（超过 epsilon）。用来跳过静止对的最近时刻计算。
     /// </summary>
     internal static bool HasRelativeTimestepTrajectory(
         CrowdMotionEvidence bodyAEvidence,
@@ -158,8 +149,7 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// In-place sort + key dedup of the persistent neighbour-pair list. Pairs
-    /// are ordered by a stable key so topology diffs are deterministic.
+    /// 对持久相邻对列表就地排序并按 key 去重。按稳定 key 排序，使拓扑 diff 确定。
     /// </summary>
     internal static void SortAndDeduplicatePersistentNeighborPairs(
         NativeList<PersistentNeighborPair> pairs)
@@ -182,10 +172,8 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Tight swept bounds for a body's incremental proxy: the path AABB
-    /// (trajectory start/end plus solved/unconstrained positions) inflated by
-    /// the contact skin, double timestep margin, and half the soft-avoidance
-    /// shell — whichever is larger.
+    /// body 增量 proxy 的紧致 swept 边界：路径 AABB（轨迹起止与已解/未约束位置），
+    /// 再按接触皮、双 timestep 余量、软避让壳的一半（取最大者）膨胀。
     /// </summary>
     internal static void CalculateIncrementalTightSweptBounds(
         CrowdBodySnapshot stateSnapshot,
@@ -212,10 +200,8 @@ internal static class PersistentContactMath
     }
 
     /// <summary>
-    /// Validation bounds for a body's incremental proxy: the path AABB inflated
-    /// by the current contact/avoidance footprint only. The stored interaction
-    /// envelope already carries the retained-contact budget, so validation must
-    /// not re-apply it or every unchanged proxy would look escaped.
+    /// body 增量 proxy 的校验边界：仅按当前接触/避让外扩的路径 AABB。
+    /// 已存储的交互包络已含留存接触预算，校验不得重复应用，否则每个未变 proxy 都会被误判为逃逸。
     /// </summary>
     internal static void CalculateIncrementalValidationBounds(
         CrowdBodySnapshot stateSnapshot,
@@ -232,9 +218,7 @@ internal static class PersistentContactMath
         float avoidancePadding = math.max(0f, softAvoidanceShell) * 0.5f;
         float extent = math.max(0f, stateSnapshot.Radius) +
                        math.max(contactPadding, avoidancePadding);
-        // Validation bounds intentionally do not extend the RVO horizon: the
-        // interaction envelope is fixed at build time. Pass a non-RVO mode so
-        // CalculateNeighborPathBounds skips the horizon projection.
+        // 校验边界不外推 RVO 视域：交互包络在构建时已固定。这里传非 RVO 模式，绕过视域投影。
         CalculateNeighborPathBounds(
             stateEvidence, stateStep, SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer, 0f, 0f,
             out float2 pathMin, out float2 pathMax);

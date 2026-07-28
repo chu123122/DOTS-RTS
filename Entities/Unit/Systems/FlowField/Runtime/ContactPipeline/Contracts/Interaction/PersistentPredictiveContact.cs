@@ -11,12 +11,17 @@ public enum PersistentContactLifecycle : byte
     Approaching,
     Predictive,
     Actual,
+    // 注：Separating 当前不被任何分类器（ClassifyPersistentNeighborPair /
+    // ClassifyPersistentPairP1P6 / UpdatePersistentContactAfterScheduledCheck）
+    // 输出。保留枚举值是因为 eligibility filter 以 Lifecycle != Expired 判定
+    // eligible，Separating 落入 eligible（保守正确）。未来若实现"分离中"语义
+    // 再由分类器产生此状态。
     Separating,
     Expired
 }
 
 /// <summary>
-/// Cross-timestep predictive state. XPBD lambda is deliberately not persisted.
+/// 跨 timestep 的预测状态。刻意不持久化 XPBD lambda。
 /// </summary>
 public struct PersistentPredictiveContact
 {

@@ -26,8 +26,7 @@ public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
         DynamicBuffer<ContactHeatSample> heatDestination)
     {
         destination = Source.Value;
-        // The legacy shadow broad-phase is retired. Keep its compatibility
-        // component cleared so old debugger assets cannot display stale data.
+        // 旧 shadow broadphase 已退役；清零兼容组件，避免旧调试器读到残留数据。
         shadowDestination = default;
         selectedBodyDestination = SelectedBodySource.Value;
         iterationDestination.Clear();
@@ -40,9 +39,7 @@ public partial struct PublishPredictiveDiscContactStatisticsJob : IJobEntity
 }
 #else
 /// <summary>
-/// Gameplay-only publication facade. Changing the backend from IJobEntity to an
-/// empty IJob removes the diagnostic entity query while preserving the existing
-/// scheduler call site and source member names.
+/// 非诊断构建的发布占位：空实现，保留与诊断版相同的字段名和调用点。
 /// </summary>
 [BurstCompile]
 public struct PublishPredictiveDiscContactStatisticsJob : IJob

@@ -31,8 +31,7 @@ public partial struct InteractionCertificationJob
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 continue;
 
-            // A0 与 A1 必须生产同一种中层 InteractionSet：包络同时覆盖
-            // XPBD swept contact、Soft Avoidance shell 与 RVO horizon。
+            // A0/A1 必须产出同一种中层 InteractionSet：包络同时覆盖 XPBD swept contact、Soft Avoidance shell 与 RVO 视域。
             float2 sweptMin = stateEvidence.InteractionEnvelopeMin;
             float2 sweptMax = stateEvidence.InteractionEnvelopeMax;
             int2 minCell = (int2)math.floor((sweptMin - GridOrigin.xz) / cellSize);
@@ -188,8 +187,7 @@ public partial struct InteractionCertificationJob
             else if (!isDormant)
                 statistics.PredictiveGeneratedPairCount++;
 
-            // 生成来源只用于统计。求解模式仍保持原有边界：只有起终点均分离、
-            // 但 swept path 穿过接触半径的 Pair，才使用初始分离平面防止换侧。
+            // 生成来源只用于统计。求解模式仍按原边界：只有起终点均分离、但 swept 路径穿过接触半径的 Pair，才用初始分离平面防止换侧。
             bool shouldPreventSideExchange =
                 !isActualGeneratedPair &&
                 !isDormant &&

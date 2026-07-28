@@ -8,9 +8,9 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Managed scheduling composition only. It is never scheduled as a job and owns no
-/// algorithm implementation; each scheduled stage carries its NativeContainers as
-/// direct fields so Collections Safety sees the real capability boundary.
+/// 仅做托管调度组合：本身不作为 Job 调度，也不实现算法；
+/// 每个调度的阶段把 NativeContainer 作为直接字段携带，
+/// Collections Safety 看得到真实容器边界。
 /// </summary>
 public partial struct CrowdContactPipelineScheduler
 {

@@ -7,8 +7,7 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Systems
 {
 /// <summary>
-/// World-lifetime, uncertified candidate source. Only lifecycle and certification
-/// stages receive these containers; motion, soft avoidance and solver jobs never do.
+/// 世界寿命的、未认证候选源。仅生命周期与认证阶段接收这些容器；运动、软避让、求解器 Job 一律不接收。
 /// </summary>
 internal struct InteractionCandidateStore
 {
@@ -16,6 +15,9 @@ internal struct InteractionCandidateStore
     public NativeList<int> ProxyIndexByBody;
     public NativeList<PersistentNeighborPair> NeighborPairs;
     public NativeList<PersistentPredictiveContact> PredictiveContacts;
+    // O(1) 查找索引，替代有序列表+二分查找。全量重建后从 PredictiveContacts 重建；
+    // 增量 patch 路径直接写入，无需重排序。
+    public NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> PredictiveContactIndex;
     public NativeList<StableEntityPairKey> ActiveContactKeys;
     public NativeList<StableEntityPairKey> SoftAvoidancePairKeys;
     public NativeList<PredictiveContactScheduleEntry> DormantContactSchedule;
@@ -33,6 +35,7 @@ internal struct InteractionCandidateStore
             ProxyIndexByBody = new NativeList<int>(Allocator.Persistent),
             NeighborPairs = new NativeList<PersistentNeighborPair>(Allocator.Persistent),
             PredictiveContacts = new NativeList<PersistentPredictiveContact>(Allocator.Persistent),
+            PredictiveContactIndex = new NativeHashMap<StableEntityPairKey, PersistentPredictiveContact>(1, Allocator.Persistent),
             ActiveContactKeys = new NativeList<StableEntityPairKey>(Allocator.Persistent),
             SoftAvoidancePairKeys = new NativeList<StableEntityPairKey>(Allocator.Persistent),
             DormantContactSchedule = new NativeList<PredictiveContactScheduleEntry>(Allocator.Persistent),
@@ -50,7 +53,8 @@ internal struct InteractionCandidateStore
         int spatialRequired = math.max(1, unitCount * 128);
         return ProxyIndexByBody.Capacity < unitCount ||
                IncidentPairLookup.Capacity < incidentRequired ||
-               SpatialMembership.Capacity < spatialRequired;
+               SpatialMembership.Capacity < spatialRequired ||
+               PredictiveContactIndex.Capacity < incidentRequired;
     }
 
     public void EnsureCapacity(int unitCount)
@@ -63,6 +67,9 @@ internal struct InteractionCandidateStore
             IncidentPairLookup.Capacity = incidentRequired;
         if (SpatialMembership.Capacity < spatialRequired)
             SpatialMembership.Capacity = spatialRequired;
+        // 预分配哈希表避免首批帧反复 rehash；上界与 IncidentPairLookup 对齐
+        if (PredictiveContactIndex.Capacity < incidentRequired)
+            PredictiveContactIndex.Capacity = incidentRequired;
     }
 
     public void Reset()
@@ -71,6 +78,7 @@ internal struct InteractionCandidateStore
         ProxyIndexByBody.Clear();
         NeighborPairs.Clear();
         PredictiveContacts.Clear();
+        PredictiveContactIndex.Clear();
         ActiveContactKeys.Clear();
         SoftAvoidancePairKeys.Clear();
         DormantContactSchedule.Clear();
@@ -119,6 +127,7 @@ internal struct InteractionCandidateStore
         if (ProxyIndexByBody.IsCreated) ProxyIndexByBody.Dispose();
         if (NeighborPairs.IsCreated) NeighborPairs.Dispose();
         if (PredictiveContacts.IsCreated) PredictiveContacts.Dispose();
+        if (PredictiveContactIndex.IsCreated) PredictiveContactIndex.Dispose();
         if (ActiveContactKeys.IsCreated) ActiveContactKeys.Dispose();
         if (SoftAvoidancePairKeys.IsCreated) SoftAvoidancePairKeys.Dispose();
         if (DormantContactSchedule.IsCreated) DormantContactSchedule.Dispose();

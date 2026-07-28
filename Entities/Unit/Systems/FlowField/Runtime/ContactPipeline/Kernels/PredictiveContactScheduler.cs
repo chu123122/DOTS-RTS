@@ -6,30 +6,21 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Timestep-level predictive-contact scheduling for the persistent (P1P6) path.
-/// Each sweep-disc pair is classified into a lifecycle (actual / predictive /
-/// approaching / dormant) from its current trajectory state; dormant pairs are
-/// given a wake-up substep derived from their closest approach time. The
-/// classified contacts are committed to the persistent scratch store and the
-/// dormant ones are seeded into the per-timestep schedule. Active (non-dormant)
-/// pairs are compacted in place so the XPBD view carries no dormant entries.
+/// 持久（P1P6）路径在 timestep 级的预测接触调度。每个 swept-disc 对根据当前轨迹状态分类为生命周期
+///（actual / predictive / approaching / dormant）；dormant 对被赋予一个由最近接近时刻推导的唤醒子步。
+/// 已分类接触提交至持久 scratch；dormant 对种入按 timestep 的调度。活跃（非 dormant）对就地压实，
+/// 使 XPBD 视图不含 dormant 项。
 ///
-/// Pure value function: all stores arrive as parameters. Body data is read from
-/// the parallel Body/Navigation/Intent/MotionEvidence/StepState arrays indexed
-/// by the constraint's body slots.
+/// 纯值函数：所有存储以参数传入。body 数据按约束 body 槽位索引，从并行的 Body/Navigation/Intent/MotionEvidence/StepState 数组读取。
 /// </summary>
 internal static class PredictiveContactScheduler
 {
     /// <summary>
-    /// Builds the timestep predictive-contact view from the raw pair list.
-    /// Outputs:
-    ///  - <paramref name="predictiveContactScratch"/>: every pair's classified
-    ///    contact (sorted by stable key);
-    ///  - <paramref name="persistentPredictiveContacts"/>: mirror of scratch
-    ///    when the persistent cache is enabled (cleared + refilled);
-    ///  - <paramref name="predictiveContactSchedule"/>: dormant wake-up entries
-    ///    (sorted by substep);
-    ///  - <paramref name="pairs"/>: compacted in place to drop dormant entries.
+    /// 由原始对列表构造 timestep 预测接触视图。输出：
+    ///  - <paramref name="predictiveContactScratch"/>：每对的分类接触（按稳定 key 排序）；
+    ///  - <paramref name="persistentPredictiveContacts"/>：启用持久缓存时 scratch 的镜像（清空后回填）；
+    ///  - <paramref name="predictiveContactSchedule"/>：dormant 唤醒项（按子步排序）；
+    ///  - <paramref name="pairs"/>：就地压实，去掉 dormant 项。
     /// </summary>
     internal static void BuildTimestepSchedule(
         NativeList<ContactConstraint> pairs,
@@ -81,7 +72,7 @@ internal static class PredictiveContactScheduler
                 lifecycle = PersistentContactLifecycle.Approaching;
 
             // 调度与稳定法线属于中层 InteractionSet 的派生结果。
-            // 不读取上一帧接触状态，保证 A0B1 与 A1B1 只有来源成本不同。
+            // 不读上一帧接触状态，让 A0B1 与 A1B1 只在来源成本上有差异。
             float3 stableNormal = pair.PredictiveNormal;
             sbyte fixedSide = pair.ContactMode == ContactConstraintMode.Predictive
                 ? (sbyte)1
@@ -113,9 +104,7 @@ internal static class PredictiveContactScheduler
                         (int)math.floor(closestTime * remainingSubstepCount),
                         0,
                         remainingSubstepCount - 1);
-                    // Wake one substep early. The retained contact margin is the safety
-                    // budget for solver/RVO deviations; any larger deviation triggers
-                    // the envelope-escape repair path.
+                    // 比最近子步早一格唤醒。留存接触余量是求解器/RVO 偏差的安全预算；更大偏差会触发包络逃逸修复。
                     firstPossibleSubstep = (ushort)(scheduleStartSubstep +
                         math.max(0, closestSubstepOffset - 1));
                 }
@@ -154,8 +143,7 @@ internal static class PredictiveContactScheduler
         if (enablePersistentContactCache)
             persistentPredictiveContacts.AddRange(predictiveContactScratch.AsArray());
 
-        // Dormant contacts live in B's timestep schedule, not in the active
-        // XPBD view, so A0/A1 share the same constraint-utilization semantics.
+        // dormant 接触放在 B 的 timestep 调度里，不进活跃 XPBD 视图，让 A0/A1 共享约束利用语义。
         int activeWriteIndex = 0;
         for (int pairIndex = 0; pairIndex < pairs.Length; pairIndex++)
         {

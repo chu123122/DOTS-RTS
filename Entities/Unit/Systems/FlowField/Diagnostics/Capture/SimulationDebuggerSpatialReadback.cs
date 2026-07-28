@@ -242,9 +242,7 @@ internal static class SimulationDebuggerSpatialReadback
             });
         }
 
-        // Adaptive region execution has been retired. Regions remain empty until a
-        // new authoritative region source exists; presentation must not synthesize
-        // fake region identities from per-cell diagnostics.
+        // 自适应区域执行已退役；区域列表留空直到有新权威源，呈现层不得伪造区域 ID。
 #endif
     }
 

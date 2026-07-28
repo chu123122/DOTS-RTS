@@ -7,9 +7,8 @@ namespace RTS.Unit.FlowField.Jobs
 {
 
 /// <summary>
-/// Soft avoidance velocity math shared by the per-substep contact solver.
-/// Neighbor discovery is certified separately; SoftAvoidanceJob accumulates this
-/// pairwise correction against the latest substep positions.
+/// 子步接触求解器共用的软避让速度算法。邻居发现由校验阶段负责；
+/// SoftAvoidanceJob 基于最新子步位置累加此处的成对修正。
 /// </summary>
 public static class SoftAvoidanceMath
 {

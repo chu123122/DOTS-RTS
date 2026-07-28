@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Summarise AdaptiveParameterTuner scenario benchmark output without third-party packages."""
+"""Summarise AdaptiveParameterTuner scenario benchmark output without third-party packages.
+
+CSV 表头为中文。本脚本把中文列名映射到内部英文 key，便于逻辑复用。
+直接对 benchmark 目录跑：python analyze_adaptive_benchmark.py <benchmark 目录>
+"""
 from __future__ import annotations
 
 import csv
@@ -7,6 +11,55 @@ import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+# 中文表头 → 内部英文 key（与 AdaptiveParameterTuner.Scenarios.cs 的表头一一对应）
+COLUMN_MAP = {
+    "场景": "Scenario",
+    "场景模式": "Mode",
+    "缓存配置": "Profile",
+    "重复": "Repetition",
+    "单位数": "UnitCount",
+    "采样帧数": "FrameCount",
+    "基线哈希": "BaselineHash",
+    "终态哈希": "FinalHash",
+    "均求解耗时ns": "AvgSolverNs",
+    "均接触对生成耗时ns": "AvgPairGenerationNs",
+    "均接触集构建耗时ns": "AvgTimestepContactSetBuildNs",
+    "均迭代投影耗时ns": "AvgIterationNs",
+    "均软避让耗时ns": "AvgSoftAvoidNs",
+    "均全量扫描耗时ns": "AvgFullSweepSourceNs",
+    "均持久对映射耗时ns": "AvgPersistentMapNs",
+    "均代理校验耗时ns": "AvgProxyValidationNs",
+    "均局部broadphase耗时ns": "AvgLocalBroadPhaseNs",
+    "均对差异耗时ns": "AvgPairDiffNs",
+    "均分类耗时ns": "AvgClassificationNs",
+    "均接触激活耗时ns": "AvgContactActivationNs",
+    "均回退耗时ns": "AvgFallbackNs",
+    "均拓扑脏体数": "AvgDirtyBodies",
+    "均运动脏体数": "AvgMotionDirtyBodies",
+    "均持久邻居对数": "AvgPersistentPairs",
+    "均交互对数": "AvgInteractionPairs",
+    "均软避让对数": "AvgSoftAvoidancePairs",
+    "均分类评估次数": "AvgClassificationEvaluations",
+    "均分类跳过次数": "AvgClassificationSkipped",
+    "均软对评估次数": "AvgSoftPairEvaluations",
+    "均约束评估次数": "AvgConstraintEvaluations",
+    "均持久视图复用": "AvgPersistentViewReuse",
+    "均持久视图重建": "AvgPersistentViewRebuild",
+    "均交互包络逃逸": "AvgInteractionEnvelopeEscapes",
+    "均全量重建次数": "AvgFullRebuilds",
+    "均增量修复次数": "AvgIncrementalRepairs",
+    "均接触对数": "AvgContactPairs",
+    "均活跃对数": "AvgActivePairs",
+    "均预测对数": "AvgPredictivePairs",
+    "均软避让漏检": "AvgSoftOracleMissing",
+    "跨帧缓存": "CrossFrameCache",
+    "跨子步缓存": "CrossSubstepCache",
+    "诊断": "Diagnostics",
+    "Guard裕度": "GuardMargin",
+    "子步数": "Substeps",
+    "迭代数": "Iterations",
+}
 
 METRICS = [
     "AvgSolverNs", "AvgPairGenerationNs", "AvgTimestepContactSetBuildNs",
@@ -21,6 +74,14 @@ METRICS = [
     "AvgIncrementalRepairs", "AvgContactPairs", "AvgActivePairs", "AvgPredictivePairs",
     "AvgSoftOracleMissing",
 ]
+
+
+def remap_row(raw: dict) -> dict:
+    """把中文表头行转成内部英文 key。未映射的列原样保留。"""
+    out = {}
+    for k, v in raw.items():
+        out[COLUMN_MAP.get(k, k)] = v
+    return out
 
 
 def number(row, key):
@@ -48,17 +109,19 @@ def choose_input(arg):
 
 def main():
     if len(sys.argv) != 2:
-        print("usage: analyze_adaptive_benchmark.py <benchmark directory | adaptive_tuning_summary.csv>")
+        print("usage: analyze_adaptive_benchmark.py <benchmark 目录 | adaptive_tuning_summary.csv>")
         return 2
     summary_path, output_dir = choose_input(sys.argv[1])
     if not summary_path.exists():
-        print(f"missing summary: {summary_path}", file=sys.stderr)
+        print(f"找不到 summary 文件: {summary_path}", file=sys.stderr)
         return 2
 
+    # utf-8-sig 自动剥离 BOM
     with summary_path.open(newline="", encoding="utf-8-sig") as handle:
-        rows = list(csv.DictReader(handle))
+        raw_rows = list(csv.DictReader(handle))
+    rows = [remap_row(r) for r in raw_rows]
     if not rows:
-        print("summary contains no completed trials", file=sys.stderr)
+        print("summary 没有已完成的 trial", file=sys.stderr)
         return 2
     has_pair_generation = "AvgPairGenerationNs" in rows[0]
     has_unified_metrics = all(key in rows[0] for key in (
@@ -73,9 +136,9 @@ def main():
     for scenario, scenario_rows in by_scenario.items():
         hashes = {row["BaselineHash"] for row in scenario_rows}
         if len(hashes) != 1:
-            issues.append(f"INVALID {scenario}: baseline hash differs across trials ({', '.join(sorted(hashes))})")
+            issues.append(f"INVALID {scenario}: 同场景内 baseline hash 不一致 ({', '.join(sorted(hashes))})")
         if any(number(row, "AvgSoftOracleMissing") > 0 for row in scenario_rows):
-            issues.append(f"INVALID {scenario}: soft-avoidance oracle reported missing pairs")
+            issues.append(f"INVALID {scenario}: 软避让 oracle 报告了漏检对")
 
     grouped = defaultdict(list)
     for row in rows:
@@ -97,13 +160,13 @@ def main():
         baselines = [r for r in scenario_rows if r.get("CrossFrameCache") == "0" and r.get("CrossSubstepCache") == "1"]
         candidates = [r for r in scenario_rows if r.get("CrossFrameCache") == "1" and r.get("CrossSubstepCache") == "1"]
         if not baselines or not candidates:
-            issues.append(f"REVIEW {scenario}: need A0_B1 and A1_B1 rows for comparison")
+            issues.append(f"REVIEW {scenario}: 需要 A0_B1 和 A1_B1 两行才能对比")
             continue
         base_by_repeat = {r["Repetition"]: r for r in baselines}
         candidate_by_repeat = {r["Repetition"]: r for r in candidates}
         common = sorted(set(base_by_repeat) & set(candidate_by_repeat))
         if not common:
-            issues.append(f"INVALID {scenario}: no matched repetitions")
+            issues.append(f"INVALID {scenario}: 没有匹配的 repetition")
             continue
         base_values = [number(base_by_repeat[r], "AvgSolverNs") for r in common]
         candidate_values = [number(candidate_by_repeat[r], "AvgSolverNs") for r in common]
@@ -149,34 +212,34 @@ def main():
         })
 
     aggregate_path = output_dir / "analysis_summary.csv"
-    with aggregate_path.open("w", newline="", encoding="utf-8") as handle:
+    with aggregate_path.open("w", newline="", encoding="utf-8-sig") as handle:
         fields = ["Scenario", "Mode", "Profile", "Runs"] + [f"{m}{s}" for m in METRICS for s in ("Mean", "P50", "P95")]
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader(); writer.writerows(aggregate_rows)
 
     comparison_path = output_dir / "analysis_comparison.csv"
-    with comparison_path.open("w", newline="", encoding="utf-8") as handle:
+    with comparison_path.open("w", newline="", encoding="utf-8-sig") as handle:
         fields = ["Scenario", "Pairs", "BaselineProfile", "CandidateProfile", "BaselineSolverNsMean", "CandidateSolverNsMean", "SolverDeltaNs", "SolverDeltaPercent", "PairGenerationAvailable", "UnifiedMetricsAvailable", "BaselinePairGenerationNsMean", "CandidatePairGenerationNsMean", "PairGenerationDeltaNs", "BaselineFullSweepSourceNsMean", "CandidatePersistentMapNsMean", "CandidateProxyValidationNsMean", "CandidateLocalBroadPhaseNsMean", "CandidatePairDiffNsMean", "BaselineClassificationNsMean", "CandidateClassificationNsMean", "CandidateFallbackNsMean", "BaselineDirtyBodiesMean", "CandidateDirtyBodiesMean", "CandidateMotionDirtyBodiesMean", "CandidatePersistentPairsMean", "InteractionPairDelta", "SoftAvoidancePairDelta", "SoftPairEvaluationDelta", "BaselineClassificationEvaluationsMean", "CandidateClassificationEvaluationsMean", "CandidateClassificationSkippedMean", "CandidatePersistentViewReuseMean", "CandidatePersistentViewRebuildMean", "CandidateInteractionEnvelopeEscapesMean", "ConstraintEvaluationDelta", "IterationDeltaNs", "SoftAvoidDeltaNs"]
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader(); writer.writerows(comparison_rows)
 
     report_path = output_dir / "analysis_report.md"
     with report_path.open("w", encoding="utf-8") as handle:
-        handle.write("# Adaptive Parameter Tuner 分析\n\n")
+        handle.write("# 接触缓存基准测试分析\n\n")
         if issues:
             handle.write("## 数据有效性\n" + "\n".join(f"- {item}" for item in issues) + "\n\n")
         else:
             handle.write("## 数据有效性\n- PASS：同一场景内所有 trial 使用同一 BaselineHash。\n\n")
-        handle.write("## A0_B1 vs A1_B1\n")
+        handle.write("## 仅跨子步(B开) vs 跨子步+跨帧(全开) — 求解总耗时对比\n")
         for row in comparison_rows:
             pair_generation = (
-                f"PairGen Δ={row['PairGenerationDeltaNs'] / 1000:+.1f}us，"
-                if row["PairGenerationAvailable"] else "PairGen=旧数据未记录，")
+                f"接触对生成 Δ={row['PairGenerationDeltaNs'] / 1000:+.1f}us，"
+                if row["PairGenerationAvailable"] else "接触对生成=未记录，")
             base = (f"- **{row['Scenario']}**：{row['SolverDeltaPercent']:+.2f}% "
                     f"({row['BaselineSolverNsMean'] / 1000:.1f}us → {row['CandidateSolverNsMean'] / 1000:.1f}us)，"
                     f"{pair_generation}")
             if not row["UnifiedMetricsAvailable"]:
-                handle.write(base + "统一模型指标=旧数据未记录。\n")
+                handle.write(base + "统一模型指标=未记录。\n")
                 continue
             handle.write(base +
                          f"A0 source/classify={row['BaselineFullSweepSourceNsMean'] / 1000:.1f}/"
@@ -203,11 +266,11 @@ def main():
                          f"A1 persistent pairs={row['CandidatePersistentPairsMean']:.1f}，"
                          f"topology/motion dirty={row['CandidateDirtyBodiesMean']:.2f}/"
                          f"{row['CandidateMotionDirtyBodiesMean']:.2f}。\n")
-        handle.write("\nPairGeneration 是父级完整生成阶段；A0 source/classify 与 A1 validation/map/local/diff/classify 是其内部归因项，不能再与 PairGeneration 相加。\n")
+        handle.write("\n注：接触对生成是父级完整生成阶段；A0 source/classify 与 A1 validation/map/local/diff/classify 是其内部归因项，不能再与接触对生成相加。\n")
 
-    print(f"wrote {aggregate_path}")
-    print(f"wrote {comparison_path}")
-    print(f"wrote {report_path}")
+    print(f"已写出 {aggregate_path}")
+    print(f"已写出 {comparison_path}")
+    print(f"已写出 {report_path}")
     return 0
 
 

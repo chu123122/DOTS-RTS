@@ -21,8 +21,7 @@ public struct SoftAvoidancePairContribution
 
 public struct ParallelBodyStageResult
 {
-    // EscapeCount is authoritative: it drives dirty-body repair and must exist
-    // independently of observation.
+    // EscapeCount 是权威量：驱动 dirty-body 修复，必须独立于观测字段存在。
     public int EscapeCount;
 #if RTS_CONTACT_DIAGNOSTICS
     public float Total;
@@ -53,8 +52,7 @@ public struct ActiveIncidentIndexState
 }
 
 /// <summary>
-/// Named responsibilities behind the historical P1-P6 implementation labels.
-/// The enum is documentation for scheduling boundaries, not mutable runtime state.
+/// 历史 P1-P6 实现标签背后的命名职责。该枚举是阶段调度的边界文档，并非可变运行时状态。
 /// </summary>
 internal enum StagedContactPipelinePhase : byte
 {
@@ -68,9 +66,7 @@ internal enum StagedContactPipelinePhase : byte
 }
 
 /// <summary>
-/// Staged parallel contact pipeline. The historical P1-P6 labels map to the
-/// named <see cref="StagedContactPipelinePhase"/> responsibilities above.
-/// Independent body/pair work runs in parallel; topology mutation, repair and
-/// deterministic compaction remain serialized at explicit phase boundaries.
+/// 分阶段并行接触管线。历史 P1-P6 标签映射到上方命名的 <see cref="StagedContactPipelinePhase"/> 职责。
+/// 独立 body/pair 工作并行运行；拓扑变更、修复与确定性压缩仍在显式阶段边界保持串行。
 /// </summary>
 }

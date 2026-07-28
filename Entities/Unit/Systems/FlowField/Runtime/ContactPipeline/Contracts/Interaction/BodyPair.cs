@@ -3,8 +3,7 @@ using System.Collections.Generic;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Frame-local unordered body relationship. This is discovery/interaction data only;
-/// it carries no solver mode, lambda, activation state, or diagnostics history.
+/// 帧级无序 body 关系。仅作为发现/交互数据；不含求解器模式、lambda、激活状态或诊断历史。
 /// </summary>
 public struct BodyPair
 {

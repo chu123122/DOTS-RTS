@@ -1,9 +1,7 @@
 namespace RTS.Unit.FlowField.Diagnostics
 {
 /// <summary>
-/// Compile-time status exposed to runtime UI and validation code without using
-/// editor APIs. When the diagnostics macro is absent this class is the only
-/// diagnostics build artifact that needs to remain available.
+/// 编译期状态暴露给运行时 UI 和校验（不依赖 Editor API）；未定义宏时仅此类型保留。
 /// </summary>
 public static class SimulationDiagnosticsCompileStatus
 {

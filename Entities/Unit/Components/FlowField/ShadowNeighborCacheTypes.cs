@@ -6,7 +6,7 @@ namespace RTS.Unit.FlowField
 {
 
 /// <summary>
-/// Fat AABB 邻居缓存中的单位代理。Entity 用作跨帧稳定身份，BodyIndex 每帧刷新。
+/// Fat AABB 邻居缓存里的单位代理。Entity 作跨帧稳定身份，BodyIndex 每帧刷新。
 /// </summary>
 public struct ShadowFatBodyProxy
 {
@@ -68,7 +68,7 @@ public enum FatCacheMode : byte
 }
 
 /// <summary>
-/// 持久 Fat AABB 缓存状态。Pair 只保存 Broad Phase 候选关系，不保存接触模式或 lambda。
+/// 持久 Fat AABB 缓存状态。Pair 只存 Broad Phase 候选关系，不存接触模式和 lambda。
 /// </summary>
 public struct FatAabbCacheState
 {
@@ -84,7 +84,7 @@ public struct FatAabbCacheState
 
 /// <summary>
 /// Fat Swept AABB / Verlet Neighbor List 的旁路覆盖统计。
-/// PreviousFrame 检查跨帧复用，CurrentFrame 检查首 substep 邻居表覆盖后续 substep。
+/// PreviousFrame 查跨帧复用，CurrentFrame 查首 substep 邻居表能否覆盖后续 substep。
 /// </summary>
 public struct ShadowNeighborCacheStatistics : IComponentData
 {
@@ -108,7 +108,7 @@ public struct ShadowNeighborCacheStatistics : IComponentData
     public int CorrectedBodyValidationCount;
     public long CachePairMappingNanoseconds;
 
-    // 以下字段保留给已有 Shadow 覆盖测试和历史 JSON，正式缓存面板不再依赖它们。
+    // 以下字段给旧 Shadow 覆盖测试和历史 JSON 用，正式缓存面板不再读。
     public byte PreviousFrameCacheAvailable;
     public int PreviousFrameCacheBodyCount;
     public int PreviousFrameCachePairCount;

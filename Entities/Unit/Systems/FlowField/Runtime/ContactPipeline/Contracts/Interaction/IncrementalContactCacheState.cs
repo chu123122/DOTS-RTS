@@ -22,12 +22,10 @@ public struct IncrementalDirtyBody
 }
 
 /// <summary>
-/// Authoritative cross-timestep runtime state used by correctness decisions.
+/// 跨 timestep 的权威运行时状态，用于正确性决策。
 ///
-/// This type contains only cache validity, versioning, lifecycle gauges needed to
-/// rebuild derived views, and the configuration certificate that proves reuse is
-/// safe. Presentation code, CSV recorders, timers, oracle counters and heatmap
-/// samples must never be stored here or consulted through this type.
+/// 本类型仅含缓存有效性、版本号、生命周期仪表以及证明复用到当前步安全的配置证书。
+/// 展示代码、CSV 录制、定时器、oracle 计数器与热力图样本一律不得存放此处，也不得经由此类型访问。
 /// </summary>
 public struct IncrementalContactCacheState
 {

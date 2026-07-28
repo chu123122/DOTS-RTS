@@ -98,10 +98,8 @@ namespace RTS.Unit.FlowField.Systems
                 return true;
             }
 
-            // PhysicsWorldSingleton can still contain the world built before an
-            // asynchronously streamed SubScene added its static colliders. Observe
-            // the dirty request once, then wait until BuildPhysicsWorld writes a
-            // newer singleton before sampling obstacle costs.
+            // PhysicsWorldSingleton 可能还没包含 SubScene 异步加载的静态碰撞体。
+            // 先观察一次脏请求，等 BuildPhysicsWorld 写入新 singleton 后再采样障碍代价。
             if (!_waitingForPhysicsWorldRefresh)
             {
                 _waitingForPhysicsWorldRefresh = true;

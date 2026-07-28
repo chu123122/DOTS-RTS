@@ -31,8 +31,7 @@ public sealed class SimulationDebuggerWindowState
 }
 
 /// <summary>
-/// Runtime IMGUI front-end for the unified simulation diagnostics snapshot.
-/// Add it to any scene object, or let the editor/development bootstrap create it.
+/// 统一诊断快照的运行时 IMGUI 前端：挂到任意场景对象即可，也可由 editor/development bootstrap 创建。
 /// </summary>
 public sealed partial class SimulationDebuggerPanel : MonoBehaviour
 {
@@ -195,10 +194,9 @@ public sealed partial class SimulationDebuggerPanel : MonoBehaviour
             SettingsWindow,
             published);
 
-        // 在窗口绘制之后占用 hotControl，防止被 GUI.Window 内部重置。
-        // 注意：IMGUI 的 Event 系统无法阻止 Unity Input 系统（GetAxis/GetMouseButton）
-        // 向 Game View 摄像机透传。RTS 摄像机脚本也需要检查：
-        //   SimulationDebuggerPanel.IsPointerOverDebugger(Input.mousePosition)
+        // 窗口绘制后占用 hotControl，防被 GUI.Window 内部重置。
+        // IMGUI Event 无法阻止 Unity Input 系统（GetAxis/GetMouseButton）透传给 Game View 摄像机。
+        // RTS 摄像机脚本也要检查：SimulationDebuggerPanel.IsPointerOverDebugger(Input.mousePosition)
         Event evt = Event.current;
         if (evt != null && IsGuiPointOverDebugger(evt.mousePosition))
         {

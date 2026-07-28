@@ -4,8 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Mutable state owned by the current timestep/substep solver execution.
-/// Predicted positions and XPBD corrections never enter persistent World state.
+/// 当前 timestep/substep 求解器执行拥有的可变状态。预测位置与 XPBD 修正永不进入持久 World 状态。
 /// </summary>
 public struct CrowdBodyStepState
 {

@@ -9,9 +9,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 /// <summary>
-/// Development-only middle mouse picker for the simulation debugger.
-/// A short middle click selects the nearest UnitContactBody on the XZ ground plane;
-/// middle-button drags remain available to camera controls.
+/// 调试专用中键拾取器：短按在 XZ 地面选择最近 UnitContactBody；中键拖动仍归相机控制。
 /// </summary>
 public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
 {
@@ -141,9 +139,7 @@ public sealed class SimulationDebuggerUnitPicker : MonoBehaviour
     {
         SimulationDebuggerRuntime.SelectedEntity = selected;
 
-        // Keep compatibility with legacy ECS selection inputs. Runtime state is
-        // authoritative; mirroring every legacy component avoids introducing
-        // an arbitrary "first singleton" when old scenes contain duplicates.
+        // 兼容旧 ECS 选择输入；运行时状态为权威，全量镜像避免"取首个 singleton"在重复场景时歧义。
         World world = World.DefaultGameObjectInjectionWorld;
         if (world != null && world.IsCreated)
         {

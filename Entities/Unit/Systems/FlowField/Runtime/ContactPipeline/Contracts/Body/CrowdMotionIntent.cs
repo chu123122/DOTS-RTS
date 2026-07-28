@@ -4,8 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Navigation movement policy. SteeringVelocityError preserves the current controller
-/// math: the motion integrator clamps it by Body.MaxAcceleration before integration.
+/// 导航移动策略。SteeringVelocityError 保留当前控制器的数学约定：运动积分器在积分前会用 Body.MaxAcceleration 截断它。
 /// </summary>
 public struct CrowdMotionIntent
 {

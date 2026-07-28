@@ -17,7 +17,7 @@ public partial class UnitSpatialPartitionSystem : SystemBase
 {
     protected override void OnCreate()
     {
-        // 依赖设置 (Grid配置用于计算格子索引)
+        // 依赖：Grid 配置（用于计算格子索引）。
         RequireForUpdate<FlowFieldSettings>();
     }
 
@@ -30,7 +30,7 @@ public partial class UnitSpatialPartitionSystem : SystemBase
 
         Entity singletonEntity = SystemAPI.GetSingletonEntity<FlowFieldSettings>(); 
 
-        // 如果还没初始化Map组件
+        // 还没初始化空间映射组件。
         if (!SystemAPI.HasComponent<UnitSpatialMap>(singletonEntity))
         {
             var map = new NativeParallelMultiHashMap<int, Entity>(unitCount * 2, Allocator.Persistent);
@@ -45,7 +45,7 @@ public partial class UnitSpatialPartitionSystem : SystemBase
         Dependency.Complete();
         mapComp.ValueRW.Map.Clear();
 
-        //调动Job
+        // 调度空间映射 Job。
         var job = new BuildSpatialMapJob
         {
             Map = mapComp.ValueRW.Map.AsParallelWriter(), 

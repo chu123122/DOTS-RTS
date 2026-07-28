@@ -8,9 +8,8 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Systems
 {
 /// <summary>
-/// One-step certifier scratch plus the certified compact products. These containers
-/// are not a general frame bag: only certification owns mutation; lower stages receive
-/// only the specific certified lists they consume.
+/// 单步认证器 scratch 加上已认证的紧凑产物。这些容器并非通用帧袋：仅认证方有写权限；
+/// 下游阶段只能消费各自对应的已认证列表。
 /// </summary>
 internal struct InteractionCertificationFrameResources
 {
@@ -112,6 +111,7 @@ internal struct InteractionCertificationFrameResources
             PersistentProxyIndexByBody = candidates.ProxyIndexByBody,
             PersistentNeighborPairs = candidates.NeighborPairs,
             PersistentPredictiveContacts = candidates.PredictiveContacts,
+            PersistentContactIndex = candidates.PredictiveContactIndex,
             PersistentActiveContactKeys = candidates.ActiveContactKeys,
             PersistentSoftAvoidancePairKeys = candidates.SoftAvoidancePairKeys,
             PersistentDormantContactSchedule = candidates.DormantContactSchedule,

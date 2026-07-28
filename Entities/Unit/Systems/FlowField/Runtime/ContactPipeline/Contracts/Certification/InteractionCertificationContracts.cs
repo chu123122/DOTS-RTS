@@ -4,9 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Provenance of a certified interaction product. The scheduler may use the
-/// certificate as a fail-closed gate; lower simulation stages must not reinterpret
-/// the source mode or consult persistent candidate state.
+/// 已认证交互产物的来源。调度器可将该证书用作 fail-closed 闸门；下游仿真阶段不得再解读来源模式或访问持久候选状态。
 /// </summary>
 public enum CertifiedInteractionSourceMode : byte
 {
@@ -44,8 +42,7 @@ public enum InteractionCertificateViolationReason : byte
 }
 
 /// <summary>
-/// Current authoritative facts presented to the certifier. Candidate persistent
-/// containers are deliberately absent from this value.
+/// 当前提供给认证器的权威事实。刻意不包含候选持久容器。
 /// </summary>
 public struct InteractionCertificationEvidence
 {
@@ -62,9 +59,7 @@ public struct InteractionCertificationEvidence
 }
 
 /// <summary>
-/// Scope attached to the compact interaction/contact/schedule views consumed by
-/// lower stages. Within this exact scope the views are authoritative and may be
-/// consumed without consulting persistent candidate state.
+/// 紧密的交互/接触/调度视图所附作用域，供下游阶段消费。在该精确作用域内视图为权威，无需访问持久候选状态。
 /// </summary>
 public struct InteractionCertificate
 {
@@ -96,9 +91,7 @@ public struct InteractionCertificate
 }
 
 /// <summary>
-/// Evidence emitted when motion or constraint solving leaves the scope proved by
-/// the current certificate. Producers report facts only; the certifier remains
-/// the sole owner of accept/repair/rebuild and candidate-cache mutation.
+/// 运动或约束求解离开当前证书证明作用域时上报的证据。产生方只报告事实；接受/修复/重建与候选缓存变更仍由认证器独占。
 /// </summary>
 public struct InteractionCertificateViolation
 {
@@ -110,9 +103,7 @@ public struct InteractionCertificateViolation
 }
 
 /// <summary>
-/// Container-free description of the certified product. Physical NativeList views
-/// stay owned by timestep resources so clean persistent paths need not materialize
-/// one large universal interaction array.
+/// 已认证产物的无容器描述。物理 NativeList 视图仍由 timestep 资源持有，从而干净的持久路径不必物化一个巨大的通用交互数组。
 /// </summary>
 public struct CertifiedInteractionProductDescriptor
 {

@@ -13,7 +13,7 @@ namespace RTS.Unit.FlowField.Diagnostics
 
 public sealed class ContactDiagnosticCaptureSession
 {
-    // Persisted schema id is retained so existing v2/v3 analysis remains valid.
+    // 保留 v2/v3 兼容 schema id，旧分析脚本仍可解析。
     private const string LegacyCaptureFormat = "Stage3ContactDiagnostic/v3";
     private const int MaxSamples = 2000;
     private readonly List<ContactDiagnosticCaptureSample> _samples = new(MaxSamples);
@@ -304,7 +304,7 @@ public sealed class ContactDiagnosticCaptureSample
     public float FatAabbValidationMicroseconds;
     public float FatAabbMappingMicroseconds;
 
-    // 保留 v1 字段，便于旧分析脚本继续读取同一 JSON 类型。
+    // 保留 v1 字段让旧分析脚本仍可读同一 JSON。
     public int ShadowPreviousHits;
     public int ShadowPreviousMisses;
     public int ShadowCurrentHits;

@@ -3,9 +3,8 @@ using Unity.Collections;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Frame-local CSR index from a body slot to active timestep contact-pair indices.
-/// It is rebuilt only when the active contact view changes and is shared by the
-/// serial reference and parallel Jacobi gather paths.
+/// 由 body 槽位到该 timestep 活跃接触对下标的帧级 CSR 索引。仅在活跃接触视图变化时重建，
+/// 由串行参考路径与并行 Jacobi 收集路径共享。
 /// </summary>
 internal static class ActiveConstraintIncidentIndexBuilder
 {
@@ -62,13 +61,9 @@ internal static class ActiveConstraintIncidentIndexBuilder
             incidentPairIndices[writeCursors[pair.BodyB]++] = pairIndex;
         }
 
-        // Deterministic invariant: every pair contributes exactly two incident
-        // entries (BodyA + BodyB), so the incident list length must be even and
-        // equal 2 * constraints.Length. A mismatch means a downstream reader
-        // (GatherAndApplyParallelJacobiBodiesJob) will index out of range using
-        // offsets derived from this rebuild. Assert here to catch the divergence
-        // at the source rather than as a Burst IndexOutOfRangeException in the
-        // consumer.
+        // 不变量：每对恰好贡献两个事件项（BodyA + BodyB），所以事件列表长度必须是 2 * constraints.Length。
+        // 不一致会导致 GatherAndApplyParallelJacobiBodiesJob 用本次 offsets 越界。
+        // 在源头断言，比让 Burst 在消费者里抛 IndexOutOfRangeException 更容易定位。
         if (entries != constraints.Length * 2)
             throw new System.IndexOutOfRangeException(
                 "Active incident index rebuild produced " + entries +

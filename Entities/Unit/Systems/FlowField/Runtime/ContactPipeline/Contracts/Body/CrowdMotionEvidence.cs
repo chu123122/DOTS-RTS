@@ -4,8 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Timestep-scoped authoritative motion evidence consumed by the interaction certifier.
-/// This is not persistent candidate state and lower consumers may only report escapes.
+/// 交互认证器消费的、timestep 范围内的权威运动证据。这不是持久候选状态，下游消费者只可上报逃逸。
 /// </summary>
 public struct CrowdMotionEvidence
 {

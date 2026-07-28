@@ -35,8 +35,8 @@ namespace RTS.Unit.Components
     }
 
     /// <summary>
-    /// 记录单位是否已经进入当前流场目标的到达区域。
-    /// 该状态跨帧保留，用于为进入/退出到达区域提供滞回，避免边界反复启停。
+    /// 单位是否已进入当前流场目标的到达区域。
+    /// 跨帧保留，给进出到达区加滞回，避免在边界反复启停。
     /// </summary>
     [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
     public struct FlowArrivalState : IComponentData
@@ -58,8 +58,8 @@ namespace RTS.Unit.Components
 
     public struct UnitMovementSettings : IComponentData
     {
-        public float MaxForce; // 转向力的最大值 (建议 20-50)
-        public float RotationSpeed; // 转身速度 (建议 10-20)
+        public float MaxForce; // 转向力上限
+        public float RotationSpeed; // 转身速度
     }
 
     /// <summary>

@@ -1,12 +1,7 @@
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Compile-time facade for contact-pipeline timing.
-///
-/// Job files intentionally reference this type by its simple name. Because it
-/// lives in the job namespace it takes precedence over the imported Unity type.
-/// Diagnostics builds forward to Unity's profiler clock; gameplay-only builds
-/// return constants, allowing Burst to remove timing expressions.
+/// 接触管线计时编译门面：诊断构建代理到 Unity Profiler；非诊断构建返回常量，便于 Burst 消除计时。
 /// </summary>
 internal static class ProfilerUnsafeUtility
 {

@@ -4,7 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Mathematical mode of one frame-local disc contact constraint.
+/// 帧级 disc 接触约束的数学模式。
 /// </summary>
 public enum ContactConstraintMode : byte
 {
@@ -13,12 +13,11 @@ public enum ContactConstraintMode : byte
 }
 
 /// <summary>
-/// Solver-owned frame-local contact record. Fields are direct storage rather than
-/// compatibility forwarding properties. Interaction discovery uses BodyPair instead.
+/// 求解器拥有的帧级接触记录。字段为直接存储，而非兼容转发属性。交互发现使用 BodyPair。
 /// </summary>
 public struct ContactConstraint
 {
-    // Definition, assembled before solver consumption.
+    // 定义部分：求解器消费前装填。
     public int BodyA;
     public int BodyB;
     public float3 PredictiveNormal;
@@ -26,11 +25,11 @@ public struct ContactConstraint
     public byte PredictiveNormalOriented;
     public byte IsDormant;
 
-    // Mutable solver state.
+    // 可变求解器状态。
     public float Lambda;
     public byte WasActivated;
 
-    // Timestep utilization/provenance state.
+    // timestep 利用/来源状态。
     public byte WasActivatedThisTimestep;
     public byte WasCorrectedThisTimestep;
     public byte WasAddedByFallback;

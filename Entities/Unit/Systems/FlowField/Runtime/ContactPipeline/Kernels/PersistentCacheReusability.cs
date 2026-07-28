@@ -5,16 +5,13 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Structural reusability check and configuration fingerprint for the
-/// persistent (P1P6) contact cache. The cache can be incrementally patched
-/// only when the committed cache state still matches the current body/solver
-/// configuration; any drift forces a full rebuild. Pure value functions.
+/// 持久（P1P6）接触缓存的结构化复用性检查与配置指纹。仅当已提交缓存状态仍与当前 body/求解器配置一致时，
+/// 缓存方可增量修补；任何漂移都强制全量重建。纯值函数。
 /// </summary>
 internal static class PersistentCacheReusability
 {
     /// <summary>
-    /// Snapshot of the configuration axes that gate cache reuse, captured at
-    /// the point of the check.
+    /// 检查时刻所捕捉、决定缓存复用的配置轴快照。
     /// </summary>
     internal struct ConfigurationFingerprint
     {
@@ -31,9 +28,7 @@ internal static class PersistentCacheReusability
     }
 
     /// <summary>
-    /// Whether the cache view can be patched in place: the state must be valid,
-    /// sized to the current body count, and every configuration axis must match
-    /// the fingerprint recorded when the cache was last built.
+    /// 缓存视图能否就地修补：状态必须有效、容量匹配当前 body 数，且每项配置轴都需匹配上次构建时记录的指纹。
     /// </summary>
     internal static bool IsStructurallyReusable(
         IncrementalContactCacheState state,

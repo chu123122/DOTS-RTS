@@ -19,7 +19,7 @@ public partial struct InteractionCertificationJob
         BuildOrRefreshTimestepContactViews(ref statistics, ref incremental, false, false);
         statistics.PairGenerationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - start);
-        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        RebuildPersistentIncidentPairLookupIfNeededParallel();
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incremental);
     }
@@ -91,7 +91,7 @@ public partial struct InteractionCertificationJob
                 true,
                 substepIndex);
             InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
             return;
@@ -112,7 +112,7 @@ public partial struct InteractionCertificationJob
                 true,
                 substepIndex);
             InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
             return;
@@ -134,8 +134,11 @@ public partial struct InteractionCertificationJob
         PreviousTimestepContactPairs.Clear();
         PreviousTimestepContactPairs.AddRange(TimestepContactPairs.AsArray());
         long mappingStart = ProfilerUnsafeUtility.Timestamp;
-        if (!MapDirtyIncidentNeighborPairsToCurrentBodies())
+        if (!MapDirtyIncidentNeighborPairsToCurrentBodies(
+                out int _,
+                out int eligibilitySkipped))
         {
+            incremental.ClassificationSkippedCount += eligibilitySkipped;
             incremental.PersistentPairMappingNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - mappingStart);
             BuildOrRefreshTimestepContactViews(
@@ -145,11 +148,12 @@ public partial struct InteractionCertificationJob
                 true,
                 substepIndex);
             InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
             return;
         }
+        incremental.ClassificationSkippedCount += eligibilitySkipped;
         incremental.PersistentPairMappingNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - mappingStart);
 
@@ -163,7 +167,12 @@ public partial struct InteractionCertificationJob
                 PersistentPredictiveContacts[contactIndex];
             if (IsDirtyEntity(contact.Key.EntityA) ||
                 IsDirtyEntity(contact.Key.EntityB))
+            {
+                // 提前从索引中移除，CommitP1P6SubstepRepairClassification 中会补回新结果
+                if (PersistentContactIndex.IsCreated)
+                    PersistentContactIndex.Remove(contact.Key);
                 continue;
+            }
             PredictiveContactScratch.Add(contact);
         }
 
@@ -212,6 +221,9 @@ public partial struct InteractionCertificationJob
             BodyPair rawPair = result.RawPair;
             PersistentPredictiveContact contact = result.Contact;
             PredictiveContactScratch.Add(contact);
+            // 新分类结果写入 O(1) 索引
+            if (PersistentContactIndex.IsCreated)
+                PersistentContactIndex[contact.Key] = contact;
             if (result.WasReclassified != 0)
             {
                 incremental.ReclassifiedPairEvaluationCount++;
@@ -245,9 +257,7 @@ public partial struct InteractionCertificationJob
         Pairs.ResizeUninitialized(activeWriteIndex);
         if (Pairs.Length > 1)
             Pairs.AsArray().Sort(new ContactConstraintComparer());
-        if (PredictiveContactScratch.Length > 1)
-            PredictiveContactScratch.AsArray().Sort(
-                new PersistentPredictiveContactComparer());
+        // 无需排序 PredictiveContactScratch：hashmap 提供 O(1) 查找
         if (PredictiveContactSchedule.Length > 1)
             PredictiveContactSchedule.AsArray().Sort(
                 new PredictiveContactScheduleEntryComparer());
@@ -255,6 +265,7 @@ public partial struct InteractionCertificationJob
 
         PersistentPredictiveContacts.Clear();
         PersistentPredictiveContacts.AddRange(PredictiveContactScratch.AsArray());
+        // hashmap 已在 Prepare（删dirty）+ 本函数各条目写入（Add new）中增量维护，无需全量重建
         RebuildPersistentContactViews();
         RebuildSoftAvoidancePairSetFromPersistentContacts();
         statistics.ContactPairCount += retainedCount;
@@ -298,7 +309,7 @@ public partial struct InteractionCertificationJob
 #endif
 
         InvalidateSoftIncidentIndexP1P6();
-        RebuildPersistentIncidentPairLookupIfNeededP1P6();
+        RebuildPersistentIncidentPairLookupIfNeededParallel();
         IssueCertificateForCommittedViews(incremental, substepIndex);
         phase.NeedsCommit = 0;
         PersistentClassificationState.Value = phase;
@@ -361,7 +372,7 @@ public partial struct InteractionCertificationJob
                 ref statistics,
                 ref incremental);
             InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededParallel();
         }
 
         StoreContactStatistics(statistics);
@@ -422,7 +433,7 @@ public partial struct InteractionCertificationJob
                 ref incremental,
                 false);
             InvalidateSoftIncidentIndexP1P6();
-            RebuildPersistentIncidentPairLookupIfNeededP1P6();
+            RebuildPersistentIncidentPairLookupIfNeededParallel();
             rebuilt = true;
         }
         if (!EnableTimestepContactSetCache && !rebuilt)
@@ -455,7 +466,7 @@ public partial struct InteractionCertificationJob
         runtimeState.Value = runtime;
     }
 
-    private void RebuildPersistentIncidentPairLookupIfNeededP1P6()
+    private void RebuildPersistentIncidentPairLookupIfNeededParallel()
     {
         if (!EnablePersistentContactCache ||
             !PersistentIncidentPairLookup.IsCreated ||
@@ -536,7 +547,7 @@ public partial struct InteractionCertificationJob
                     ref incremental);
                 InvalidateSoftIncidentIndexP1P6();
                 ResetTimestepContactSetForSubstep();
-                RebuildPersistentIncidentPairLookupIfNeededP1P6();
+                RebuildPersistentIncidentPairLookupIfNeededParallel();
             }
 
             ResetCorrectedBodyTracking();

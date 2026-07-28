@@ -8,9 +8,7 @@ using System.Text;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 /// <summary>
-/// Versioned per-timestep CSV recorder for the migrated contact pipeline.
-/// It records raw samples and writes a separate percentile summary on stop.
-/// Recording is opt-in and diagnostics-only.
+/// 迁移后接触管线的版本化逐时间步 CSV 记录器：记录原始采样，停止时另写百分位摘要。仅 diagnostic-only、可选启用。
 /// </summary>
 public static class IncrementalContactPipelineCsvRecorderRuntime
 {

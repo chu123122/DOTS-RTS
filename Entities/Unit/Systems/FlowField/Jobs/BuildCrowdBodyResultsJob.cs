@@ -6,7 +6,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Detaches final solver output from mutable substep state before ECS writeback.
+/// 在写回 ECS 前，把最终求解结果从可变子步状态中分离出来。
 /// </summary>
 [BurstCompile]
 public struct BuildCrowdBodyResultsJob : IJobParallelFor

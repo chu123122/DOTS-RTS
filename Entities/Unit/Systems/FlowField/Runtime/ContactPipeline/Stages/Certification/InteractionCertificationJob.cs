@@ -86,6 +86,9 @@ public partial struct InteractionCertificationJob : IJob
     public NativeList<int> PersistentProxyIndexByBody;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
+    // O(1) 持久接触查找索引。与 PersistentPredictiveContacts 同步：
+    // 每次全量重建后从列表回填；增量 patch 路径就地更新，无需重排序。
+    public NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> PersistentContactIndex;
     public NativeList<StableEntityPairKey> PersistentActiveContactKeys;
     public NativeList<StableEntityPairKey> PersistentSoftAvoidancePairKeys;
     public NativeList<PredictiveContactScheduleEntry> PersistentDormantContactSchedule;

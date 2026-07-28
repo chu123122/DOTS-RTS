@@ -29,7 +29,7 @@ public partial class RtsCommandSystem : SystemBase
     {
         var gridEntity = SystemAPI.GetSingletonEntity<FlowFieldGlobalTarget>();
 
-        // 首次 Flow Field 尚未发布时保留 MoveOrder 的 enabled 状态。
+        // 首次 Flow Field 还没发布时，保留 MoveOrder 的 enabled 状态。
         // 启动烘焙完成后的下一帧会继续消费同一条指令。
         if (SystemAPI.GetSingleton<FlowFieldRuntimeState>().ActiveVersion == 0)
             return;
@@ -41,7 +41,7 @@ public partial class RtsCommandSystem : SystemBase
             EntityManager.GetBuffer<MoveOrderSelectionElement>(gridEntity);
         if (recipients.Length == 0)
         {
-            // 空快照不能等待后续左键选择，否则旧目标会错误绑定到未来选择。
+            // 空快照不能等后续左键选择，否则旧目标会错误绑到未来选择。
             EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
             return;
         }
@@ -113,7 +113,7 @@ public partial class RtsCommandSystem : SystemBase
             slots,
             moveOrder.TargetPosition);
 
-        // 只有订单快照获得完整槽位时才消费；不修改实时 UnitSelected。
+        // 只有订单快照拿到完整槽位时才消费；不修改实时 UnitSelected。
         EntityManager.SetComponentEnabled<MoveOrder>(gridEntity, false);
         recipients.Clear();
 

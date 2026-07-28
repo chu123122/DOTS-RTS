@@ -52,9 +52,7 @@ public struct JacobiBlockTelemetry
 #endif
 
 /// <summary>
-/// Multi-job Jacobi path. The topology, lifecycle, envelope validation and fallback
-/// remain serial coordination stages; pair evaluation and body gather/apply are
-/// conflict-free parallel stages. Selected-pair debugger capture uses pair-exclusive
-/// scratch slots and deterministic compaction without changing the solver backend.
+/// 多 Job 的 Jacobi 路径。拓扑、生命周期、包络校验与回退仍是串行协调阶段；对评估与 body 收集/应用是无冲突并行阶段。
+/// 已选对调试器捕获使用对独占的临时槽位和确定性压缩，不改变求解器后端。
 /// </summary>
 }

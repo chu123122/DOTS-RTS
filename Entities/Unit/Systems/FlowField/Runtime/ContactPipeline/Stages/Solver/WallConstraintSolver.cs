@@ -4,9 +4,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Static obstacle projection, separate from pair topology and lifecycle. The
-/// current backend is the grid obstacle view; navigation-cell costs are not part
-/// of this stage's public semantics.
+/// 静态障碍投影，与对拓扑与生命周期解耦。当前后端是 grid 障碍视图；导航 cell 代价不在本阶段的公开语义里。
 /// </summary>
 public partial struct ConstraintSolverJob
 {

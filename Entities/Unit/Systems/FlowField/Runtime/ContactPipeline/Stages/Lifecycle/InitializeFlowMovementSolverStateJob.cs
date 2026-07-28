@@ -6,8 +6,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Initializes timestep/substep-owned motion state from immutable body snapshots.
-/// Each index has one writer and can run in parallel.
+/// 用不可变 body 快照初始化 timestep/substep 拥有的运动状态。每个索引一个写者，可并行。
 /// </summary>
 [BurstCompile]
 public struct InitializeCrowdStepStateJob : IJobParallelFor

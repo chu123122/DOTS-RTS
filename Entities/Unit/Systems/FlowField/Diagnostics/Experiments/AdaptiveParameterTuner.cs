@@ -14,62 +14,176 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Diagnostics
 {
 /// <summary>
-/// 全自动自适应 Fat AABB 参数调优器。
-///
-/// 工作流程：
-///   1. 等 RtsLocalPrefabs 加载完成
-///   2. 在聚集点批量生成 UnitCount 个单位
-///   3. 等 WarmupFrames 帧让求解收敛
-///   4. 按 TrialList 依次切换参数，每组跑 TrialFrames 帧
-///   5. 采集末尾 StatisticsFrames 帧的求解统计
-///   6. 退出 Play Mode 前输出 CSV 到项目根目录
-///
-/// 不需要任何手动操作——场景进入 Play Mode 后全自动完成。
+/// 全自动自适应 Fat AABB 参数调优器：进 Play Mode 即跑完流程，输出 CSV 到项目根，无需手动操作。
 /// </summary>
 public sealed partial class AdaptiveParameterTuner : MonoBehaviour
 {
-    [Header("Spawn")]
-    [Min(1)] public int UnitCount = 200;
+    [Header("生成 (Spawn)")]
+    [Tooltip("每轮测试生成的单位数量。500 单位适合观察密集碰撞；更多单位放大接触求解压力。")]
+    [Min(1)] public int UnitCount = 500;
+    [Tooltip("单位聚集中心的世界坐标。单位会在以此点为中心、SpawnSpread 为半径的圆内生成。")]
     public float3 ClusterCenter = new(0f, 0f, 0f);
+    [Tooltip("生成散布半径。越大单位越分散（碰撞少），越小越密集（碰撞多）。")]
     public float SpawnSpread = 2f;
 
-    [Header("Timing")]
+    [Header("时序 (Timing)")]
+    [Tooltip("生成全部单位后、进入下一阶段前的等待秒数，让刚生成的单位稳定下来。")]
     [Min(0)] public float PostSpawnDelaySeconds = 5f;
+    [Tooltip("预热帧数。预热阶段不计入统计，用于让接触缓存收敛到稳态后再开始测量。")]
     [Min(1)] public int WarmupFrames = 360;
+    [Tooltip("每个 trial（参数配置）连续运行的帧数。")]
     [Min(1)] public int TrialFrames = 600;
+    [Tooltip("每个 trial 末尾用于统计的帧数。只取 TrialFrames 的最后这么多帧做平均，剔除缓存冷启动影响。")]
     [Min(1)] public int StatisticsFrames = 300;
 
-    [Header("Scenario")]
+    [Header("场景 (Scenario)")]
     [Tooltip("默认关闭：本轮用于静止密集单位测试。开启后才会在预热前下发随机移动命令。")]
     public bool IssueMoveBeforeTrials;
+    [Tooltip("随机移动命令的目标散布半径（仅 IssueMoveBeforeTrials 开启时生效）。")]
     public float MoveTargetSpread = 10f;
 
-    [Header("Trials — 跨帧缓存 A/B")]
+    [Header("Trials — 缓存价值 + 精度旋钮对比")]
+    // 两组测试共 11 个配置（GS 求解器固定）：
+    // 一、缓存价值（substep=4 / iteration=4）：缓存全关 / 仅跨子步 / 全开。
+    // 二、精度旋钮（A+B 全开，扫 子步×迭代）：子步 2/4/8 × 迭代 2/4/8；为避免与上面"全开"重复，剔除 4/4，合计 7+3=... → 8 个 → 共 11 个。
+    // 同一 500 单位基线 × 3 场景(静止/开阔/障碍) × Repetitions。
+    // 诊断含 O(N²) Oracle，性能测量必须关（EnableDiagnostics=0）。
     public List<ParameterTrial> TrialList = new()
     {
-        // 保持跨子步接触集(B)一致，只切换跨帧持久邻居拓扑(A)。
-        // 详细诊断含 O(N²) Oracle，性能测量必须关闭。
+        // ── 一、缓存价值（固定 子步=4 / 迭代=4） ──
         new()
         {
-            Label = "baseline_timestep_swept_A0_B1",
+            Label = "缓存全关(基线)",
+            EnablePersistentContactCache = 0,
+            EnableTimestepContactSetCache = 0,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 4,
+            IterationCount = 4,
+            ContactPositionSolver = 0 // Gauss-Seidel
+        },
+        new()
+        {
+            Label = "仅跨子步(B开)",
             EnablePersistentContactCache = 0,
             EnableTimestepContactSetCache = 1,
             EnableAdaptiveFatAabb = 0,
             EnableDiagnostics = 0,
             PersistentGuardEnvelopeMargin = 0.5f,
             SubstepCount = 4,
-            IterationCount = 4
+            IterationCount = 4,
+            ContactPositionSolver = 0
         },
         new()
         {
-            Label = "incremental_persistent_A1_B1",
+            Label = "跨子步+跨帧(全开)",
             EnablePersistentContactCache = 1,
             EnableTimestepContactSetCache = 1,
             EnableAdaptiveFatAabb = 0,
             EnableDiagnostics = 0,
             PersistentGuardEnvelopeMargin = 0.5f,
             SubstepCount = 4,
-            IterationCount = 4
+            IterationCount = 4,
+            ContactPositionSolver = 0
+        },
+
+        // ── 二、精度旋钮（固定 A+B 全开，扫子步×迭代；子步4/迭代4 不重复，已含在上面） ──
+        new()
+        {
+            Label = "全开_子步2_迭代2",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 2,
+            IterationCount = 2,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步2_迭代4",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 2,
+            IterationCount = 4,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步2_迭代8",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 2,
+            IterationCount = 8,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步4_迭代2",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 4,
+            IterationCount = 2,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步4_迭代8",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 4,
+            IterationCount = 8,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步8_迭代2",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 8,
+            IterationCount = 2,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步8_迭代4",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 8,
+            IterationCount = 4,
+            ContactPositionSolver = 0
+        },
+        new()
+        {
+            Label = "全开_子步8_迭代8",
+            EnablePersistentContactCache = 1,
+            EnableTimestepContactSetCache = 1,
+            EnableAdaptiveFatAabb = 0,
+            EnableDiagnostics = 0,
+            PersistentGuardEnvelopeMargin = 0.5f,
+            SubstepCount = 8,
+            IterationCount = 8,
+            ContactPositionSolver = 0
         }
     };
 
@@ -238,7 +352,7 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
 
     private int GetCurrentUnitCount()
     {
-        // 不用 TryGetLatest —— 上一轮 Play Mode 的静态 snapshot 可能未清空。
+        // 不用 TryGetLatest：上一轮 Play Mode 静态 snapshot 可能未清。
         World world = World.DefaultGameObjectInjectionWorld;
         if (world == null || !world.IsCreated)
             return 0;
@@ -517,19 +631,35 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
     [Serializable]
     public sealed class ParameterTrial
     {
+        [Tooltip("配置名称，写入 CSV 的“缓存配置”列。")]
         public string Label;
+        [Tooltip("是否生成预测接触对（扫掠圆盘 broadphase 的预测对）。1=开。")]
         public byte EnablePredictivePairGeneration = 1;
+        [Tooltip("跨帧持久邻居拓扑（A 层）。1=开：跨帧复用邻居候选对。0=关：每帧重建拓扑。")]
         public byte EnablePersistentContactCache = 1;
+        [Tooltip("自适应 FatAABB（已废弃兼容开关，保持 0）。")]
         public byte EnableAdaptiveFatAabb = 1;
+        [Tooltip("跨子步接触集（B 层）。1=开：一个时间步只生成一次接触集、子步间复用。0=关：每子步重新生成。")]
         public byte EnableTimestepContactSetCache = 1;
+        [Tooltip("是否开启详细诊断（含 O(N²) Oracle）。性能基准测试必须关（0），否则 Oracle 计时污染。")]
         public byte EnableDiagnostics = 1;
+        [Tooltip("位置求解器：0=Gauss-Seidel（串行），1=Jacobi（并行）。-1=沿用基线不覆盖。")]
+        public int ContactPositionSolver = -1;
+        [Tooltip("预测接触的皮肤厚度（半径外的安全余量）。>0 时覆盖基线。")]
         public float PredictiveSkin;
+        [Tooltip("持久 Guard 包络裕度（跨帧缓存复用的位移容忍）。>0 时覆盖基线。")]
         public float PersistentGuardEnvelopeMargin;
+        [Tooltip("每时间步子步数。>0 时覆盖基线。子步越多精度越高、耗时越长。")]
         public int SubstepCount;
+        [Tooltip("每子步的约束投影迭代次数。>0 时覆盖基线。")]
         public int IterationCount;
+        [Tooltip("（废弃）自适应 FatAabb 的检测格跨度。")]
         public int AdaptiveDetectionCellSpan;
+        [Tooltip("（废弃）单格最少单位数。")]
         public int AdaptiveMinimumUnitsPerCell;
+        [Tooltip("（废弃）单区域最少单位数。")]
         public int AdaptiveMinimumUnitsPerRegion;
+        [Tooltip("（废弃）自适应启用评分。")]
         public float AdaptiveEnableScore;
 
         public void ApplyTo(ref SimulationDebuggerEffectiveSettings s)
@@ -539,6 +669,8 @@ public sealed partial class AdaptiveParameterTuner : MonoBehaviour
             s.EnableAdaptiveFatAabb = EnableAdaptiveFatAabb;
             s.EnableTimestepContactSetCache = EnableTimestepContactSetCache;
             s.EnableDiagnostics = EnableDiagnostics;
+            if (ContactPositionSolver >= 0)
+                s.ContactPositionSolver = ContactPositionSolver;
             s.PredictiveSkin = PredictiveSkin;
             if (PersistentGuardEnvelopeMargin > 0f)
                 s.PersistentGuardEnvelopeMargin = PersistentGuardEnvelopeMargin;

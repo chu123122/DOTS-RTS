@@ -186,10 +186,9 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private void ApplyPreset(TrialPreset preset)
     {
         _predictiveContactsEnabled = true;
-        // Diagnostics / oracle are no longer preset-controlled: EnableDiagnostics
-        // is a user-visible switch on the Simulation Debugger panel and the
-        // FlowFieldManager authoring. Toggle it there if a benchmark needs a
-        // clean O(N^2)-free baseline.
+        // 诊断/oracle 不再由预设控制：EnableDiagnostics 是 Simulation Debugger 面板
+        // 和 FlowFieldManager 组件上对用户可见的开关。如果基准测试需要纯净的 O(N²) 关闭基线，
+        // 请在那边切换。
         _substeps = 4;
         _iterations = 4;
         _predictiveSkin = 0.05f;

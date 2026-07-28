@@ -4,18 +4,14 @@ using Unity.Entities;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Compact dirty-body tracking for the incremental (P1P6) path. Two parallel
-/// stores: a byte flag array indexed by body, and an append-only list of dirty
-/// bodies. The flag array is authoritative for "is body X dirty and how"; the
-/// list drives compact repair iteration. Pure value functions over those two
-/// stores plus the body-index lookup.
+/// 增量（P1P6）路径的紧凑型 dirty-body 追踪。两路并行存储：按 body 索引的 byte 标记数组，
+/// 以及仅追加的 dirty body 列表。标记数组权威决定 body X 是否 dirty 以及何种 dirty；列表驱动紧凑型修复迭代。
+/// 纯值函数作用于这两个存储以及 body 索引查找。
 /// </summary>
 internal static class IncrementalDirtyBodyStore
 {
     /// <summary>
-    /// Reads the dirty flags for <paramref name="bodyIndex"/>. Out-of-range
-    /// bodies are treated as entity-set dirty (the safe default that forces a
-    /// full topology refresh for the unknown body).
+    /// 读取 <paramref name="bodyIndex"/> 的 dirty 标记。超出范围的 body 视作 entity-set dirty（未知 body 触发全拓扑刷新的安全默认）。
     /// </summary>
     internal static IncrementalBodyDirtyFlags GetFlags(
         NativeArray<byte> dirtyFlagsByBody,
@@ -25,9 +21,8 @@ internal static class IncrementalDirtyBodyStore
             : IncrementalBodyDirtyFlags.EntitySet;
 
     /// <summary>
-    /// Merges <paramref name="flags"/> into the body's current flags and, when
-    /// the body was previously clean, appends it to the dirty-body list. A
-    /// no-op when the body index is out of range.
+    /// 将 <paramref name="flags"/> 合并进 body 当前标记；当 body 此前为 clean 时，将其追加到 dirty-body 列表。
+    /// body 索引越界时为 no-op。
     /// </summary>
     internal static void SetFlags(
         int bodyIndex,
@@ -52,9 +47,8 @@ internal static class IncrementalDirtyBodyStore
     }
 
     /// <summary>
-    /// Clears every body's dirty flag (using the dirty-body list to avoid an
-    /// O(N) sweep) and empties the list. Leaves the flag array sparse-cleared:
-    /// only previously-dirty bodies are zeroed.
+    /// 借助 dirty-body 列表避免 O(N) 扫描，将每个 body 的 dirty 标记清零并清空列表。
+    /// 仅清理此前 dirty 的 body，标记数组保持稀疏清零状态。
     /// </summary>
     internal static void Clear(
         NativeArray<byte> dirtyFlagsByBody,
@@ -70,9 +64,7 @@ internal static class IncrementalDirtyBodyStore
     }
 
     /// <summary>
-    /// Whether <paramref name="entity"/>'s body carries the topology-dirty flag.
-    /// Bodies absent from the current body-index map are treated as
-    /// topology-dirty (forces a refresh).
+    /// <paramref name="entity"/> 对应的 body 是否带 topology-dirty 标记。当前 body 索引映射中缺失的 body 一律视为 topology-dirty（强制刷新）。
     /// </summary>
     internal static bool IsTopologyDirtyEntity(
         Entity entity,
@@ -86,9 +78,7 @@ internal static class IncrementalDirtyBodyStore
     }
 
     /// <summary>
-    /// Whether <paramref name="bodyIndex"/> carries any dirty flag. Out-of-range
-    /// bodies are treated as dirty (they fall through GetFlags' entity-set
-    /// default).
+    /// <paramref name="bodyIndex"/> 是否携带任何 dirty 标记。越界 body 一律视为 dirty（落入 GetFlags 的 entity-set 默认）。
     /// </summary>
     internal static bool IsDirtyBodyIndex(
         NativeArray<byte> dirtyFlagsByBody,
@@ -96,8 +86,7 @@ internal static class IncrementalDirtyBodyStore
         GetFlags(dirtyFlagsByBody, bodyIndex) != IncrementalBodyDirtyFlags.None;
 
     /// <summary>
-    /// Whether <paramref name="entity"/>'s body is dirty by any flag. Bodies
-    /// absent from the current body-index map are treated as dirty.
+    /// <paramref name="entity"/> 对应的 body 是否带有任一 dirty 标记。当前 body 索引映射中缺失的 body 一律视为 dirty。
     /// </summary>
     internal static bool IsDirtyEntity(
         Entity entity,

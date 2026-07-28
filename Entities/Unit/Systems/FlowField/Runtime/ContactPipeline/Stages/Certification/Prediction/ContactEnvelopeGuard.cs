@@ -5,9 +5,8 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Produces authoritative violation evidence for every mutation source that can
-/// leave the current certificate scope. This layer never decides cache validity;
-/// all failures converge on the interaction certifier's repair/rebuild path.
+/// 为每个可能越出当前证书作用域的变更来源提供权威越界证据。
+/// 本层不决定缓存有效性；所有失败都会汇聚到交互认证器的修复/重建路径。
 /// </summary>
 public partial struct InteractionCertificationJob
 {
@@ -46,8 +45,7 @@ public partial struct InteractionCertificationJob
                     float3.zero,
                     substepDeltaTime))
             {
-                // Preserve as much avoidance response as the already-certified
-                // InteractionSet envelope can contain.
+                // 在已认证的 InteractionSet 包络内尽量保留避让响应。
                 for (int iteration = 0; iteration < 8; iteration++)
                 {
                     float middleScale = (lowerScale + upperScale) * 0.5f;

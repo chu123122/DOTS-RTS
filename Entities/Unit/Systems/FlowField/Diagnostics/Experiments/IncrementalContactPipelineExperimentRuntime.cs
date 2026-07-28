@@ -67,14 +67,7 @@ public static class IncrementalContactPipelineExperimentRuntime
         settings.EnablePredictiveContacts=state.PredictiveContactsEnabled;
         settings.EnableTimestepContactSetCache=state.TimestepCacheEnabled;
         settings.EnablePersistentContactCache=state.CrossFrameContactCacheEnabled&&state.TimestepCacheEnabled;
-        // NOTE: EnableDiagnostics is intentionally NOT overridden here. It is a
-        // user-visible switch (FlowFieldManagerAuthoring + Simulation Debugger
-        // panel toggle) and was previously silently flipped by benchmark
-        // OverrideState residue (DiagnosticsEnabled=false stays in the static
-        // Worlds dict across Play Mode restarts), which made every diagnostic
-        // counter read 0 while the singleton still read true. Diagnostics cost
-        // is now the user's choice; if a benchmark needs a clean baseline the
-        // user toggles it off through the normal panel.
+        // 注意：此处不覆盖 EnableDiagnostics。它是用户可见开关（FlowFieldManagerAuthoring + 调试面板），以往会被 OverrideState 残留（DiagnosticsEnabled=false 在 Play Mode 重启间滞留在静态 Worlds 里）静默改掉，导致所有诊断计数器读 0 而单例仍为 true。诊断开销现在由用户在面板决定；基准若需干净基线由用户关闭。
     }
     public static void Apply(ref UnitContactSolverSettings settings)=>Apply(Target,ref settings);
 

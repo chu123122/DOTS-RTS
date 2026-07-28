@@ -4,8 +4,7 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Immutable body facts captured from ECS at the beginning of one crowd step.
-/// Navigation, interaction certification and solver state live in separate arrays.
+/// 单个 crowd 步开始时从 ECS 采集的不可变 body 事实。导航、交互认证与求解器状态分别存放在独立数组中。
 /// </summary>
 public struct CrowdBodySnapshot
 {

@@ -91,8 +91,8 @@ public struct MoveOrder : IComponentData, IEnableableComponent
 }
 
 /// <summary>
-/// 下达 MoveOrder 时的选中单位快照。命令消费阶段不得重新查询实时 UnitSelected，
-/// 否则输入与预测更新之间的时序差会让订单绑定到后续选择。
+/// 下达 MoveOrder 时的选中单位快照。消费命令时不能改查实时 UnitSelected，
+/// 否则输入与预测更新的时序差会把订单绑到之后的选择上。
 /// </summary>
 public struct MoveOrderSelectionElement : IBufferElementData
 {
@@ -126,10 +126,10 @@ public struct UnitContactSolverSettings : IComponentData
 
 /// <summary>
 /// 最近一帧 Predictive Disc Contact 求解统计。
-/// 时间字段由 Job 内 Profiler 时间戳换算为纳秒，不引入主线程 Complete。
+/// 时间字段由 Job 内 Profiler 时间戳换算成纳秒，不需要主线程 Complete。
 ///
-/// 宏关闭时保留同名 IComponentData 契约，但其属性为空观察值。这样运行时
-/// 配置和场景序列化仍兼容，而 Burst 可以删除计数器和派生比率计算。
+/// 宏关闭时仍保留同名 IComponentData 契约，属性返回空值：运行时配置和场景
+/// 序列化保持兼容，同时让 Burst 能删掉计数器和比率计算。
 /// </summary>
 public struct PredictiveDiscContactStatistics : IComponentData
 {
@@ -249,8 +249,8 @@ public struct FlowFieldRuntimeState : IComponentData
 }
 
 /// <summary>
-/// Cost 只随障碍物布局变化。目标点变化不会修改这个状态。
-/// 动态墙壁发生变化时，将 IsDirty 设为 true 并请求一次流场重算。
+/// Cost 只随障碍物布局变化，改目标点不影响这个状态。
+/// 动态墙壁变化时把 IsDirty 置 true，并请求一次流场重算。
 /// </summary>
 public struct FlowFieldCostState : IComponentData
 {

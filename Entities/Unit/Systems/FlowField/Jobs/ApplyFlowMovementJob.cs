@@ -7,8 +7,7 @@ using RTS.Unit.Components;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// Writes detached crowd-step results back to ECS. It has no access to solver,
-/// certification or navigation internals.
+/// 把人群求解结果写回 ECS。不接触求解器、校验或导航内部状态。
 /// </summary>
 [BurstCompile]
 public partial struct ApplyFlowMovementJob : IJobEntity
