@@ -229,7 +229,9 @@ public static class LocalGameplayModeValidation
     {
         var gridCells = new NativeArray<FlowFieldCell>(9, Allocator.Temp);
         var footprints = new NativeArray<float2>(1, Allocator.Temp);
-        var states = new NativeArray<FlowMovementFrameState>(1, Allocator.Temp);
+        var bodies = new NativeArray<CrowdBodySnapshot>(1, Allocator.Temp);
+        var navigationStates = new NativeArray<CrowdNavigationState>(1, Allocator.Temp);
+        var motionIntents = new NativeArray<CrowdMotionIntent>(1, Allocator.Temp);
         try
         {
             for (int i = 0; i < gridCells.Length; i++)
@@ -243,15 +245,16 @@ public static class LocalGameplayModeValidation
             }
 
             footprints[0] = new float2(1f, 1f);
-            var job = new CalculateIndependentFlowForceJob
+            var job = new BuildCrowdMotionIntentJob
             {
-                Grid = gridCells,
-                GridOrigin = float3.zero,
-                GridDimensions = new int2(3, 3),
-                CellRadius = 0.5f,
+                NavigationCells = gridCells,
+                NavigationGrid = new FlowGridGeometry(
+                    float3.zero, new int2(3, 3), 0.5f),
                 ActiveRequestVersion = 1,
                 CollisionFootprints = footprints,
-                States = states
+                Bodies = bodies,
+                NavigationStates = navigationStates,
+                MotionIntents = motionIntents
             };
             var velocity = new Velocity { Value = float3.zero };
             var speed = new UnitMoveSpeed { Value = 2f };
@@ -278,8 +281,8 @@ public static class LocalGameplayModeValidation
                 destination,
                 ref arrival);
             Require(arrival.IsSettled &&
-                    math.lengthsq(states[0].CurrentVelocity) <= 0.000001f &&
-                    math.lengthsq(states[0].IndependentForce) <= 0.000001f,
+                    math.lengthsq(bodies[0].Velocity) <= 0.000001f &&
+                    math.lengthsq(motionIntents[0].SteeringVelocityError) <= 0.000001f,
                 "Unit did not stop while waiting for its matching Flow Field request.");
 
             destination.OrderVersion = 1;
@@ -293,7 +296,8 @@ public static class LocalGameplayModeValidation
                 contactBody,
                 destination,
                 ref arrival);
-            Require(!arrival.IsSettled && states[0].IndependentForce.x > 0f,
+            Require(!arrival.IsSettled &&
+                    motionIntents[0].SteeringVelocityError.x > 0f,
                 "Unit did not steer directly toward its assigned slot.");
 
             job.Execute(
@@ -307,12 +311,14 @@ public static class LocalGameplayModeValidation
                 destination,
                 ref arrival);
             Require(arrival.IsSettled &&
-                    math.lengthsq(states[0].IndependentForce) <= 0.000001f,
+                    math.lengthsq(motionIntents[0].SteeringVelocityError) <= 0.000001f,
                 "Unit did not settle independently at its assigned slot.");
         }
         finally
         {
-            states.Dispose();
+            motionIntents.Dispose();
+            navigationStates.Dispose();
+            bodies.Dispose();
             footprints.Dispose();
             gridCells.Dispose();
         }
@@ -373,7 +379,7 @@ public static class LocalGameplayModeValidation
                 Compliance = 0f,
                 PredictiveSkin = 0f,
                 EnableDiagnostics = false,
-                EnableFatAabbCache = false
+                EnablePersistentContactCache = false
             });
 
             Entity unit = entityManager.CreateEntity(
@@ -413,6 +419,28 @@ public static class LocalGameplayModeValidation
             Require(
                 entityManager.GetComponentData<LocalTransform>(unit).Position.x > 1f,
                 "Movement system did not run without diagnostic singleton components.");
+
+#if RTS_CONTACT_DIAGNOSTICS
+            Entity legacySelectionA =
+                entityManager.CreateEntity(typeof(ContactDiagnosticSelection));
+            Entity legacySelectionB =
+                entityManager.CreateEntity(typeof(ContactDiagnosticSelection));
+            entityManager.SetComponentData(
+                legacySelectionA,
+                new ContactDiagnosticSelection { SelectedEntity = unit });
+            entityManager.SetComponentData(
+                legacySelectionB,
+                new ContactDiagnosticSelection { SelectedEntity = unit });
+
+            world.SetTime(new Unity.Core.TimeData(1.1d, 0.1f));
+            system.Update();
+            entityManager.CompleteAllTrackedJobs();
+            Require(
+                SimulationDebuggerRuntime.SelectedEntityFor(
+                    SimulationDebuggerWorldIdentity.FromSequenceNumber(
+                        world.Unmanaged.SequenceNumber)) == unit,
+                "Duplicate compatible legacy selections were not bridged to the World runtime.");
+#endif
         }
         finally
         {

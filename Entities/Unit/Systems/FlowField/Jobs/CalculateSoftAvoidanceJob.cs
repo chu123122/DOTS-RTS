@@ -8,8 +8,8 @@ namespace RTS.Unit.FlowField.Jobs
 
 /// <summary>
 /// Soft avoidance velocity math shared by the per-substep contact solver.
-/// Neighbor discovery and accumulation live in SolveXpbdUnitContactsJob so every
-/// substep can use the latest constrained positions.
+/// Neighbor discovery is certified separately; SoftAvoidanceJob accumulates this
+/// pairwise correction against the latest substep positions.
 /// </summary>
 public static class SoftAvoidanceMath
 {

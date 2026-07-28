@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_pipeline_audit.py'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/scripts/validate_contact_static_contracts.py'
       - '.github/workflows/contact-pipeline-static-checks.yml'
   push:
     branches:
@@ -11,6 +14,9 @@ on:
       - 'codex/**'
     paths:
       - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_pipeline_audit.py'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/scripts/validate_contact_static_contracts.py'
       - '.github/workflows/contact-pipeline-static-checks.yml'
 
 permissions:
@@ -21,168 +27,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Reject legacy execution symbols
-        shell: bash
+      - name: Validate authoritative architecture contracts
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          flow = Path('Entities/Unit/Systems/FlowField')
-          source = '\n'.join(p.read_text(encoding='utf-8') for p in flow.rglob('*.cs'))
-          names = [
-              'BuildAdaptiveFatAabbHotspots',
-              'BuildAdaptiveHybridContactPairs',
-              'BuildContactPairsFromFatAabbCache',
-              'EnsureFatAabbRawCandidates',
-              'UpdateAdaptiveFatAabbHistoryAfterSolve',
-              'AreCorrectedDiscsInsideFatCache'
-          ]
-          found = [name for name in names if re.search(rf'\b{re.escape(name)}\b', source)]
-          if found:
-              raise SystemExit('Legacy execution symbols returned: ' + ', '.join(found))
-          PY
+          python3 .github/scripts/validate_contact_pipeline_audit.py
+          python3 .github/scripts/validate_contact_architecture.py
+      - name: Validate terminal source and ownership contracts
+        run: python3 .github/scripts/validate_contact_static_contracts.py
 
-      - name: Reject ShadowStatistics field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'ShadowStatistics'
-
-      - name: Reject LegacyBroadPhaseStatistics field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'LegacyBroadPhaseStatistics'
-
-      - name: Reject LegacyBroadPhaseSource field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'LegacyBroadPhaseSource'
-
-      - name: Reject MappedFatCachePairs field
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -Rnw --include='*.cs' 'Entities/Unit/Systems/FlowField' \
-            -e 'MappedFatCachePairs'
-
-      - name: Reject legacy jobs hierarchy
-        shell: bash
-        run: |
-          set -euo pipefail
-          test ! -e Entities/Unit/Systems/FlowField/Jobs/Legacy
-
-      - name: Validate compatibility boundary and scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
-          production = '\n'.join(p.read_text(encoding='utf-8') for p in pipeline.rglob('*.cs'))
-          occurrences = [
-              str(path) for path in pipeline.rglob('*.cs')
-              if 'FatAabbCacheMargin' in path.read_text(encoding='utf-8')
-          ]
-          expected = str(pipeline / 'Core/ContactPipelineConfiguration.cs')
-          if occurrences != [expected]:
-              raise SystemExit(
-                  'Serialized FatAabb margin escaped compatibility boundary: ' +
-                  repr(occurrences))
-          if re.search(
-                  r'\b(?:SleepingBody|SleepingIsland|ContactIslandSleeping)\b',
-                  production):
-              raise SystemExit(
-                  'Sleeping policy introduced without a dedicated design stage')
-          PY
-
-      - name: Validate type ownership and temporary artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
-          ownership = {
-              'public struct UnitCollisionPair': pipeline / 'Core/ContactPairTypes.cs',
-              'public struct SweptDiscCellEntry': pipeline / 'BroadPhase/SweptDiscTypes.cs'
-          }
-          for symbol, expected_path in ownership.items():
-              paths = [
-                  path for path in pipeline.rglob('*.cs')
-                  if symbol in path.read_text(encoding='utf-8')
-              ]
-              if paths != [expected_path]:
-                  raise SystemExit(f'{symbol} ownership mismatch: {paths}')
-          temp = list(Path('.github/workflows').glob(
-              'refactor-contact-pipeline-phase*.yml'))
-          temp += list(Path('.github/workflows').glob('audit-*.yml'))
-          if temp:
-              raise SystemExit('Temporary workflows remain: ' + repr(temp))
-          PY
-
-      - name: Validate diagnostics schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          csv_path = Path(
-              'Entities/Unit/Systems/FlowField/Diagnostics/'
-              'IncrementalContactPipelineCsvRecorder.cs')
-          csv_text = csv_path.read_text(encoding='utf-8')
-          if 'CsvSchemaVersion = 7' not in csv_text:
-              raise SystemExit('Unexpected contact CSV schema')
-          if ('LegacyCacheUseCount' in csv_text or
-                  'LegacyBroadPhaseStatistics' in csv_text):
-              raise SystemExit('Legacy CSV columns returned')
-          PY
-
-      - name: Validate parallel Jacobi contracts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          solver = Path(
-              'Entities/Unit/Systems/FlowField/Jobs/ContactPipeline/Solver/'
-              'ParallelJacobiSolver.cs').read_text(encoding='utf-8')
-          base = Path(
-              'Entities/Unit/Systems/FlowField/BaseFlowMovementSystem.cs'
-          ).read_text(encoding='utf-8')
-          required = [
-              'IJobParallelForDefer',
-              'EvaluateParallelJacobiPairsJob',
-              'GatherAndApplyParallelJacobiBodiesJob',
-              'ActiveIncidentOffsets',
-              'ScheduleParallelJacobi'
-          ]
-          missing = [token for token in required if token not in solver]
-          if missing:
-              raise SystemExit('Parallel Jacobi contract missing: ' + repr(missing))
-          if 'Interlocked' in solver or 'Atomic' in solver:
-              raise SystemExit('Parallel Jacobi must not use floating-point atomics')
-          if ('requiresSerialJacobiCapture' not in base or
-                  'SimulationDebuggerCaptureMask.SelectedPairs' not in base):
-              raise SystemExit('Selected-pair capture must route to serial Jacobi')
-          PY
-
-      - name: Validate simple source structure
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          pipeline = Path('Entities/Unit/Systems/FlowField/Jobs/ContactPipeline')
-          for path in pipeline.rglob('*.cs'):
-              text = path.read_text(encoding='utf-8')
-              if text.count('{') != text.count('}'):
-                  raise SystemExit(f'Brace mismatch: {path}')
-          PY
+  diagnostics-compile-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate diagnostics compile boundaries
+        run: python3 .github/scripts/validate_contact_diagnostics.py

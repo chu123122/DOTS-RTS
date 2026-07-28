@@ -1,0 +1,25 @@
+name: Contact architecture contracts
+
+on:
+  pull_request:
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/workflows/contact-architecture-contracts.yml'
+  push:
+    branches:
+      - Simulation
+      - codex/simulation-integration
+    paths:
+      - 'Entities/Unit/Systems/FlowField/**'
+      - '.github/scripts/validate_contact_architecture.py'
+      - '.github/workflows/contact-architecture-contracts.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate candidate-certifier-consumer boundaries
+        run: python3 .github/scripts/validate_contact_architecture.py

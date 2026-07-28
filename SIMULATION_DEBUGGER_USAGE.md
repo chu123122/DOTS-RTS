@@ -9,7 +9,7 @@
 - 面板关闭后 `CaptureMask=None`，不会继续触发诊断快照同步。
 - 世界热力图与线框使用面板右上角 `Overlay` 开关。
 
-如果场景中已存在 `Stage3ContactDiagnosticSelection`，继续使用项目原有的单位点击/选择流程即可。选中的 `Entity` 会成为下一 timestep 的详细捕获目标。诊断系统跨帧保存的是 `Entity`，不会保存不稳定的临时 `BodyIndex`。
+如果场景中已存在 `ContactDiagnosticSelection`，继续使用项目原有的单位点击/选择流程即可。选中的 `Entity` 会成为下一 timestep 的详细捕获目标。诊断系统跨帧保存的是 `Entity`，不会保存不稳定的临时 `BodyIndex`。
 
 ## 四个视图
 

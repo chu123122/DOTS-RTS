@@ -30,7 +30,6 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private bool _timestepCacheEnabled = true;
     private bool _crossFrameTopologyEnabled;
     private bool _predictiveContactsEnabled = true;
-    private bool _diagnosticsEnabled;
     private int _substeps = 4;
     private int _iterations = 4;
     private float _guardMargin = 0.5f;
@@ -90,7 +89,6 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
                 EditorGUILayout.HelpBox("A requires B; B was enabled automatically.", MessageType.Info);
             }
             _predictiveContactsEnabled = EditorGUILayout.Toggle("Predictive contacts", _predictiveContactsEnabled);
-            _diagnosticsEnabled = EditorGUILayout.Toggle("Diagnostics / oracle", _diagnosticsEnabled);
             _substeps = Mathf.Max(1, EditorGUILayout.IntField("Substeps", _substeps));
             _iterations = Mathf.Max(1, EditorGUILayout.IntField("Iterations", _iterations));
             _guardMargin = Mathf.Max(0f, EditorGUILayout.FloatField("Guard envelope margin", _guardMargin));
@@ -174,8 +172,6 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
             _crossFrameTopologyEnabled && _timestepCacheEnabled;
         IncrementalContactPipelineExperimentRuntime.PredictiveContactsEnabled =
             _predictiveContactsEnabled;
-        IncrementalContactPipelineExperimentRuntime.DiagnosticsEnabled =
-            _diagnosticsEnabled;
         IncrementalContactPipelineExperimentRuntime.SubstepCount = _substeps;
         IncrementalContactPipelineExperimentRuntime.IterationCount = _iterations;
         IncrementalContactPipelineExperimentRuntime.GuardEnvelopeMargin = _guardMargin;
@@ -190,8 +186,10 @@ public sealed class IncrementalContactPipelineBenchmarkWindow : EditorWindow
     private void ApplyPreset(TrialPreset preset)
     {
         _predictiveContactsEnabled = true;
-        // Oracle is O(N²) and would mask exactly the broad-phase delta under test.
-        _diagnosticsEnabled = false;
+        // Diagnostics / oracle are no longer preset-controlled: EnableDiagnostics
+        // is a user-visible switch on the Simulation Debugger panel and the
+        // FlowFieldManager authoring. Toggle it there if a benchmark needs a
+        // clean O(N^2)-free baseline.
         _substeps = 4;
         _iterations = 4;
         _predictiveSkin = 0.05f;
