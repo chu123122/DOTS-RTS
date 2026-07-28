@@ -78,9 +78,6 @@
 - **软分离（Soft Avoidance）：** 支持 Surface Velocity Buffer 与 RVO 两种模式，消耗紧凑 Soft 视图（非全量邻居）
 - **硬约束投影（Hard Constraint）：** XPBD 位置投影修正穿透，含 Compliance 柔度控制，支持 Regular 与 Predictive 两种接触模式
 - **墙壁约束：** 基于流场格阻挡的静态墙壁投影，防止单位穿入障碍格
-
-<img src="https://cdn.jsdelivr.net/gh/chu123122/Image-hosting-service/img/PBD.gif"/>
-
 ---
 
 ### 5. 事件溯源回放（Event Sourcing Replay）
