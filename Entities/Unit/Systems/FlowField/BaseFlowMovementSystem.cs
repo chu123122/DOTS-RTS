@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
+using Unity.Profiling;
 using Unity.Transforms;
 using UnityEngine;
 using RTS.Unit.Components;
@@ -19,6 +20,17 @@ namespace RTS.Unit.FlowField.Systems
 /// </summary>
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
+    // RTS.Simulation.Update：主线程 OnUpdate 调度停留（不含 Worker job 执行）。
+    // RTS.Simulation.Total：含末尾 Dependency.Complete() 的 wall time——模拟管线
+    //   从调度到所有 job 跑完的真实耗时，用于基准/简历数据。强制 Complete 会减少
+    //   job 与其他系统（渲染）的重叠，所以这只适合 A/B 基准，不代表正常帧表现。
+    // TODO: 后续把 Total 的 Complete 用 #if RTS_CONTACT_DIAGNOSTICS 包起来，
+    //   诊断关时回到无 Complete 的正常重叠；当前先不包，直接测试。
+    private static readonly ProfilerMarker SimulationUpdateMarker =
+        new ProfilerMarker("RTS.Simulation.Update");
+    private static readonly ProfilerMarker SimulationTotalMarker =
+        new ProfilerMarker("RTS.Simulation.Total");
+
     private EntityQuery _movementQuery;
     private InteractionCandidateStore _candidateStore;
     private uint _simulationStepId;
@@ -59,6 +71,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
     protected override void OnUpdate()
     {
+        SimulationTotalMarker.Begin();
+        SimulationUpdateMarker.Begin();
         ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
             World.Unmanaged.SequenceNumber);
         FlowFieldGrid gridComponent = SystemAPI.GetSingleton<FlowFieldGrid>();
