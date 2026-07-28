@@ -5,7 +5,7 @@
 ![NetCode](https://img.shields.io/badge/Network-NetCode%20for%20Entities-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## 📺 [Demo 视频（Bilibili）](https://www.bilibili.com/video/BV1moUhBsE3K/)
+## 📺 [Demo 视频（Bilibili）](https://www.bilibili.com/video/BV1moUhBsE3K/) （旧版）
 
 ---
 
