@@ -50,6 +50,8 @@
 
 **1k 单位 — Substep 缓存关闭 / 开启对比：**
 
+> **实测结果：** 在相同 1k 单位场景与参数下，启用 Substep 缓存后，整体求解管线耗时降低约 **60%**。
+
 <table>
   <tr>
     <th align="center">Substep 缓存关闭</th>
