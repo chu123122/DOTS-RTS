@@ -21,11 +21,13 @@
 
 ### 1. 流场寻路（Flow Field Pathfinding）
 
-摒弃逐单位 A*，基于 **Eikonal 方程**生成全局向量场：
+以共享网格流场替代逐单位 A* 查询，当前采用确定性的 **8 邻域 BFS**：
 
-- Cost Field（静态障碍代价）→ Integration Field（Eikonal BFS）→ Vector Field（8 方向梯度下降）
-- 单位方向查询 O(1)，路径规划完全并行化（Job System + Burst）
-- 双缓冲 Grid / PendingGrid，目标变更时按需重烘焙
+- Physics `CollisionWorld` 并行采样网格，生成障碍 / 可行走二值 Cost Field
+- 队列 BFS 从目标格向外生成 Integration Field，再并行选取最低积分邻格，形成 8 方向 Vector Field
+- 单位通过连续数组 O(1) 查询当前格方向，并由 Burst `IJobEntity` 并行生成移动意图
+- 接近目标后切换到单位专属槽位的直接驶入，结合减速距离与到达状态滞回，避免终点附近反复抖动
+- `Grid / PendingGrid` 双缓冲异步烘焙；目标变化只刷新 Integration / Vector，障碍变化时才重新采样 Cost，发布前单位继续读取上一份完整快照
 
 <img src=".github/assets/readme/5k-flowfield-movement.gif" alt="5k 单位流场移动演示"/>
 
