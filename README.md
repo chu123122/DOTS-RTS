@@ -29,6 +29,8 @@
 
 <img src=".github/assets/readme/5k-flowfield-movement.gif" alt="5k 单位流场移动演示"/>
 
+<p align="center"><sub>5k 单位移动模拟：展示 5,000 个单位在障碍场景中的流场寻路、群体避让与接触求解效果。</sub></p>
+
 ---
 
 ### 2. 增量预测接触管线（Incremental Predictive Contact Pipeline）
