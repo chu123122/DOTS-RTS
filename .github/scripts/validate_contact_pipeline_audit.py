@@ -1,8 +1,9 @@
 from pathlib import Path
 import re
 
-FLOW = Path("Entities/Unit/Systems/FlowField")
-PIPE = FLOW / "Runtime/ContactPipeline"
+FLOW = Path("Gameplay/Entities/Unit/Systems/FlowField")
+PHYSICS = Path("Physics")
+PIPE = PHYSICS / "ContactPipeline"
 
 
 def fail(message: str) -> None:
@@ -14,7 +15,11 @@ def read(path: Path) -> str:
         fail(f"Missing audit target: {path}")
     return path.read_text(encoding="utf-8")
 
-sources = {path: read(path) for path in FLOW.rglob("*.cs")}
+sources = {
+    path: read(path)
+    for root in (FLOW, PHYSICS)
+    for path in root.rglob("*.cs")
+}
 all_source = "\n".join(sources.values())
 for token in ("FlowMovementFrameState", "UnitCollisionPair", "SolveXpbdUnitContactsJob",
               "ContactFrameResources", "ContactPersistentState", "ContactPipelineRuntimeOptions"):
@@ -60,7 +65,7 @@ oracle = read(PIPE / "Stages/Certification/Validation/IncrementalContactOracle.c
 if "IncrementalCacheState" in oracle or ".IsValid = 0" in oracle:
     fail("Oracle controls authoritative cache state")
 
-verification = read(FLOW / "Diagnostics/VERIFICATION_MATRIX.md")
+verification = read(PHYSICS / "Diagnostics/VERIFICATION_MATRIX.md")
 if "Unity required" not in verification:
     fail("Verification matrix overstates non-Unity checks")
 print("Contact pipeline audit passed.")

@@ -1,8 +1,9 @@
 from pathlib import Path
 import re
 
-FLOW = Path("Entities/Unit/Systems/FlowField")
-PIPE = FLOW / "Runtime/ContactPipeline"
+FLOW = Path("Gameplay/Entities/Unit/Systems/FlowField")
+PHYSICS = Path("Physics")
+PIPE = PHYSICS / "ContactPipeline"
 WORKFLOWS = Path(".github/workflows")
 
 
@@ -13,7 +14,11 @@ def fail(message: str) -> None:
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
-sources = {path: read(path) for path in FLOW.rglob("*.cs")}
+sources = {
+    path: read(path)
+    for root in (FLOW, PHYSICS)
+    for path in root.rglob("*.cs")
+}
 ownership = {
     r"\bpublic\s+struct\s+BodyPair\b": PIPE / "Contracts/Interaction/BodyPair.cs",
     r"\bpublic\s+struct\s+ContactConstraint\b": PIPE / "Contracts/Interaction/ContactConstraint.cs",
@@ -33,7 +38,7 @@ for path, text in sources.items():
     if not meta.exists() or "guid:" not in read(meta):
         fail(f"Missing Unity source metadata: {path}")
 
-if (FLOW / "Jobs/ContactPipeline").exists():
+if (PHYSICS / "Jobs/ContactPipeline").exists():
     fail("Legacy ContactPipeline physical root returned")
 for path in FLOW.glob("*Resources.cs"):
     if path.name in {"ContactPipelineResources.cs", "ContactPipelineExecutionResources.cs",

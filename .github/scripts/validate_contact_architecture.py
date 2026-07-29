@@ -1,8 +1,9 @@
 from pathlib import Path
 import re
 
-FLOW = Path("Entities/Unit/Systems/FlowField")
-PIPE = FLOW / "Runtime/ContactPipeline"
+FLOW = Path("Gameplay/Entities/Unit/Systems/FlowField")
+PHYSICS = Path("Physics")
+PIPE = PHYSICS / "ContactPipeline"
 
 
 def fail(message: str) -> None:
@@ -32,13 +33,34 @@ for name in ("CrowdBodySnapshot", "CrowdNavigationState", "CrowdMotionIntent",
         fail(f"Body contract ownership mismatch: {name}")
 
 stage_files = {
-    "InteractionCertificationJob": PIPE / "Stages/Certification/InteractionCertificationJob.cs",
     "SoftAvoidanceJob": PIPE / "Stages/SoftAvoidance/SoftAvoidanceJob.cs",
     "ConstraintSolverJob": PIPE / "Stages/Solver/ConstraintSolverJob.cs",
 }
 for name, path in stage_files.items():
     if f"public partial struct {name} : IJob" not in read(path):
         fail(f"Focused stage ABI missing: {name}")
+certification_algorithms = read(
+    PIPE / "Stages/Certification/InteractionCertificationJob.cs")
+certification_jobs = read(
+    PIPE / "Stages/Certification/InteractionCertificationStageJobs.cs")
+if "public partial struct InteractionCertificationAlgorithms" not in certification_algorithms:
+    fail("Certification algorithm facade missing")
+if ": IJob" in certification_algorithms or "InteractionCertificationOperation" in certification_algorithms:
+    fail("Retired certification god job returned")
+for name in (
+    "PreparePersistentClassificationJob",
+    "CommitPersistentClassificationJob",
+    "BuildInitialContactSetJob",
+    "FinalizeEnvelopeEscapesJob",
+    "PrepareSubstepRepairJob",
+    "CommitSubstepRepairJob",
+    "FinalizePreparedSubstepJob",
+    "ValidateConsumerViewsJob",
+    "FinalizeWallIterationJob",
+    "FinalizeContactIterationJob",
+):
+    if f"struct {name} : IJob" not in certification_jobs:
+        fail(f"Certification stage job missing: {name}")
 if (PIPE / "Core/ContactPipelineStageJobs.cs").exists():
     fail("Four-stage ABI aggregate returned")
 
@@ -57,13 +79,13 @@ for token in ("EvaluateParallelJacobiPairsJob", "GatherAndApplyParallelJacobiBod
 
 # All partial fragments must live under their owning stage/scheduling root.
 allowed = {
-    "InteractionCertificationJob": PIPE / "Stages/Certification",
+    "InteractionCertificationAlgorithms": PIPE / "Stages/Certification",
     "SoftAvoidanceJob": PIPE / "Stages/SoftAvoidance",
     "ConstraintSolverJob": PIPE / "Stages/Solver",
     "ContactPipelineLifecycleJob": PIPE / "Stages/Lifecycle",
     "CrowdContactPipelineScheduler": PIPE / "Scheduling",
 }
-for path in FLOW.rglob("*.cs"):
+for path in list(PHYSICS.rglob("*.cs")) + list(FLOW.rglob("*.cs")):
     text = read(path)
     for name in re.findall(r"partial (?:struct|class)\s+(\w+)", text):
         owner = allowed.get(name)
@@ -92,7 +114,9 @@ for relative in ("Stages/Lifecycle/ContactPipelineLifecycleJob.cs",):
 
 for relative, required_bindings in {
     "Frame/InteractionCertificationFrameResources.cs": (
-        "RuntimeState = execution.PipelineRuntimeState",
+        "Environment = new CertificationEnvironmentResources",
+        "Persistent = new PersistentCertificationResources",
+        "Solver = new CertificationSolverResources",
         "IterationState = execution.SolverIterationState",
         "BlockStatistics = execution.JacobiBlockStatistics",
     ),
@@ -119,7 +143,7 @@ for token in ("BuildCertificationFlags(", "GetConsumerCertificateFailure(",
 if "CertificateScopeMismatch" not in certificate or "CommittedViewMismatch" not in certificate:
     fail("Certificate gate violations are not explicit")
 
-for retired in (FLOW / "Jobs/ContactPipeline", FLOW / "ContactPipelineResources.cs",
+for retired in (PHYSICS / "Jobs/ContactPipeline", FLOW / "ContactPipelineResources.cs",
                 FLOW / "BaseFlowMovementComposition.cs"):
     if retired.exists():
         fail(f"Retired contact architecture returned: {retired}")

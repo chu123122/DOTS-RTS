@@ -1,0 +1,26 @@
+{
+    "name": "RTS.Network",
+    "rootNamespace": "",
+    "references": [
+        "RTS.Shared",
+        "RTS.Gameplay.Core",
+        "RTS.Physics",
+        "RTS.Gameplay",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Mathematics",
+        "Unity.NetCode",
+        "Unity.Networking.Transport",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

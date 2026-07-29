@@ -1,8 +1,11 @@
 from pathlib import Path
 import re
 
-FLOW = Path("Entities/Unit/Systems/FlowField")
-PIPE = FLOW / "Runtime/ContactPipeline"
+FLOW = Path("Gameplay/Entities/Unit/Systems/FlowField")
+PHYSICS = Path("Physics")
+PIPE = PHYSICS / "ContactPipeline"
+DIAGNOSTICS = PHYSICS / "Diagnostics"
+INTEGRATION = FLOW / "DiagnosticsIntegration"
 
 
 def fail(message: str) -> None:
@@ -43,7 +46,7 @@ for name in ("ContactPipelineTelemetry.cs", "IncrementalContactPipelineDiagnosti
              "ParallelSimulationDebuggerPairCapture.cs"):
     read(contracts / name)
 
-for path in FLOW.rglob("*.cs"):
+for path in list(PHYSICS.rglob("*.cs")) + list(FLOW.rglob("*.cs")):
     source = read(path).replace('"Stage3ContactDiagnostic/v3"', '""')
     if "Stage3" in source:
         fail(f"Retired Stage3 code identifier remains: {path}")
@@ -63,9 +66,9 @@ for token in ("PersistentClassificationTelemetryState", "ContactHeatSample"):
     if token in release_resources:
         fail(f"Diagnostics allocation survives gameplay resources: {token}")
 
-spatial = read(FLOW / "Diagnostics/Capture/SimulationDebuggerSpatialReadback.cs")
-publishing = read(FLOW / "Diagnostics/Capture/SimulationDebuggerSnapshotPublishing.cs")
-lifecycle = read(FLOW / "Diagnostics/Capture/BaseFlowMovementDiagnosticsLifecycle.cs")
+spatial = read(DIAGNOSTICS / "Capture/SimulationDebuggerSpatialReadback.cs")
+publishing = read(INTEGRATION / "SimulationDebuggerSnapshotPublishing.cs")
+lifecycle = read(INTEGRATION / "BaseFlowMovementDiagnosticsLifecycle.cs")
 if "internal static class SimulationDebuggerSpatialReadback" not in spatial:
     fail("Spatial readback still extends the simulation system owner")
 for token in ("EntityManager entityManager", "NativeList<PersistentSweptProxy> proxies"):
@@ -108,8 +111,8 @@ contact_workset = re.compile(
 if not contact_workset.search(incremental_certification):
     fail("Contact Jacobi workset is not sized from the committed contact view")
 
-for path in (FLOW / "Diagnostics/Presentation", FLOW / "Diagnostics/Recording",
-             FLOW / "Diagnostics/Experiments"):
+for path in (Path("UI/Diagnostics/Presentation"), DIAGNOSTICS / "Recording",
+             Path("UI/Diagnostics/Experiments")):
     if not path.is_dir():
         fail(f"Diagnostics layer missing: {path}")
 print("Contact diagnostics contracts passed.")

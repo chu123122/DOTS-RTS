@@ -117,7 +117,7 @@
 ### Pipeline 分层
 
 ```
-Runtime/ContactPipeline/
+Physics/ContactPipeline/
 ├── Contracts/
 │   ├── Body/              # 单 timestep body 数据产品
 │   ├── Certification/     # InteractionCertificate、违规类型

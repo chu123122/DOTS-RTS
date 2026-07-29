@@ -1,0 +1,30 @@
+{
+    "name": "RTS.Physics.Editor",
+    "rootNamespace": "",
+    "references": [
+        "RTS.Shared",
+        "RTS.Gameplay.Core",
+        "RTS.Physics",
+        "RTS.Gameplay",
+        "RTS.Network",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Editor",
+        "Unity.Mathematics",
+        "Unity.NetCode",
+        "Unity.Physics",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

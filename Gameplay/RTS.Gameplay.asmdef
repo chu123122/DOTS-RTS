@@ -1,0 +1,28 @@
+{
+    "name": "RTS.Gameplay",
+    "rootNamespace": "",
+    "references": [
+        "RTS.Shared",
+        "RTS.Gameplay.Core",
+        "RTS.Physics",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Entities.Graphics",
+        "Unity.Mathematics",
+        "Unity.NetCode",
+        "Unity.Physics",
+        "Unity.Physics.Hybrid",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
