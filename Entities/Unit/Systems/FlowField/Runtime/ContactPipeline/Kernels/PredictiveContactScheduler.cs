@@ -6,7 +6,7 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// 持久（P1P6）路径在 timestep 级的预测接触调度。每个 swept-disc 对根据当前轨迹状态分类为生命周期
+/// 持久增量路径在 timestep 级的预测接触调度。每个 swept-disc 对根据当前轨迹状态分类为生命周期
 ///（actual / predictive / approaching / dormant）；dormant 对被赋予一个由最近接近时刻推导的唤醒子步。
 /// 已分类接触提交至持久 scratch；dormant 对种入按 timestep 的调度。活跃（非 dormant）对就地压实，
 /// 使 XPBD 视图不含 dormant 项。

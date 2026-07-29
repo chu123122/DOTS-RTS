@@ -8,8 +8,8 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
-    private void BuildInitialP1P6ContactSet(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+    private void BuildInitialContactSet(
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         if (runtimeState.Value.IsValid == 0 || !EnableTimestepContactSetCache)
             return;
@@ -24,16 +24,16 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private void FinalizeP1P6EnvelopeEscapes(
+    private void FinalizeEnvelopeEscapes(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         if (runtimeState.Value.IsValid == 0 || !EnableTimestepContactSetCache)
             return;
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
-        int newlyEscaped = CountNewlyEscapedP1P6();
+        int newlyEscaped = CountNewlyEscaped();
         if (newlyEscaped > 0)
         {
             statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
@@ -45,7 +45,7 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private int CountNewlyEscapedP1P6()
+    private int CountNewlyEscaped()
     {
         int newlyEscaped = 0;
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
@@ -56,9 +56,9 @@ public partial struct InteractionCertificationJob
         return newlyEscaped;
     }
 
-    private void PrepareP1P6SubstepRepairClassification(
+    private void PrepareSubstepRepairClassification(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         PersistentClassificationPhaseState phase = default;
         PersistentClassificationResults.Clear();
@@ -70,7 +70,7 @@ public partial struct InteractionCertificationJob
             !EnablePersistentContactCache ||
             IncrementalDirtyBodies.Length == 0)
         {
-            RepairP1P6SubstepContactView(substepIndex, runtimeState);
+            RepairSubstepContactView(substepIndex, runtimeState);
             return;
         }
 
@@ -78,7 +78,7 @@ public partial struct InteractionCertificationJob
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
-        if (!RefreshPreparedIncrementalDirtyBodiesP1P6(
+        if (!RefreshPreparedIncrementalDirtyBodies(
                 ref incremental,
                 out int topologyDirtyCount))
         {
@@ -90,7 +90,7 @@ public partial struct InteractionCertificationJob
                 true,
                 true,
                 substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
@@ -111,7 +111,7 @@ public partial struct InteractionCertificationJob
                 true,
                 true,
                 substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
@@ -147,7 +147,7 @@ public partial struct InteractionCertificationJob
                 true,
                 true,
                 substepIndex);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             RebuildPersistentIncidentPairLookupIfNeededParallel();
             StoreContactStatistics(statistics);
             StoreIncrementalStatistics(incremental);
@@ -168,7 +168,7 @@ public partial struct InteractionCertificationJob
             if (IsDirtyEntity(contact.Key.EntityA) ||
                 IsDirtyEntity(contact.Key.EntityB))
             {
-                // 提前从索引中移除，CommitP1P6SubstepRepairClassification 中会补回新结果
+                // 提前从索引中移除，CommitSubstepRepairClassification 中会补回新结果
                 if (PersistentContactIndex.IsCreated)
                     PersistentContactIndex.Remove(contact.Key);
                 continue;
@@ -197,9 +197,9 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private void CommitP1P6SubstepRepairClassification(
+    private void CommitSubstepRepairClassification(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         PersistentClassificationPhaseState phase =
             PersistentClassificationState.Value;
@@ -308,7 +308,7 @@ public partial struct InteractionCertificationJob
             ProfilerUnsafeUtility.Timestamp - telemetry.BuildStartTimestamp);
 #endif
 
-        InvalidateSoftIncidentIndexP1P6();
+        InvalidateSoftIncidentIndex();
         RebuildPersistentIncidentPairLookupIfNeededParallel();
         IssueCertificateForCommittedViews(incremental, substepIndex);
         phase.NeedsCommit = 0;
@@ -317,7 +317,7 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private bool TryFindCurrentIncrementalProxyP1P6(
+    private bool TryFindCurrentIncrementalProxy(
         Entity entity,
         out PersistentSweptProxy proxy,
         out int proxyIndex)
@@ -345,9 +345,9 @@ public partial struct InteractionCertificationJob
         return false;
     }
 
-    private void RepairP1P6SubstepContactView(
+    private void RepairSubstepContactView(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         if (runtimeState.Value.IsValid == 0)
             return;
@@ -361,17 +361,17 @@ public partial struct InteractionCertificationJob
         {
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepInteractionAndSoftViews(ref statistics, ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             statistics.PairGenerationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }
         else if (IncrementalDirtyBodies.Length > 0)
         {
-            RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
+            RepairOrRebuildPreparedContactViewForRemainingTime(
                 substepIndex,
                 ref statistics,
                 ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             RebuildPersistentIncidentPairLookupIfNeededParallel();
         }
 
@@ -379,7 +379,7 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private void RepairOrRebuildPreparedContactViewForRemainingTimeP1P6(
+    private void RepairOrRebuildPreparedContactViewForRemainingTime(
         int substepIndex,
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incrementalStatistics)
@@ -401,11 +401,11 @@ public partial struct InteractionCertificationJob
             scheduleStartSubstep);
     }
 
-    private void FinalizeP1P6PreparedSubstep(
+    private void FinalizePreparedSubstep(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
@@ -413,7 +413,7 @@ public partial struct InteractionCertificationJob
         int substepCount = math.max(1, SubstepCount);
         float substepDeltaTime = DeltaTime / substepCount;
 
-        int newlyEscaped = CountNewlyEscapedP1P6();
+        int newlyEscaped = CountNewlyEscaped();
         if (newlyEscaped > 0)
         {
             statistics.TimestepContactSetEscapeBodyCount += newlyEscaped;
@@ -432,7 +432,7 @@ public partial struct InteractionCertificationJob
                 ref statistics,
                 ref incremental,
                 false);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             RebuildPersistentIncidentPairLookupIfNeededParallel();
             rebuilt = true;
         }
@@ -445,7 +445,7 @@ public partial struct InteractionCertificationJob
             PrepareSubstepContactPrediction();
             long start = ProfilerUnsafeUtility.Timestamp;
             BuildSubstepContactView(ref statistics, ref incremental);
-            InvalidateSoftIncidentIndexP1P6();
+            InvalidateSoftIncidentIndex();
             statistics.PairGenerationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - start);
         }
@@ -454,7 +454,7 @@ public partial struct InteractionCertificationJob
             EnableTimestepContactSetCache ? substepIndex : 0,
             EnableTimestepContactSetCache ? substepCount : 1,
             ref incremental);
-        EnsureActiveConstraintIncidentIndexP1P6();
+        EnsureActiveConstraintIncidentIndex();
         statistics.TimestepContactSetSubstepUseCount++;
 #if RTS_CONTACT_DIAGNOSTICS
         runtime.IterationStartTimestamp = ProfilerUnsafeUtility.Timestamp;
@@ -495,7 +495,7 @@ public partial struct InteractionCertificationJob
         PersistentIncidentLookupEpoch.Value = epoch;
     }
 
-    private void InvalidateSoftIncidentIndexP1P6()
+    private void InvalidateSoftIncidentIndex()
     {
         ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
         state.SoftIsValid = 0;
@@ -503,20 +503,20 @@ public partial struct InteractionCertificationJob
     }
 
 
-    private void FinalizeP1P6WallIteration(
+    private void FinalizeWallIteration(
         int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState
+        NativeReference<ContactPipelineExecutionState> runtimeState
 #if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        , NativeReference<ContactSolverIterationTelemetry> iterationState,
         NativeList<JacobiBlockTelemetry> blockStatistics
 #endif
         , int bodyBlockCount)
     {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
-        ParallelJacobiIterationTelemetry iteration = iterationState.Value;
+        ContactSolverIterationTelemetry iteration = iterationState.Value;
         for (int blockIndex = 0; blockIndex < bodyBlockCount; blockIndex++)
         {
             int bodyIndex = blockIndex * CrowdContactPipelineScheduler.ParallelBodyBatchSize;
@@ -545,7 +545,7 @@ public partial struct InteractionCertificationJob
                     EnableTimestepContactSetCache,
                     ref statistics,
                     ref incremental);
-                InvalidateSoftIncidentIndexP1P6();
+                InvalidateSoftIncidentIndex();
                 ResetTimestepContactSetForSubstep();
                 RebuildPersistentIncidentPairLookupIfNeededParallel();
             }
@@ -562,7 +562,7 @@ public partial struct InteractionCertificationJob
         // can otherwise leave a stale, larger index in place -> IndexOutOfRange in
         // Gather. Force the rebuild every iteration so the index is always current.
         ActiveIncidentIndexState.Value = default;
-        EnsureActiveConstraintIncidentIndexP1P6();
+        EnsureActiveConstraintIncidentIndex();
 
         // This serial dependency boundary owns the deferred contact workset
         // lengths. The parallel Jacobi eval/reduce jobs scheduled after it run

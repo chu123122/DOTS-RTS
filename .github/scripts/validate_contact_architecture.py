@@ -18,7 +18,7 @@ required_dirs = (
     "Contracts/Body", "Contracts/Certification", "Contracts/Execution",
     "Contracts/Interaction", "State/Frame", "State/Persistent", "Kernels",
     "Scheduling/Parallel/Jobs", "Stages/Lifecycle", "Stages/Certification",
-    "Stages/Motion", "Stages/SoftAvoidance", "Stages/Solver",
+    "Stages/SoftAvoidance", "Stages/Solver",
     "Observability/Contracts")
 for relative in required_dirs:
     if not (PIPE / relative).is_dir():
@@ -33,7 +33,6 @@ for name in ("CrowdBodySnapshot", "CrowdNavigationState", "CrowdMotionIntent",
 
 stage_files = {
     "InteractionCertificationJob": PIPE / "Stages/Certification/InteractionCertificationJob.cs",
-    "MotionIntegrationJob": PIPE / "Stages/Motion/MotionIntegrationJob.cs",
     "SoftAvoidanceJob": PIPE / "Stages/SoftAvoidance/SoftAvoidanceJob.cs",
     "ConstraintSolverJob": PIPE / "Stages/Solver/ConstraintSolverJob.cs",
 }
@@ -44,12 +43,12 @@ if (PIPE / "Core/ContactPipelineStageJobs.cs").exists():
     fail("Four-stage ABI aggregate returned")
 
 scheduler = read(PIPE / "Scheduling/CrowdContactPipelineScheduler.cs")
-parallel_scheduler = read(PIPE / "Scheduling/Parallel/ParallelContactPipelineScheduler.cs")
-algorithm_jobs = read(PIPE / "Scheduling/Parallel/Jobs/ParallelContactPipelineJobs.cs") + read(
+parallel_scheduler = read(PIPE / "Scheduling/SharedContactPipelineScheduler.cs")
+algorithm_jobs = read(PIPE / "Scheduling/Parallel/Jobs/ParallelContactStageJobs.cs") + read(
     PIPE / "Scheduling/Parallel/Jobs/ParallelJacobiJobs.cs")
 if ": IJob" in scheduler or re.search(r"private struct .*Job", scheduler + parallel_scheduler):
     fail("Scheduler owns executable job algorithms")
-for token in ("ScheduleParallelJacobiP1P6", "ValidateConsumerViewsP1P6"):
+for token in ("ScheduleParallelStages", "ValidateConsumerViews"):
     if token not in parallel_scheduler:
         fail(f"Parallel scheduling boundary missing: {token}")
 for token in ("EvaluateParallelJacobiPairsJob", "GatherAndApplyParallelJacobiBodiesJob"):
@@ -59,11 +58,9 @@ for token in ("EvaluateParallelJacobiPairsJob", "GatherAndApplyParallelJacobiBod
 # All partial fragments must live under their owning stage/scheduling root.
 allowed = {
     "InteractionCertificationJob": PIPE / "Stages/Certification",
-    "MotionIntegrationJob": PIPE / "Stages/Motion",
     "SoftAvoidanceJob": PIPE / "Stages/SoftAvoidance",
     "ConstraintSolverJob": PIPE / "Stages/Solver",
-    "SerialContactPipelineLifecycleJob": PIPE / "Stages/Lifecycle",
-    "ParallelContactPipelineLifecycleJob": PIPE / "Stages/Lifecycle",
+    "ContactPipelineLifecycleJob": PIPE / "Stages/Lifecycle",
     "CrowdContactPipelineScheduler": PIPE / "Scheduling",
 }
 for path in FLOW.rglob("*.cs"):
@@ -89,26 +86,23 @@ for relative, token in resource_contracts.items():
     if relative.startswith("Frame/") and re.search(r"\?\s*new Native[\s\S]{0,200}:\s*default", source):
         fail(f"Scheduled stage capability is conditionally unconstructed: {relative}")
 
-for relative in (
-    "Stages/Lifecycle/SerialContactPipelineLifecycleJob.cs",
-    "Stages/Lifecycle/ParallelContactPipelineLifecycleJob.cs",
-):
+for relative in ("Stages/Lifecycle/ContactPipelineLifecycleJob.cs",):
     if not (PIPE / relative).is_file():
         fail(f"Lifecycle execution-mode ABI missing: {relative}")
 
 for relative, required_bindings in {
     "Frame/InteractionCertificationFrameResources.cs": (
-        "RuntimeState = execution.ParallelJacobiRuntimeState",
-        "IterationState = execution.ParallelJacobiIterationState",
-        "BlockStatistics = execution.ParallelJacobiBlockTelemetry",
+        "RuntimeState = execution.PipelineRuntimeState",
+        "IterationState = execution.SolverIterationState",
+        "BlockStatistics = execution.JacobiBlockStatistics",
     ),
     "Frame/SoftAvoidanceFrameResources.cs": (
-        "RuntimeState = execution.ParallelJacobiRuntimeState",
+        "RuntimeState = execution.PipelineRuntimeState",
     ),
     "Frame/ConstraintSolverFrameResources.cs": (
-        "RuntimeState = execution.ParallelJacobiRuntimeState",
-        "IterationState = execution.ParallelJacobiIterationState",
-        "BlockStatistics = execution.ParallelJacobiBlockTelemetry",
+        "RuntimeState = execution.PipelineRuntimeState",
+        "IterationState = execution.SolverIterationState",
+        "BlockStatistics = execution.JacobiBlockStatistics",
     ),
 }.items():
     source = read(resources / relative)
@@ -118,8 +112,8 @@ for relative, required_bindings in {
 
 certifier = read(PIPE / "Stages/Certification/Prediction/InteractionCorrectnessCertifier.cs")
 certificate = read(PIPE / "Contracts/Certification/InteractionCertificationContracts.cs")
-for token in ("BuildCertificationFlags(", "IsConsumerCertificateValid(",
-              "ValidateConsumerViewsSerial(", "ValidateConsumerViewsP1P6("):
+for token in ("BuildCertificationFlags(", "GetConsumerCertificateFailure(",
+              "ValidateConsumerViews("):
     if token not in certifier:
         fail(f"Certificate gate capability missing: {token}")
 if "CertificateScopeMismatch" not in certificate or "CommittedViewMismatch" not in certificate:
@@ -129,4 +123,20 @@ for retired in (FLOW / "Jobs/ContactPipeline", FLOW / "ContactPipelineResources.
                 FLOW / "BaseFlowMovementComposition.cs"):
     if retired.exists():
         fail(f"Retired contact architecture returned: {retired}")
+for retired in (
+    PIPE / "Scheduling/Parallel/ParallelContactPipelineScheduler.cs",
+    PIPE / "Stages/Lifecycle/SerialContactPipelineLifecycleJob.cs",
+    PIPE / "Stages/Certification/Prediction/SerialInteractionCertificationOperations.cs",
+    PIPE / "Stages/Motion",
+):
+    if retired.exists():
+        fail(f"Retired serial pipeline implementation returned: {retired}")
+if "ScheduleSerial" in scheduler + parallel_scheduler:
+    fail("Retired serial scheduler entry returned")
+for token in (
+    "ConstraintSolverOperation.SolveGaussSeidelContact",
+    "EvaluateParallelJacobiPairsJob",
+):
+    if token not in parallel_scheduler:
+        fail(f"XPBD backend branch missing: {token}")
 print("Contact architecture contracts passed.")

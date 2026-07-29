@@ -4,7 +4,7 @@ using Unity.Entities;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// 增量（P1P6）路径的紧凑型 dirty-body 追踪。两路并行存储：按 body 索引的 byte 标记数组，
+/// 增量路径的紧凑型 dirty-body 追踪。两路并行存储：按 body 索引的 byte 标记数组，
 /// 以及仅追加的 dirty body 列表。标记数组权威决定 body X 是否 dirty 以及何种 dirty；列表驱动紧凑型修复迭代。
 /// 纯值函数作用于这两个存储以及 body 索引查找。
 /// </summary>

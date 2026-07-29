@@ -13,7 +13,7 @@ using static RTS.Unit.FlowField.Jobs.CrowdContactPipelineScheduler;
 namespace RTS.Unit.FlowField.Jobs
 {
 
-internal static class ParallelContactPipelineJobs
+internal static class ParallelContactStageJobs
 {
 [BurstCompile]
 internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
@@ -51,7 +51,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 if (DetectPersistentDirty != 0)
-                    DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                    DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBody(
                         bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                         PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -98,7 +98,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
             if (DetectPersistentDirty != 0)
-                DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBodyP1P6(
+                DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationJob.ClassifyAndUpdatePersistentProxyForBody(
                     bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                     PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -107,7 +107,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct CountInitialP1P6DirtyBodyBlocksJob : IJobParallelFor
+    internal struct CountInitialDirtyBodyBlocksJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
         public NativeArray<int> BlockOffsetsAndCounts;
@@ -124,7 +124,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct PrefixInitialP1P6DirtyBodiesJob : IJob
+    internal struct PrefixInitialDirtyBodiesJob : IJob
     {
         public NativeArray<int> BlockOffsetsAndCounts;
         public NativeList<IncrementalDirtyBody> DirtyBodies;
@@ -143,7 +143,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct ScatterInitialP1P6DirtyBodiesJob : IJobParallelFor
+    internal struct ScatterInitialDirtyBodiesJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
         [ReadOnly] public NativeArray<int> BlockOffsets;
@@ -256,7 +256,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct CountP1P6EnvelopeEscapeBlocksJob : IJobParallelFor
+    internal struct CountEnvelopeEscapeBlocksJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         public NativeArray<int> BlockOffsetsAndCounts;
@@ -278,7 +278,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct PrefixP1P6EnvelopeEscapesJob : IJob
+    internal struct PrefixEnvelopeEscapesJob : IJob
     {
         public NativeArray<int> BlockOffsetsAndCounts;
         public NativeList<IncrementalDirtyBody> DirtyBodies;
@@ -306,7 +306,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct ScatterP1P6EnvelopeEscapesJob : IJobParallelFor
+    internal struct ScatterEnvelopeEscapesJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         [ReadOnly] public NativeArray<int> BlockOffsets;
@@ -371,7 +371,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
 
 
     [BurstCompile]
-    internal struct PrepareP1P6RepairPredictionBodiesJob : IJobParallelForDefer
+    internal struct PrepareRepairPredictionBodiesJob : IJobParallelForDefer
     {
         [NativeDisableParallelForRestriction]
         public NativeArray<CrowdBodySnapshot> Bodies;
@@ -733,7 +733,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
 
 #if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
-    internal struct ReduceP1P6SoftEscapeBlocksJob : IJobParallelFor
+    internal struct ReduceSoftEscapeBlocksJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> EscapeFlags;
         public NativeArray<int> EscapeCountsByBlock;
@@ -1010,7 +1010,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct CountAndReduceP1P6WallBlocksJob : IJobParallelFor
+    internal struct CountAndReduceWallBlocksJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> CorrectedBodyFlags;
         [NativeDisableParallelForRestriction]
@@ -1039,7 +1039,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct PrefixP1P6CorrectedBodiesJob : IJob
+    internal struct PrefixCorrectedBodiesJob : IJob
     {
         public NativeArray<int> BlockOffsetsAndCounts;
         public NativeList<int> CorrectedBodyIndices;
@@ -1059,7 +1059,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     }
 
     [BurstCompile]
-    internal struct ScatterP1P6CorrectedBodiesJob : IJobParallelFor
+    internal struct ScatterCorrectedBodiesJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<byte> CorrectedBodyFlags;
         [ReadOnly] public NativeArray<int> BlockOffsets;
@@ -1132,7 +1132,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
 
 #if RTS_CONTACT_DIAGNOSTICS
     [BurstCompile]
-    internal struct ReduceP1P6VelocityBodyBlocksJob : IJobParallelFor
+    internal struct ReduceVelocityBodyBlocksJob : IJobParallelFor
     {
         [NativeDisableParallelForRestriction]
         public NativeArray<ParallelBodyStageResult> BodyStatistics;

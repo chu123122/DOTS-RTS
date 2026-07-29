@@ -12,7 +12,6 @@ namespace RTS.Unit.FlowField.Jobs
 public enum SoftAvoidanceOperation : byte
 {
     None,
-    SolveSerial,
     PrepareParallelWorkset,
     FinalizeParallel
 }
@@ -22,7 +21,7 @@ public partial struct SoftAvoidanceJob : IJob
 {
     public SoftAvoidanceOperation Operation;
     public ContactPipelineConfiguration Configuration;
-    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -47,29 +46,8 @@ public partial struct SoftAvoidanceJob : IJob
     {
         switch (Operation)
         {
-            case SoftAvoidanceOperation.SolveSerial:
-            {
-                float dt = Configuration.DeltaTime / math.max(1, Configuration.SubstepCount);
-#if RTS_CONTACT_DIAGNOSTICS
-                PredictiveDiscContactStatistics statistics = Statistics.Value;
-                IncrementalContactPipelineStatistics incremental = IncrementalStatistics.Value;
-#else
-                PredictiveDiscContactStatistics statistics = default;
-                IncrementalContactPipelineStatistics incremental = default;
-#endif
-                long start = ProfilerUnsafeUtility.Timestamp;
-                CalculateSoftAvoidanceForSubstep(dt, ref statistics, ref incremental);
-                statistics.SoftAvoidanceEvaluationCount++;
-                statistics.SoftAvoidanceNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
-                    ProfilerUnsafeUtility.Timestamp - start);
-#if RTS_CONTACT_DIAGNOSTICS
-                Statistics.Value = statistics;
-                IncrementalStatistics.Value = incremental;
-#endif
-                break;
-            }
             case SoftAvoidanceOperation.PrepareParallelWorkset:
-                PrepareP1P6SoftWorkset(RuntimeState
+                PrepareSoftWorkset(RuntimeState
 #if RTS_CONTACT_DIAGNOSTICS
                     , BlockStatistics
 #endif
@@ -77,7 +55,7 @@ public partial struct SoftAvoidanceJob : IJob
                 break;
             case SoftAvoidanceOperation.FinalizeParallel:
 #if RTS_CONTACT_DIAGNOSTICS
-                FinalizeP1P6SoftAvoidance(RuntimeState, BlockStatistics, EscapeCountsByBlock, EscapeBlockCount);
+                FinalizeSoftAvoidance(RuntimeState, BlockStatistics, EscapeCountsByBlock, EscapeBlockCount);
 #endif
                 break;
         }

@@ -19,7 +19,7 @@ public enum ContactPipelineTimingOperation : byte
 public struct ContactPipelineTimingJob : IJob
 {
     public ContactPipelineTimingOperation Operation;
-    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
     public NativeReference<PredictiveDiscContactStatistics> Statistics;
     [ReadOnly]
     public NativeReference<IncrementalContactPipelineStatistics>
@@ -27,7 +27,7 @@ public struct ContactPipelineTimingJob : IJob
 
     public void Execute()
     {
-        ParallelJacobiExecutionState runtime = RuntimeState.Value;
+        ContactPipelineExecutionState runtime = RuntimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
@@ -79,11 +79,11 @@ public struct ContactPipelineTimingJob : IJob
 /// is required on the parallel path; no optional serial container is carried.
 /// </summary>
 [BurstCompile]
-public struct ParallelContactPipelineLifecycleJob : IJob
+public struct ContactPipelineLifecycleJob : IJob
 {
     public ContactPipelineConfiguration Configuration;
     private bool EnableDiagnostics => Configuration.EnableDiagnostics;
-    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
     public NativeList<PersistentSweptProxy> PersistentSweptProxies;
     public NativeList<int> PersistentProxyIndexByBody;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
@@ -105,7 +105,7 @@ public struct ParallelContactPipelineLifecycleJob : IJob
 
     public void Execute()
     {
-        ParallelJacobiExecutionState runtime = new ParallelJacobiExecutionState
+        ContactPipelineExecutionState runtime = new ContactPipelineExecutionState
         {
             IsValid = 1
         };

@@ -8,7 +8,7 @@ using Unity.Profiling.LowLevel.Unsafe;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
-using static RTS.Unit.FlowField.Jobs.ParallelContactPipelineJobs;
+using static RTS.Unit.FlowField.Jobs.ParallelContactStageJobs;
 using static RTS.Unit.FlowField.Jobs.ParallelJacobiJobs;
 
 namespace RTS.Unit.FlowField.Jobs
@@ -16,15 +16,15 @@ namespace RTS.Unit.FlowField.Jobs
 
 public partial struct CrowdContactPipelineScheduler
 {
-    public JobHandle ScheduleParallelJacobiP1P6(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+    public JobHandle ScheduleParallelStages(
+        NativeReference<ContactPipelineExecutionState> runtimeState,
 #if RTS_CONTACT_DIAGNOSTICS
-        NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        NativeReference<ContactSolverIterationTelemetry> iterationState,
         NativeList<JacobiBlockTelemetry> blockStatistics,
 #endif
         JobHandle dependency)
     {
-        JobHandle handle = ParallelLifecycle.Schedule(dependency);
+        JobHandle handle = Lifecycle.Schedule(dependency);
 #if RTS_CONTACT_DIAGNOSTICS
         handle = BeginStageTiming(runtimeState, handle);
 #endif
@@ -32,6 +32,9 @@ public partial struct CrowdContactPipelineScheduler
         int substepCount = math.max(1, Configuration.SubstepCount);
         int iterationCount = math.max(1, Configuration.IterationCount);
         float substepDeltaTime = Configuration.DeltaTime / substepCount;
+        bool useJacobiSolver =
+            Configuration.ContactPositionSolver ==
+            ContactPositionSolverMode.Jacobi;
 #if RTS_CONTACT_DIAGNOSTICS
         bool captureSelectedPairs = false;
         if (EnableDiagnostics)
@@ -49,10 +52,10 @@ public partial struct CrowdContactPipelineScheduler
         {
 #if RTS_CONTACT_DIAGNOSTICS
             // Degenerate-dt early-out still publishes an (empty) pipeline
-            // snapshot via FinalizeParallelPipeline (no runtime gate) so the
+            // snapshot via FinalizePipeline (no runtime gate) so the
             // publish chain stays consistent with the oracle disabled.
             ConstraintSolverJob finalizeEmptyPipeline = ConstraintSolver;
-            finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizeEmptyPipeline.Operation = ConstraintSolverOperation.FinalizePipeline;
             finalizeEmptyPipeline.RuntimeState = runtimeState;
             return finalizeEmptyPipeline.Schedule(handle);
 #else
@@ -89,19 +92,19 @@ public partial struct CrowdContactPipelineScheduler
 
             if (Configuration.EnablePersistentContactCache)
             {
-                handle = new CountInitialP1P6DirtyBodyBlocksJob
+                handle = new CountInitialDirtyBodyBlocksJob
                 {
                     DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                     BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     BodyCount = Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
-                handle = new PrefixInitialP1P6DirtyBodiesJob
+                handle = new PrefixInitialDirtyBodiesJob
                 {
                     BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     DirtyBodies = IncrementalDirtyBodies,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
-                handle = new ScatterInitialP1P6DirtyBodiesJob
+                handle = new ScatterInitialDirtyBodiesJob
                 {
                     DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
                     BlockOffsets = DirtyBodyBlockOffsets,
@@ -114,14 +117,14 @@ public partial struct CrowdContactPipelineScheduler
         if (Configuration.EnableTimestepContactSetCache &&
             Configuration.EnablePersistentContactCache)
         {
-            handle = Certification.ScheduleInitialPersistentContactSetP1P6(
+            handle = Certification.ScheduleInitialPersistentContactSet(
                 runtimeState,
                 handle);
         }
         else
         {
             InteractionCertificationJob buildInitial = Certification;
-            buildInitial.Operation = InteractionCertificationOperation.BuildInitialP1P6;
+            buildInitial.Operation = InteractionCertificationOperation.BuildInitial;
             buildInitial.RuntimeState = runtimeState;
             handle = buildInitial.Schedule(handle);
         }
@@ -196,7 +199,7 @@ public partial struct CrowdContactPipelineScheduler
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
-            handle = new CountP1P6EnvelopeEscapeBlocksJob
+            handle = new CountEnvelopeEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
@@ -204,7 +207,7 @@ public partial struct CrowdContactPipelineScheduler
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new PrefixP1P6EnvelopeEscapesJob
+            handle = new PrefixEnvelopeEscapesJob
             {
                 BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies,
@@ -212,7 +215,7 @@ public partial struct CrowdContactPipelineScheduler
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
-            handle = new ScatterP1P6EnvelopeEscapesJob
+            handle = new ScatterEnvelopeEscapesJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsets = DirtyBodyBlockOffsets,
@@ -228,12 +231,12 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(escapeBlockCount, 1, handle);
 
             InteractionCertificationJob finalizeEscapes = Certification;
-            finalizeEscapes.Operation = InteractionCertificationOperation.FinalizeEnvelopeEscapesP1P6;
+            finalizeEscapes.Operation = InteractionCertificationOperation.FinalizeEnvelopeEscapes;
             finalizeEscapes.RuntimeState = runtimeState;
             finalizeEscapes.SubstepIndex = substepIndex;
             handle = finalizeEscapes.Schedule(handle);
 
-            handle = new PrepareP1P6RepairPredictionBodiesJob
+            handle = new PrepareRepairPredictionBodiesJob
             {
                 Bodies = Bodies,
                 NavigationStates = NavigationStates,
@@ -256,12 +259,12 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);
 
             InteractionCertificationJob prepareRepair = Certification;
-            prepareRepair.Operation = InteractionCertificationOperation.PrepareSubstepRepairP1P6;
+            prepareRepair.Operation = InteractionCertificationOperation.PrepareSubstepRepair;
             prepareRepair.RuntimeState = runtimeState;
             prepareRepair.SubstepIndex = substepIndex;
             handle = prepareRepair.Schedule(handle);
 
-            handle = new InteractionCertificationJob.EvaluatePersistentPairClassificationsP1P6Job
+            handle = new InteractionCertificationJob.EvaluatePersistentPairClassificationsJob
             {
                 Bodies = Bodies,
                 NavigationStates = NavigationStates,
@@ -289,14 +292,14 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(PersistentClassificationResults, SoftPairBatchSize, handle);
 
             InteractionCertificationJob commitRepair = Certification;
-            commitRepair.Operation = InteractionCertificationOperation.CommitSubstepRepairP1P6;
+            commitRepair.Operation = InteractionCertificationOperation.CommitSubstepRepair;
             commitRepair.RuntimeState = runtimeState;
             commitRepair.SubstepIndex = substepIndex;
             handle = commitRepair.Schedule(handle);
 
             InteractionCertificationJob gateSoftViews = Certification;
             gateSoftViews.Operation =
-                InteractionCertificationOperation.ValidateConsumerViewsP1P6;
+                InteractionCertificationOperation.ValidateConsumerViews;
             gateSoftViews.RuntimeState = runtimeState;
             gateSoftViews.SubstepIndex = substepIndex;
             handle = gateSoftViews.Schedule(handle);
@@ -388,7 +391,7 @@ public partial struct CrowdContactPipelineScheduler
             // EnableDiagnostics runtime gate) so benchmarks with the oracle
             // disabled still capture valid soft-avoidance telemetry.
             {
-                handle = new ReduceP1P6SoftEscapeBlocksJob
+                handle = new ReduceSoftEscapeBlocksJob
                 {
                     EscapeFlags = EnvelopeEscapeFlags,
                     EscapeCountsByBlock = DirtyBodyBlockOffsets,
@@ -438,7 +441,7 @@ public partial struct CrowdContactPipelineScheduler
                 PredictiveSkin = Configuration.PredictiveSkin
             }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
-            handle = new CountP1P6EnvelopeEscapeBlocksJob
+            handle = new CountEnvelopeEscapeBlocksJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
@@ -446,7 +449,7 @@ public partial struct CrowdContactPipelineScheduler
                 Enabled = 1
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = new PrefixP1P6EnvelopeEscapesJob
+            handle = new PrefixEnvelopeEscapesJob
             {
                 BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                 DirtyBodies = IncrementalDirtyBodies,
@@ -454,7 +457,7 @@ public partial struct CrowdContactPipelineScheduler
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
-            handle = new ScatterP1P6EnvelopeEscapesJob
+            handle = new ScatterEnvelopeEscapesJob
             {
                 EscapeFlags = EnvelopeEscapeFlags,
                 BlockOffsets = DirtyBodyBlockOffsets,
@@ -470,14 +473,14 @@ public partial struct CrowdContactPipelineScheduler
             }.Schedule(escapeBlockCount, 1, handle);
 
             InteractionCertificationJob finalizePrepared = Certification;
-            finalizePrepared.Operation = InteractionCertificationOperation.FinalizePreparedSubstepP1P6;
+            finalizePrepared.Operation = InteractionCertificationOperation.FinalizePreparedSubstep;
             finalizePrepared.RuntimeState = runtimeState;
             finalizePrepared.SubstepIndex = substepIndex;
             handle = finalizePrepared.Schedule(handle);
 
             InteractionCertificationJob gateSolverViews = Certification;
             gateSolverViews.Operation =
-                InteractionCertificationOperation.ValidateConsumerViewsP1P6;
+                InteractionCertificationOperation.ValidateConsumerViews;
             gateSolverViews.RuntimeState = runtimeState;
             gateSolverViews.SubstepIndex = substepIndex;
             handle = gateSolverViews.Schedule(handle);
@@ -496,7 +499,8 @@ public partial struct CrowdContactPipelineScheduler
             for (int iterationIndex = 0; iterationIndex < iterationCount; iterationIndex++)
             {
                 ConstraintSolverJob beginIteration = ConstraintSolver;
-                beginIteration.Operation = ConstraintSolverOperation.BeginParallelIteration;
+                beginIteration.Operation =
+                    ConstraintSolverOperation.InitializeContactIteration;
                 beginIteration.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
                 beginIteration.IterationState = iterationState;
@@ -519,7 +523,7 @@ public partial struct CrowdContactPipelineScheduler
                     BodyStatistics = ParallelBodyStatistics
                 }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
-                handle = new CountAndReduceP1P6WallBlocksJob
+                handle = new CountAndReduceWallBlocksJob
                 {
                     CorrectedBodyFlags = CorrectedBodyFlags,
                     BodyStatistics = ParallelBodyStatistics,
@@ -527,14 +531,14 @@ public partial struct CrowdContactPipelineScheduler
                     BodyCount = Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
-                handle = new PrefixP1P6CorrectedBodiesJob
+                handle = new PrefixCorrectedBodiesJob
                 {
                     BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
                     CorrectedBodyIndices = CorrectedBodyIndices,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
 
-                handle = new ScatterP1P6CorrectedBodiesJob
+                handle = new ScatterCorrectedBodiesJob
                 {
                     CorrectedBodyFlags = CorrectedBodyFlags,
                     BlockOffsets = DirtyBodyBlockOffsets,
@@ -543,7 +547,7 @@ public partial struct CrowdContactPipelineScheduler
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 InteractionCertificationJob finalizeWall = Certification;
-                finalizeWall.Operation = InteractionCertificationOperation.FinalizeWallIterationP1P6;
+                finalizeWall.Operation = InteractionCertificationOperation.FinalizeWallIteration;
                 finalizeWall.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
                 finalizeWall.IterationState = iterationState;
@@ -553,102 +557,129 @@ public partial struct CrowdContactPipelineScheduler
                 finalizeWall.BodyBlockCount = escapeBlockCount;
                 handle = finalizeWall.Schedule(handle);
 
-#if RTS_CONTACT_DIAGNOSTICS
-                if (captureSelectedPairs)
+                if (iterationIndex != iterationCount - 1)
+                    continue;
+
+                if (!useJacobiSolver)
                 {
-                    handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
+                    ConstraintSolverJob solveGaussSeidel = ConstraintSolver;
+                    solveGaussSeidel.Operation =
+                        ConstraintSolverOperation.SolveGaussSeidelContact;
+                    solveGaussSeidel.RuntimeState = runtimeState;
+#if RTS_CONTACT_DIAGNOSTICS
+                    solveGaussSeidel.IterationState = iterationState;
+#endif
+                    solveGaussSeidel.SubstepIndex = substepIndex;
+                    solveGaussSeidel.IterationIndex = iterationIndex;
+                    handle = solveGaussSeidel.Schedule(handle);
+                }
+                else
+                {
+#if RTS_CONTACT_DIAGNOSTICS
+                    if (captureSelectedPairs)
                     {
-                        Alpha = Configuration.Compliance /
-                                math.max(
-                                    0.0000001f,
-                                    substepDeltaTime * substepDeltaTime),
-                        SubstepIndex = substepIndex,
+                        handle = new EvaluateParallelJacobiPairsWithDiagnosticsJob
+                        {
+                            Alpha = Configuration.Compliance /
+                                    math.max(
+                                        0.0000001f,
+                                        substepDeltaTime * substepDeltaTime),
+                            SubstepIndex = substepIndex,
+                            RecoveryOnly = 0,
+                            RuntimeState = runtimeState,
+                            Bodies = Bodies,
+                            NavigationStates = NavigationStates,
+                            MotionIntents = MotionIntents,
+                            MotionEvidence = MotionEvidence,
+                            StepStates = StepStates,
+                            Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                            Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                            DiagnosticPairCandidates =
+                                ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
+                            DiagnosticSelectedEntity = DiagnosticSelectedEntity
+                        }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                    }
+                    else
+#endif
+                    {
+                        handle = new EvaluateParallelJacobiPairsJob
+                        {
+                            Alpha = Configuration.Compliance /
+                                    math.max(
+                                        0.0000001f,
+                                        substepDeltaTime * substepDeltaTime),
+                            SubstepIndex = substepIndex,
+                            RecoveryOnly = 0,
+                            RuntimeState = runtimeState,
+                            Bodies = Bodies,
+                            NavigationStates = NavigationStates,
+                            MotionIntents = MotionIntents,
+                            MotionEvidence = MotionEvidence,
+                            StepStates = StepStates,
+                            Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                            Corrections = JacobiPairCorrections.AsDeferredJobArray()
+                        }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                    }
+
+#if RTS_CONTACT_DIAGNOSTICS
+                    handle = new ReduceParallelJacobiBlocksJob
+                    {
+                        Corrections = JacobiPairCorrections,
+                        Blocks = blockStatistics.AsDeferredJobArray()
+                    }.Schedule(blockStatistics, 1, handle);
+#endif
+
+#if RTS_CONTACT_DIAGNOSTICS
+                    if (captureSelectedPairs)
+                    {
+                        handle = new CountParallelSimulationDebuggerPairBlocksJob
+                        {
+                            Candidates =
+                                ParallelSimulationDebuggerPairCandidates,
+                            Blocks = blockStatistics
+                        }.Schedule(blockStatistics, 1, handle);
+
+                        handle = new PrefixParallelSimulationDebuggerPairsJob
+                        {
+                            Blocks = blockStatistics,
+                            Scratch = ParallelSimulationDebuggerPairScratch
+                        }.Schedule(handle);
+
+                        handle = new ScatterParallelSimulationDebuggerPairsJob
+                        {
+                            Candidates =
+                                ParallelSimulationDebuggerPairCandidates,
+                            Blocks = blockStatistics,
+                            Scratch = ParallelSimulationDebuggerPairScratch
+                        }.Schedule(blockStatistics, 1, handle);
+
+                        ConstraintSolverJob mergeDebuggerPairs = ConstraintSolver;
+                        mergeDebuggerPairs.Operation =
+                            ConstraintSolverOperation.MergeParallelDebuggerPairs;
+                        handle = mergeDebuggerPairs.Schedule(handle);
+                    }
+#endif
+
+                    handle = new GatherAndApplyParallelJacobiBodiesJob
+                    {
+                        RecoveryOnly = 0,
+                        RuntimeState = runtimeState,
                         Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
+                        NavigationStates = NavigationStates,
+                        MotionIntents = MotionIntents,
                         MotionEvidence = MotionEvidence,
                         StepStates = StepStates,
                         Pairs = TimestepContactPairs.AsDeferredJobArray(),
                         Corrections = JacobiPairCorrections.AsDeferredJobArray(),
-                        DiagnosticPairCandidates =
-                            ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
-                        DiagnosticSelectedEntity = DiagnosticSelectedEntity
-                    }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                        IncidentOffsets = ActiveIncidentOffsets,
+                        IncidentPairIndices =
+                            ActiveIncidentPairIndices.AsDeferredJobArray(),
+                        CorrectedBodyFlags = CorrectedBodyFlags
+                    }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
                 }
-                else
-#endif
-                {
-                    handle = new EvaluateParallelJacobiPairsJob
-                    {
-                        Alpha = Configuration.Compliance /
-                                math.max(
-                                    0.0000001f,
-                                    substepDeltaTime * substepDeltaTime),
-                        SubstepIndex = substepIndex,
-                        Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                        MotionEvidence = MotionEvidence,
-                        StepStates = StepStates,
-                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections.AsDeferredJobArray()
-                    }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
-                }
-
-#if RTS_CONTACT_DIAGNOSTICS
-                handle = new ReduceParallelJacobiBlocksJob
-                {
-                    Corrections = JacobiPairCorrections,
-                    Blocks = blockStatistics.AsDeferredJobArray()
-                }.Schedule(blockStatistics, 1, handle);
-#endif
-
-#if RTS_CONTACT_DIAGNOSTICS
-                if (captureSelectedPairs)
-                {
-                    handle = new CountParallelSimulationDebuggerPairBlocksJob
-                    {
-                        Candidates =
-                            ParallelSimulationDebuggerPairCandidates,
-                        Blocks = blockStatistics
-                    }.Schedule(blockStatistics, 1, handle);
-
-                    handle = new PrefixParallelSimulationDebuggerPairsJob
-                    {
-                        Blocks = blockStatistics,
-                        Scratch = ParallelSimulationDebuggerPairScratch
-                    }.Schedule(handle);
-
-                    handle = new ScatterParallelSimulationDebuggerPairsJob
-                    {
-                        Candidates =
-                            ParallelSimulationDebuggerPairCandidates,
-                        Blocks = blockStatistics,
-                        Scratch = ParallelSimulationDebuggerPairScratch
-                    }.Schedule(blockStatistics, 1, handle);
-
-                    ConstraintSolverJob mergeDebuggerPairs = ConstraintSolver;
-                    mergeDebuggerPairs.Operation = ConstraintSolverOperation.MergeParallelDebuggerPairs;
-                    handle = mergeDebuggerPairs.Schedule(handle);
-                }
-#endif
-
-                handle = new GatherAndApplyParallelJacobiBodiesJob
-                {
-                    Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                    Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                    Corrections = JacobiPairCorrections.AsDeferredJobArray(),
-                    IncidentOffsets = ActiveIncidentOffsets,
-                    IncidentPairIndices = ActiveIncidentPairIndices.AsDeferredJobArray(),
-                    CorrectedBodyFlags = CorrectedBodyFlags
-                }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
 
                 InteractionCertificationJob finalizeContact = Certification;
-                finalizeContact.Operation = InteractionCertificationOperation.FinalizeContactIterationP1P6;
+                finalizeContact.Operation = InteractionCertificationOperation.FinalizeContactIteration;
                 finalizeContact.RuntimeState = runtimeState;
 #if RTS_CONTACT_DIAGNOSTICS
                 finalizeContact.IterationState = iterationState;
@@ -658,21 +689,91 @@ public partial struct CrowdContactPipelineScheduler
                 finalizeContact.IterationIndex = iterationIndex;
                 handle = finalizeContact.Schedule(handle);
 
-                ConstraintSolverJob recovery = ConstraintSolver;
-                recovery.Operation = ConstraintSolverOperation.SolveParallelRecovery;
-                recovery.RuntimeState = runtimeState;
-                recovery.SubstepIndex = substepIndex;
-                handle = recovery.Schedule(handle);
+                if (!useJacobiSolver)
+                {
+                    ConstraintSolverJob recovery = ConstraintSolver;
+                    recovery.Operation =
+                        ConstraintSolverOperation.SolveGaussSeidelRecovery;
+                    recovery.RuntimeState = runtimeState;
+                    recovery.SubstepIndex = substepIndex;
+                    handle = recovery.Schedule(handle);
+                }
+                else
+                {
+                    ConstraintSolverJob prepareRecovery = ConstraintSolver;
+                    prepareRecovery.Operation =
+                        ConstraintSolverOperation.PrepareJacobiRecovery;
+                    prepareRecovery.RuntimeState = runtimeState;
+                    handle = prepareRecovery.Schedule(handle);
+
+                    handle = new EvaluateParallelJacobiPairsJob
+                    {
+                        Alpha = Configuration.Compliance /
+                                math.max(
+                                    0.0000001f,
+                                    substepDeltaTime * substepDeltaTime),
+                        SubstepIndex = substepIndex,
+                        RecoveryOnly = 1,
+                        RuntimeState = runtimeState,
+                        Bodies = Bodies,
+                        NavigationStates = NavigationStates,
+                        MotionIntents = MotionIntents,
+                        MotionEvidence = MotionEvidence,
+                        StepStates = StepStates,
+                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Corrections =
+                            JacobiPairCorrections.AsDeferredJobArray()
+                    }.Schedule(
+                        TimestepContactPairs,
+                        JacobiPairBatchSize,
+                        handle);
+
+#if RTS_CONTACT_DIAGNOSTICS
+                    handle = new ReduceParallelJacobiBlocksJob
+                    {
+                        Corrections = JacobiPairCorrections,
+                        Blocks = blockStatistics.AsDeferredJobArray()
+                    }.Schedule(blockStatistics, 1, handle);
+#endif
+
+                    handle = new GatherAndApplyParallelJacobiBodiesJob
+                    {
+                        RecoveryOnly = 1,
+                        RuntimeState = runtimeState,
+                        Bodies = Bodies,
+                        NavigationStates = NavigationStates,
+                        MotionIntents = MotionIntents,
+                        MotionEvidence = MotionEvidence,
+                        StepStates = StepStates,
+                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Corrections =
+                            JacobiPairCorrections.AsDeferredJobArray(),
+                        IncidentOffsets = ActiveIncidentOffsets,
+                        IncidentPairIndices =
+                            ActiveIncidentPairIndices.AsDeferredJobArray(),
+                        CorrectedBodyFlags = CorrectedBodyFlags
+                    }.Schedule(
+                        Bodies.Length,
+                        ParallelBodyBatchSize,
+                        handle);
+
+                    ConstraintSolverJob finalizeRecovery = ConstraintSolver;
+                    finalizeRecovery.Operation =
+                        ConstraintSolverOperation.FinalizeJacobiRecovery;
+                    finalizeRecovery.RuntimeState = runtimeState;
+                    handle = finalizeRecovery.Schedule(handle);
+                }
             }
 
 #if RTS_CONTACT_DIAGNOSTICS
-            // BeginParallelFinalizeSubstep accumulates IterationNanoseconds and
+            // FinalizeSubstepTelemetry accumulates IterationNanoseconds and
             // constraint counters (no EnableDiagnostics runtime gate) so
             // benchmarks with the oracle disabled still capture valid iteration
             // timing.
             {
                 ConstraintSolverJob beginFinalizeSubstep = ConstraintSolver;
-                beginFinalizeSubstep.Operation = ConstraintSolverOperation.BeginParallelFinalizeSubstep;
+                beginFinalizeSubstep.Operation =
+                    ConstraintSolverOperation.FinalizeSubstepTelemetry;
                 beginFinalizeSubstep.RuntimeState = runtimeState;
                 handle = beginFinalizeSubstep.Schedule(handle);
             }
@@ -696,14 +797,14 @@ public partial struct CrowdContactPipelineScheduler
             // Velocity-body block reduce + finalize carry timing/counters
             // (no EnableDiagnostics runtime gate) for benchmarks with oracle off.
             {
-                handle = new ReduceP1P6VelocityBodyBlocksJob
+                handle = new ReduceVelocityBodyBlocksJob
                 {
                     BodyStatistics = ParallelBodyStatistics,
                     BodyCount = Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 ConstraintSolverJob finalizeVelocity = ConstraintSolver;
-                finalizeVelocity.Operation = ConstraintSolverOperation.FinalizeParallelVelocity;
+                finalizeVelocity.Operation = ConstraintSolverOperation.FinalizeVelocity;
                 finalizeVelocity.RuntimeState = runtimeState;
                 finalizeVelocity.BlockCount = escapeBlockCount;
                 handle = finalizeVelocity.Schedule(handle);
@@ -716,12 +817,12 @@ public partial struct CrowdContactPipelineScheduler
         }
 
 #if RTS_CONTACT_DIAGNOSTICS
-        // FinalizeParallelPipeline publishes SolverNanoseconds, UniqueActivatedPairCount
+        // FinalizePipeline publishes SolverNanoseconds, UniqueActivatedPairCount
         // and the cross-stage ratios. No EnableDiagnostics runtime gate so benchmarks
         // with the oracle disabled still get valid pipeline-total telemetry.
         {
             ConstraintSolverJob finalizePipeline = ConstraintSolver;
-            finalizePipeline.Operation = ConstraintSolverOperation.FinalizeParallelPipeline;
+            finalizePipeline.Operation = ConstraintSolverOperation.FinalizePipeline;
             finalizePipeline.RuntimeState = runtimeState;
             return finalizePipeline.Schedule(handle);
         }
@@ -732,7 +833,7 @@ public partial struct CrowdContactPipelineScheduler
 
 #if RTS_CONTACT_DIAGNOSTICS
     private JobHandle BeginStageTiming(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        NativeReference<ContactPipelineExecutionState> runtimeState,
         JobHandle dependency) =>
         new ContactPipelineTimingJob
         {
@@ -743,7 +844,7 @@ public partial struct CrowdContactPipelineScheduler
         }.Schedule(dependency);
 
     private JobHandle EndStageTiming(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+        NativeReference<ContactPipelineExecutionState> runtimeState,
         ContactPipelineTimingOperation operation,
         JobHandle dependency) =>
         new ContactPipelineTimingJob

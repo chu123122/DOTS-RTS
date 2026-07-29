@@ -96,9 +96,8 @@ persistent candidate state. The certifier remains the sole accept/repair/rebuild
 owner and reissues a certificate after recovery.
 
 The shared `CommitTimestepContactViews` function is the certification commit
-boundary for both the serial reference implementation and the staged P1-P6
-Jacobi implementation. `ValidateConsumerViewsSerial` and
-`ValidateConsumerViewsP1P6` are the only scheduling gates.
+boundary for both solver backends. `ValidateConsumerViews` is the single
+scheduling gate.
 
 ## Layer ownership
 
@@ -119,8 +118,10 @@ Jacobi implementation. `ValidateConsumerViewsSerial` and
 - **Motion integration** combines steering and soft correction and produces the
   unconstrained predicted position.
 - **Constraint assembly / Solver** consumes frame-local certified definitions.
-  Gauss–Seidel remains the serial reference; Jacobi evaluates pairs in parallel and
-  deterministically gathers body corrections through a frame-local CSR index.
+  Both backends reuse the same parallel prediction, certification, soft-avoidance,
+  wall, repair and velocity-reconstruction stages. Only XPBD contact projection
+  branches: Gauss–Seidel uses one ordered `IJob`; Jacobi evaluates pairs and
+  gathers body corrections in parallel through a frame-local CSR index.
 - **Environment** is exposed through `GridObstacleView`. Navigation and collision
   may currently share the same cell storage, but they no longer share semantics.
 - **Diagnostics** observes completed immutable publication. Oracle results cannot
@@ -236,10 +237,12 @@ edges. It must not know pair classification, guard proof, repair policy, XPBD
 lambda math, CSR construction or heatmap aggregation.
 
 `CrowdContactPipelineScheduler` is managed scheduling composition only; it is not
-a scheduled job and carries no algorithm implementation. Executable parallel jobs
-live under `Scheduling/Parallel/Jobs`. `InteractionCertificationJob`,
-`SoftAvoidanceJob`, `MotionIntegrationJob` and `ConstraintSolverJob` are scheduled
-directly, so Collections Safety sees their actual NativeContainer capabilities.
+a scheduled job and carries no algorithm implementation. `ScheduleParallelStages`
+is the only runtime pipeline entry. Executable parallel jobs live under
+`Scheduling/Parallel/Jobs`; `InteractionCertificationJob`, `SoftAvoidanceJob` and
+`ConstraintSolverJob` provide the serial coordination boundaries required between
+parallel stages, so Collections Safety sees their actual NativeContainer
+capabilities.
 There is no aggregate composition adapter. `InteractionCandidateStore`,
 `CrowdStepBodyResources`, `InteractionCertificationFrameResources`,
 `SoftAvoidanceFrameResources`, `ConstraintSolverFrameResources` and
@@ -247,8 +250,29 @@ There is no aggregate composition adapter. `InteractionCandidateStore`,
 containers and bind only their focused job. A stage job may dispatch several
 operations through an enum, but Unity Collections Safety validates every direct
 `NativeContainer` field when that job is scheduled. Frame owners therefore
-construct the complete stage capability set in both serial and Jacobi modes;
+construct the complete stage capability set for both solver backends;
 leaving an inactive-mode field as `default` is not a valid optimization.
+
+## Execution topology
+
+The scheduler does not maintain separate GS and Jacobi pipelines:
+
+```text
+parallel prediction / certification / soft avoidance / motion / wall
+                              ↓
+                    XPBD backend branch
+                    ├─ GS: ordered IJob
+                    └─ Jacobi: pair IJobParallelFor
+                               + block reduction
+                               + body IJobParallelFor
+                              ↓
+shared validation / repair / velocity reconstruction / publication
+```
+
+Recovery follows the same backend rule. GS recovery remains ordered; Jacobi
+recovery reuses parallel pair evaluation and body gather. The retired serial
+lifecycle, certification, motion, soft-avoidance and scheduler path must not
+return.
 
 ## CI boundary
 
@@ -263,7 +287,7 @@ migration:
   `Jobs/ContactPipeline` root cannot return;
 - the scheduling composition cannot become another `IJob`;
 - SoftAvoidance, Motion and Wall stages cannot reach persistent candidate fields;
-- serial environment stages cannot interpret navigation cost directly;
+- environment stages cannot interpret navigation cost directly;
 - Oracle cannot control gameplay cache.
 
 This CI does not replace Unity Editor compilation, Burst compilation, Collections

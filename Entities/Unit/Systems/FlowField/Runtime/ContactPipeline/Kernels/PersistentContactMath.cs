@@ -6,7 +6,7 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// 持久（P1P6）接触分类路径的纯值辅助：约束装配、统计累加、活动表盘追踪、对轨迹查询、相邻对去重。
+/// 持久增量接触分类路径的纯值辅助：约束装配、统计累加、活动表盘追踪、对轨迹查询、相邻对去重。
 /// 不含 Job 状态、无实例字段，全部输入以参数传入。
 /// </summary>
 internal static class PersistentContactMath

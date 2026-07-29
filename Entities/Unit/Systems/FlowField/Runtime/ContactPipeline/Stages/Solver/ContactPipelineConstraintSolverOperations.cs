@@ -6,18 +6,76 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct ConstraintSolverJob
 {
-    private void BeginP1P6Iteration(
-        int substepIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState
+    private void PrepareJacobiRecovery()
+    {
+        ContactPipelineExecutionState runtime = RuntimeState.Value;
+        if (runtime.IsValid == 0 || runtime.RecoveryRequired == 0)
+            return;
+
+        ResetCorrectedBodyTracking();
+        JacobiPairCorrections.ResizeUninitialized(TimestepContactPairs.Length);
 #if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ParallelJacobiIterationTelemetry> iterationState
+        BlockStatistics.ResizeUninitialized(
+            (TimestepContactPairs.Length +
+             CrowdContactPipelineScheduler.JacobiPairBatchSize - 1) /
+            CrowdContactPipelineScheduler.JacobiPairBatchSize);
+#endif
+    }
+
+    private void FinalizeJacobiRecovery()
+    {
+        ContactPipelineExecutionState runtime = RuntimeState.Value;
+        if (runtime.IsValid == 0 || runtime.RecoveryRequired == 0)
+            return;
+
+#if RTS_CONTACT_DIAGNOSTICS
+        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
+        IncrementalContactPipelineStatistics incremental =
+            LoadIncrementalStatistics();
+        float totalCorrection = 0f;
+        float maxCorrection = 0f;
+        int newlyActivated = 0;
+        int newlyCorrected = 0;
+        for (int blockIndex = 0;
+             blockIndex < BlockStatistics.Length;
+             blockIndex++)
+        {
+            JacobiBlockTelemetry block = BlockStatistics[blockIndex];
+            totalCorrection += block.TotalPositionCorrection;
+            maxCorrection = math.max(
+                maxCorrection,
+                block.MaxPositionCorrection);
+            newlyActivated += block.NewlyActivatedPairCount;
+            newlyCorrected += block.NewlyCorrectedPairCount;
+        }
+
+        statistics.TimestepContactSetUniqueActivatedPairCount += newlyActivated;
+        statistics.TotalContactPositionCorrection += totalCorrection;
+        statistics.MaxContactPositionCorrection = math.max(
+            statistics.MaxContactPositionCorrection,
+            maxCorrection);
+        incremental.UniqueCorrectedPairCount += newlyCorrected;
+        incremental.ActiveConstraintEvaluationCount +=
+            TimestepContactPairs.Length;
+        StoreContactStatistics(statistics);
+        StoreIncrementalStatistics(incremental);
+#endif
+        runtime.RecoveryRequired = 0;
+        RuntimeState.Value = runtime;
+    }
+
+    private void InitializeContactIteration(
+        int substepIndex,
+        NativeReference<ContactPipelineExecutionState> runtimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , NativeReference<ContactSolverIterationTelemetry> iterationState
 #endif
         )
     {
         if (runtimeState.Value.IsValid == 0)
             return;
 #if RTS_CONTACT_DIAGNOSTICS
-        ParallelJacobiIterationTelemetry iteration = default;
+        ContactSolverIterationTelemetry iteration = default;
         if (EnableDiagnostics)
         {
             MeasureContactResidual(
@@ -27,21 +85,20 @@ public partial struct ConstraintSolverJob
 #endif
         ResetCorrectedBodyTracking();
 #if RTS_CONTACT_DIAGNOSTICS
-        if (EnableDiagnostics)
-            iterationState.Value = iteration;
+        iterationState.Value = iteration;
 #endif
     }
 
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private void BeginP1P6FinalizeSubstep(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+    private void FinalizeSubstepTelemetry(
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         // No EnableDiagnostics gate: this path only accumulates iteration
         // timing and constraint counters (ActiveConstraintCount etc.), both
         // cheap. Gating it would starve benchmarks of perf numbers when the
         // oracle is disabled.
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
@@ -64,8 +121,8 @@ public partial struct ConstraintSolverJob
 #endif
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private void FinalizeP1P6VelocityStatistics(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+    private void FinalizeVelocityStatistics(
+        NativeReference<ContactPipelineExecutionState> runtimeState,
         int blockCount)
     {
         // No EnableDiagnostics gate: velocity-change stats are cheap and needed

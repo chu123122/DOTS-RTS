@@ -5,7 +5,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// 持久（P1P6）接触缓存的结构化复用性检查与配置指纹。仅当已提交缓存状态仍与当前 body/求解器配置一致时，
+/// 持久增量接触缓存的结构化复用性检查与配置指纹。仅当已提交缓存状态仍与当前 body/求解器配置一致时，
 /// 缓存方可增量修补；任何漂移都强制全量重建。纯值函数。
 /// </summary>
 internal static class PersistentCacheReusability

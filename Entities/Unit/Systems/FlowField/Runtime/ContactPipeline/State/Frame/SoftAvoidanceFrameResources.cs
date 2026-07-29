@@ -36,7 +36,7 @@ internal struct SoftAvoidanceFrameResources
         return new SoftAvoidanceJob
         {
             Configuration = configuration,
-            RuntimeState = execution.ParallelJacobiRuntimeState,
+            RuntimeState = execution.PipelineRuntimeState,
             Grid = grid.Grid,
             GridOrigin = grid.GridOrigin,
             GridDimensions = grid.GridDimensions,
@@ -52,7 +52,7 @@ internal struct SoftAvoidanceFrameResources
 #if RTS_CONTACT_DIAGNOSTICS
             IncrementalStatistics = diagnostics.IncrementalStatistics,
             Statistics = diagnostics.ContactStatistics,
-            BlockStatistics = execution.ParallelJacobiBlockTelemetry,
+            BlockStatistics = execution.JacobiBlockStatistics,
             EscapeCountsByBlock = solver.DirtyBodyBlockOffsets,
 #endif
         };

@@ -6,7 +6,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct SoftAvoidanceJob
 {
-    private void EnsureSoftIncidentIndexP1P6()
+    private void EnsureSoftIncidentIndex()
     {
         ActiveIncidentIndexState state = ActiveIncidentIndexState.Value;
         if (state.SoftIsValid != 0 &&
@@ -14,7 +14,7 @@ public partial struct SoftAvoidanceJob
             state.SoftBodyCount == Bodies.Length)
             return;
 
-        BuildSoftIncidentIndexP1P6();
+        BuildSoftIncidentIndex();
         state = ActiveIncidentIndexState.Value;
         state.SoftPairCount = SoftAvoidancePairs.Length;
         state.SoftBodyCount = Bodies.Length;
@@ -22,7 +22,7 @@ public partial struct SoftAvoidanceJob
         ActiveIncidentIndexState.Value = state;
     }
 
-    private void BuildSoftIncidentIndexP1P6()
+    private void BuildSoftIncidentIndex()
     {
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
             SoftIncidentWriteCursors[bodyIndex] = 0;
@@ -49,8 +49,8 @@ public partial struct SoftAvoidanceJob
         }
     }
 
-    private void PrepareP1P6SoftWorkset(
-        NativeReference<ParallelJacobiExecutionState> runtimeState
+    private void PrepareSoftWorkset(
+        NativeReference<ContactPipelineExecutionState> runtimeState
 #if RTS_CONTACT_DIAGNOSTICS
         , NativeList<JacobiBlockTelemetry> blockStatistics
 #endif
@@ -60,10 +60,10 @@ public partial struct SoftAvoidanceJob
         // correct Capacity before this job begins. Resize unconditionally so that
         // the downstream EvaluateSoftAvoidancePairsJob never writes into a
         // zero-length array even when the runtime state is not yet valid.
-        EnsureSoftIncidentIndexP1P6();
+        EnsureSoftIncidentIndex();
         SoftPairContributions.ResizeUninitialized(SoftAvoidancePairs.Length);
 
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 #if RTS_CONTACT_DIAGNOSTICS
@@ -75,13 +75,13 @@ public partial struct SoftAvoidanceJob
     }
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private void FinalizeP1P6SoftAvoidance(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+    private void FinalizeSoftAvoidance(
+        NativeReference<ContactPipelineExecutionState> runtimeState,
         NativeList<JacobiBlockTelemetry> blocks,
         NativeArray<int> escapeCountsByBlock,
         int escapeBlockCount)
     {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();

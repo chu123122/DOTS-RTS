@@ -30,28 +30,6 @@ internal struct CrowdStepBodyResources
         };
     }
 
-    public MotionIntegrationJob CreateMotionJob(
-        ContactPipelineConfiguration configuration,
-        FlowFieldGrid grid,
-        ContactDiagnosticsFrameResources diagnostics)
-    {
-        return new MotionIntegrationJob
-        {
-            Configuration = configuration,
-            Grid = grid.Grid,
-            GridOrigin = grid.GridOrigin,
-            GridDimensions = grid.GridDimensions,
-            CellRadius = grid.CellRadius,
-            Bodies = Bodies,
-            NavigationStates = NavigationStates,
-            MotionIntents = MotionIntents,
-            StepStates = StepStates,
-#if RTS_CONTACT_DIAGNOSTICS
-            Statistics = diagnostics.ContactStatistics,
-#endif
-        };
-    }
-
     public JobHandle Dispose(JobHandle finalReader)
     {
         JobHandle combined = finalReader;

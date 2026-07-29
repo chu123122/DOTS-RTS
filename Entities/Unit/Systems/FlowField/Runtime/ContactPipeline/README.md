@@ -19,10 +19,9 @@ Runtime/ContactPipeline/
 ├── Kernels/                     # container-free/shared Burst-compatible algorithms
 ├── Scheduling/
 │   ├── CrowdContactPipelineScheduler.cs
-│   ├── Serial/                  # reserved for serial scheduling composition
+│   ├── SharedContactPipelineScheduler.cs
 │   └── Parallel/
-│       ├── ParallelContactPipelineScheduler.cs
-│       └── Jobs/                # executable parallel job algorithms
+│       └── Jobs/                # executable parallel stage and Jacobi jobs
 ├── Stages/
 │   ├── Lifecycle/
 │   ├── Certification/
@@ -31,7 +30,6 @@ Runtime/ContactPipeline/
 │   │   ├── Prediction/
 │   │   └── Validation/
 │   ├── SoftAvoidance/
-│   ├── Motion/
 │   └── Solver/
 │       └── Observability/       # compile-gated solver capture fragments
 └── Observability/
@@ -55,6 +53,10 @@ is the module boundary.
   job layout, not the active enum branch.
 - The scheduler owns only job construction and `JobHandle` order. Parallel job
   algorithms live under `Scheduling/Parallel/Jobs`.
+- GS and Jacobi use the same parallel stage graph. The only backend branch is
+  XPBD contact projection: ordered GS `IJob` versus parallel Jacobi pair/body jobs.
+- The former serial lifecycle, certification, motion, soft-avoidance and scheduler
+  implementations are retired rather than retained as a fallback.
 - Persistent state is candidate input. Only Certification may accept, repair,
   rebuild, or commit consumer views.
 - SoftAvoidance and Solver are scheduled only after an issued certificate passes

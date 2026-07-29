@@ -41,20 +41,20 @@ for path in FLOW.glob("*Resources.cs"):
                      "InteractionCertificationFrameResources.cs", "SoftAvoidanceFrameResources.cs"}:
         fail(f"Contact resource owner remains flat: {path}")
 
-parallel_schedule = read(PIPE / "Scheduling/Parallel/ParallelContactPipelineScheduler.cs")
-parallel_jobs = read(PIPE / "Scheduling/Parallel/Jobs/ParallelContactPipelineJobs.cs")
+parallel_schedule = read(PIPE / "Scheduling/SharedContactPipelineScheduler.cs")
+parallel_jobs = read(PIPE / "Scheduling/Parallel/Jobs/ParallelContactStageJobs.cs")
 if "enum StagedContactPipelinePhase" not in read(
-        PIPE / "Contracts/Execution/ParallelPipelineExecutionContracts.cs"):
+        PIPE / "Contracts/Execution/ContactPipelineStageContracts.cs"):
     fail("Named staged-pipeline phase contract missing")
 for token in ("PrepareTimestepPredictionBodiesJob", "EvaluateSoftAvoidancePairsJob"):
     if token not in parallel_jobs or token not in parallel_schedule:
         fail(f"Parallel schedule/job linkage missing: {token}")
 
 repair_prediction_job = parallel_jobs.split(
-    "internal struct PrepareP1P6RepairPredictionBodiesJob", 1)[1].split(
+    "internal struct PrepareRepairPredictionBodiesJob", 1)[1].split(
         "internal struct InitializeSoftAvoidanceBodiesJob", 1)[0]
 if "int bodyIndex = DirtyBodies[dirtyIndex].BodyIndex;" not in repair_prediction_job:
-    fail("P1P6 repair prediction no longer maps compact dirty indices to bodies")
+    fail("Incremental repair prediction no longer maps compact dirty indices to bodies")
 for element_type, field_name in (
     ("CrowdBodySnapshot", "Bodies"),
     ("CrowdNavigationState", "NavigationStates"),
@@ -67,7 +67,7 @@ for element_type, field_name in (
         rf"public NativeArray<{element_type}>\s+{field_name};")
     if not unrestricted_write.search(repair_prediction_job):
         fail(
-            "P1P6 repair prediction indirect body write lacks an explicit "
+            "Incremental repair prediction indirect body write lacks an explicit "
             f"parallel-for restriction override: {field_name}")
 
 for pattern in ("refactor-contact-pipeline-phase*.yml", "audit-*.yml",

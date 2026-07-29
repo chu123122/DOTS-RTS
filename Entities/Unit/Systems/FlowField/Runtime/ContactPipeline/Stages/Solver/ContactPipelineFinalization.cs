@@ -6,10 +6,10 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct ConstraintSolverJob
 {
-    private void FinalizeParallelJacobiPipeline(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+    private void FinalizeContactPipeline(
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 

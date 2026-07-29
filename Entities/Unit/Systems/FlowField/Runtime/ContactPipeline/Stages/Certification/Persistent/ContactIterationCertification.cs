@@ -6,24 +6,24 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
-    private void FinalizeParallelJacobiIteration(
+    private void FinalizeContactIteration(
         int substepIndex,
         int iterationIndex,
-        NativeReference<ParallelJacobiExecutionState> runtimeState
+        NativeReference<ContactPipelineExecutionState> runtimeState
 #if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ParallelJacobiIterationTelemetry> iterationState,
+        , NativeReference<ContactSolverIterationTelemetry> iterationState,
         NativeList<JacobiBlockTelemetry> blockStatistics
 #endif
         )
     {
-        ParallelJacobiExecutionState runtime = runtimeState.Value;
+        ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
         PredictiveDiscContactStatistics statistics = LoadContactStatistics();
         IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
-        ParallelJacobiIterationTelemetry iteration = iterationState.Value;
+        ContactSolverIterationTelemetry iteration = iterationState.Value;
 #endif
         // Parallel bodies only set disjoint flags. Rebuild the corrected-body
         // list in body-index order so envelope repair stays deterministic.
@@ -34,29 +34,37 @@ public partial struct InteractionCertificationJob
                 CorrectedBodyIndices.Add(bodyIndex);
         }
 #if RTS_CONTACT_DIAGNOSTICS
-        float totalPositionCorrection = 0f;
-        float maxPositionCorrection = 0f;
-        int newlyActivated = 0;
-        int newlyCorrected = 0;
-        for (int i = 0; i < blockStatistics.Length; i++)
+        float totalPositionCorrection =
+            iteration.TotalContactPositionCorrection;
+        float maxPositionCorrection =
+            iteration.MaxContactPositionCorrection;
+        if (ContactPositionSolver == ContactPositionSolverMode.Jacobi)
         {
-            JacobiBlockTelemetry block = blockStatistics[i];
-            totalPositionCorrection += block.TotalPositionCorrection;
-            maxPositionCorrection = math.max(
-                maxPositionCorrection,
-                block.MaxPositionCorrection);
-            newlyActivated += block.NewlyActivatedPairCount;
-            newlyCorrected += block.NewlyCorrectedPairCount;
+            int newlyActivated = 0;
+            int newlyCorrected = 0;
+            for (int i = 0; i < blockStatistics.Length; i++)
+            {
+                JacobiBlockTelemetry block = blockStatistics[i];
+                totalPositionCorrection += block.TotalPositionCorrection;
+                maxPositionCorrection = math.max(
+                    maxPositionCorrection,
+                    block.MaxPositionCorrection);
+                newlyActivated += block.NewlyActivatedPairCount;
+                newlyCorrected += block.NewlyCorrectedPairCount;
+            }
+
+            statistics.TimestepContactSetUniqueActivatedPairCount +=
+                newlyActivated;
+            incrementalStatistics.UniqueCorrectedPairCount += newlyCorrected;
+            incrementalStatistics.ActiveConstraintEvaluationCount +=
+                TimestepContactPairs.Length;
+            statistics.TotalContactPositionCorrection +=
+                totalPositionCorrection;
+            statistics.MaxContactPositionCorrection = math.max(
+                statistics.MaxContactPositionCorrection,
+                maxPositionCorrection);
         }
 
-        statistics.TimestepContactSetUniqueActivatedPairCount += newlyActivated;
-        incrementalStatistics.UniqueCorrectedPairCount += newlyCorrected;
-        incrementalStatistics.ActiveConstraintEvaluationCount +=
-            TimestepContactPairs.Length;
-        statistics.TotalContactPositionCorrection += totalPositionCorrection;
-        statistics.MaxContactPositionCorrection = math.max(
-            statistics.MaxContactPositionCorrection,
-            maxPositionCorrection);
         statistics.TotalWallPositionCorrection +=
             iteration.TotalWallPositionCorrection;
         statistics.MaxWallPositionCorrection = math.max(
@@ -103,9 +111,9 @@ public partial struct InteractionCertificationJob
         // TimestepContactPairs. The repair path above (or an upstream escaped-view
         // rebuild) can change the pair count; the fingerprint fast-path in Ensure
         // can otherwise leave a stale index that the next iteration's
-        // GatherAndApply indexes out of range. Match FinalizeP1P6WallIteration.
+        // GatherAndApply indexes out of range. Match FinalizeWallIteration.
         ActiveIncidentIndexState.Value = default;
-        EnsureActiveConstraintIncidentIndexP1P6();
+        EnsureActiveConstraintIncidentIndex();
 
         StoreContactStatistics(statistics);
         StoreIncrementalStatistics(incrementalStatistics);

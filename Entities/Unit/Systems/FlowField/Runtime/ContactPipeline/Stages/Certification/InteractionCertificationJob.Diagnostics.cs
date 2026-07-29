@@ -13,7 +13,7 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct InteractionCertificationJob
 {
 #if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
+    public NativeReference<ContactSolverIterationTelemetry> IterationState;
     public NativeList<JacobiBlockTelemetry> BlockStatistics;
     public NativeList<ParallelSimulationDebuggerPairCapture> ParallelSimulationDebuggerPairCandidates;
 

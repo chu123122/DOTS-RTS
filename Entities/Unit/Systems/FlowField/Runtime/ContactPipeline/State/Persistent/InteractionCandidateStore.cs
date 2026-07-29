@@ -89,17 +89,17 @@ internal struct InteractionCandidateStore
         SpatialMembershipEpoch.Value = 0;
     }
 
-    public ParallelContactPipelineLifecycleJob CreateParallelLifecycleJob(
+    public ContactPipelineLifecycleJob CreateLifecycleJob(
         ContactPipelineConfiguration configuration,
         ContactPipelineExecutionResources execution,
         ConstraintSolverFrameResources solver,
         ContactDiagnosticsFrameResources diagnostics,
         NativeList<SimulationDebuggerPairSample> debuggerSelectedPairs)
     {
-        return new ParallelContactPipelineLifecycleJob
+        return new ContactPipelineLifecycleJob
         {
             Configuration = configuration,
-            RuntimeState = execution.ParallelJacobiRuntimeState,
+            RuntimeState = execution.PipelineRuntimeState,
             PersistentSweptProxies = SweptProxies,
             PersistentProxyIndexByBody = ProxyIndexByBody,
             PersistentNeighborPairs = NeighborPairs,

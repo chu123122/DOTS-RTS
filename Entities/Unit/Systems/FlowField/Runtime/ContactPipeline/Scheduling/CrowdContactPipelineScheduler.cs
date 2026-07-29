@@ -19,10 +19,8 @@ public partial struct CrowdContactPipelineScheduler
     internal const int JacobiPairBatchSize = 64;
 
     public ContactPipelineConfiguration Configuration;
-    public SerialContactPipelineLifecycleJob SerialLifecycle;
-    public ParallelContactPipelineLifecycleJob ParallelLifecycle;
+    public ContactPipelineLifecycleJob Lifecycle;
     public InteractionCertificationJob Certification;
-    public MotionIntegrationJob Motion;
     public SoftAvoidanceJob SoftAvoidance;
     public ConstraintSolverJob ConstraintSolver;
 
@@ -98,102 +96,5 @@ public partial struct CrowdContactPipelineScheduler
     private NativeList<SimulationDebuggerPairSample> ParallelSimulationDebuggerPairScratch => ConstraintSolver.ParallelSimulationDebuggerPairScratch;
 #endif
 
-    public JobHandle ScheduleSerial(JobHandle dependency)
-    {
-        JobHandle handle = SerialLifecycle.Schedule(dependency);
-
-        InteractionCertificationJob certification = Certification;
-        certification.Operation = InteractionCertificationOperation.InitializeSerial;
-        handle = certification.Schedule(handle);
-        certification.Operation = InteractionCertificationOperation.BuildInitialSerial;
-        handle = certification.Schedule(handle);
-
-        int substeps = math.max(1, SubstepCount);
-        int iterations = math.max(1, IterationCount);
-        for (int substep = 0; substep < substeps; substep++)
-        {
-            MotionIntegrationJob motion = Motion;
-            motion.Operation = MotionIntegrationOperation.PrepareBaseVelocity;
-            handle = motion.Schedule(handle);
-
-            certification = Certification;
-            certification.SubstepIndex = substep;
-            certification.Operation = InteractionCertificationOperation.BuildSubstepInteractionSerial;
-            handle = certification.Schedule(handle);
-            certification.Operation = InteractionCertificationOperation.ValidateBaseMotionSerial;
-            handle = certification.Schedule(handle);
-
-            certification.Operation =
-                InteractionCertificationOperation.ValidateConsumerViewsSerial;
-            handle = certification.Schedule(handle);
-
-            SoftAvoidanceJob soft = SoftAvoidance;
-            soft.Operation = SoftAvoidanceOperation.SolveSerial;
-            handle = soft.Schedule(handle);
-
-            certification = Certification;
-            certification.SubstepIndex = substep;
-            certification.Operation = InteractionCertificationOperation.ClampSoftOutputSerial;
-            handle = certification.Schedule(handle);
-
-            motion = Motion;
-            motion.Operation = MotionIntegrationOperation.PredictUnconstrained;
-            handle = motion.Schedule(handle);
-
-            certification = Certification;
-            certification.SubstepIndex = substep;
-            certification.Operation = InteractionCertificationOperation.ValidatePredictedAndActivateSerial;
-            handle = certification.Schedule(handle);
-
-            certification.Operation =
-                InteractionCertificationOperation.ValidateConsumerViewsSerial;
-            handle = certification.Schedule(handle);
-
-            for (int iteration = 0; iteration < iterations; iteration++)
-            {
-                ConstraintSolverJob solver = ConstraintSolver;
-                solver.SubstepIndex = substep;
-                solver.IterationIndex = iteration;
-                solver.Operation = ConstraintSolverOperation.SolveWallSerial;
-                handle = solver.Schedule(handle);
-
-                certification = Certification;
-                certification.SubstepIndex = substep;
-                certification.AfterContact = 0;
-                certification.Operation = InteractionCertificationOperation.ValidateSolverCorrectionSerial;
-                handle = certification.Schedule(handle);
-
-                solver = ConstraintSolver;
-                solver.SubstepIndex = substep;
-                solver.IterationIndex = iteration;
-                solver.Operation = ConstraintSolverOperation.SolveContactSerial;
-                handle = solver.Schedule(handle);
-
-                certification = Certification;
-                certification.SubstepIndex = substep;
-                certification.AfterContact = 1;
-                certification.IsLastIteration = (byte)(iteration == iterations - 1 ? 1 : 0);
-                certification.Operation = InteractionCertificationOperation.ValidateSolverCorrectionSerial;
-                handle = certification.Schedule(handle);
-
-                solver = ConstraintSolver;
-                solver.SubstepIndex = substep;
-                solver.Operation = ConstraintSolverOperation.SolveRecoverySerial;
-                handle = solver.Schedule(handle);
-            }
-
-            ConstraintSolverJob finalizeSubstep = ConstraintSolver;
-            finalizeSubstep.Operation = ConstraintSolverOperation.FinalizeSerialSubstep;
-            handle = finalizeSubstep.Schedule(handle);
-
-            MotionIntegrationJob reconstruct = Motion;
-            reconstruct.Operation = MotionIntegrationOperation.ReconstructVelocity;
-            handle = reconstruct.Schedule(handle);
-        }
-
-        ConstraintSolverJob finalize = ConstraintSolver;
-        finalize.Operation = ConstraintSolverOperation.FinalizeSerialPipeline;
-        return finalize.Schedule(handle);
-    }
 }
 }

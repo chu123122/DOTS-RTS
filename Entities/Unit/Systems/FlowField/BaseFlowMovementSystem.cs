@@ -121,10 +121,9 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         if (_candidateStore.RequiresCapacity(unitCount))
             _candidateStore.EnsureCapacity(unitCount);
 
-        bool usesJacobiScratch =
+        bool usesJacobiSolver =
             contactSolverSettings.ContactPositionSolver ==
             ContactPositionSolverMode.Jacobi;
-        bool useParallelJacobi = usesJacobiScratch;
         SimulationDebuggerEffectiveSettings effectiveSettings =
             BuildEffectiveSettings(
                 flowFieldSettings,
@@ -201,14 +200,8 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 contactSolverSettings,
                 effectivePersistentContactCache,
                 effectiveTimestepContactSetCache);
-        SerialContactPipelineLifecycleJob serialLifecycle =
-            executionResources.CreateSerialLifecycleJob(
-                configuration,
-                solverResources,
-                diagnostics,
-                _simulationDebuggerSelectedPairs);
-        ParallelContactPipelineLifecycleJob parallelLifecycle =
-            _candidateStore.CreateParallelLifecycleJob(
+        ContactPipelineLifecycleJob pipelineLifecycle =
+            _candidateStore.CreateLifecycleJob(
                 configuration,
                 executionResources,
                 solverResources,
@@ -223,10 +216,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             executionResources,
             diagnostics,
             selectedEntity);
-        MotionIntegrationJob motion = body.CreateMotionJob(
-            configuration,
-            gridComponent,
-            diagnostics);
         SoftAvoidanceJob softAvoidance = softResources.CreateJob(
             configuration,
             gridComponent,
@@ -251,33 +240,23 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         CrowdContactPipelineScheduler solver = new CrowdContactPipelineScheduler
         {
             Configuration = configuration,
-            SerialLifecycle = serialLifecycle,
-            ParallelLifecycle = parallelLifecycle,
+            Lifecycle = pipelineLifecycle,
             Certification = certification,
-            Motion = motion,
             SoftAvoidance = softAvoidance,
             ConstraintSolver = constraintSolver
         };
 
-        JobHandle solveHandle;
-        if (useParallelJacobi)
-        {
 #if RTS_CONTACT_DIAGNOSTICS
-            solveHandle = solver.ScheduleParallelJacobiP1P6(
-                executionResources.ParallelJacobiRuntimeState,
-                executionResources.ParallelJacobiIterationState,
-                executionResources.ParallelJacobiBlockTelemetry,
-                initializeHandle);
+        JobHandle solveHandle = solver.ScheduleParallelStages(
+            executionResources.PipelineRuntimeState,
+            executionResources.SolverIterationState,
+            executionResources.JacobiBlockStatistics,
+            initializeHandle);
 #else
-            solveHandle = solver.ScheduleParallelJacobiP1P6(
-                executionResources.ParallelJacobiRuntimeState,
-                initializeHandle);
+        JobHandle solveHandle = solver.ScheduleParallelStages(
+            executionResources.PipelineRuntimeState,
+            initializeHandle);
 #endif
-        }
-        else
-        {
-            solveHandle = solver.ScheduleSerial(initializeHandle);
-        }
 
         ContactDiagnosticsPublishHandles diagnosticsPublish =
             ScheduleContactDiagnosticsPublication(
@@ -318,7 +297,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         // Complete the solver jobs and tally per-mode here so the desync surfaces
         // as a Debug.LogError instead of a silent Burst abort. Remove once the root
         // cause (deferred incident-index timing) is fixed.
-        if (useParallelJacobi)
+        if (usesJacobiSolver)
         {
             solveHandle.Complete();
             int flag2 = 0, flag3 = 0, flag4 = 0;

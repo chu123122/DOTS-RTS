@@ -84,6 +84,8 @@ internal struct JacobiPairSolveResult
     {
         public float Alpha;
         public int SubstepIndex;
+        public byte RecoveryOnly;
+        [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
@@ -94,12 +96,19 @@ internal struct JacobiPairSolveResult
         // [NativeDisableParallelForRestriction]）。NativeList 不是原子写容器，
         // 以读写形式喂给 IJobParallelFor 会在 Schedule 阶段被 Jobs 安全检查拒绝
         //（"not declared [ReadOnly] ... does not support parallel writing"）。
-        // 长度由 FinalizeP1P6WallIteration 的 resize 与接触对数对齐，运行时由
+        // 长度由 FinalizeWallIteration 的 resize 与接触对数对齐，运行时由
         // AsDeferredJobArray 从 list length patch，和上方 Pairs 同模式。
         public NativeArray<JacobiPairCorrection> Corrections;
 
         public void Execute(int pairIndex)
         {
+            if (RecoveryOnly != 0)
+            {
+                ContactPipelineExecutionState runtime = RuntimeState.Value;
+                if (runtime.IsValid == 0 || runtime.RecoveryRequired == 0)
+                    return;
+            }
+
             ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
@@ -132,6 +141,8 @@ internal struct JacobiPairSolveResult
     {
         public float Alpha;
         public int SubstepIndex;
+        public byte RecoveryOnly;
+        [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
@@ -145,6 +156,13 @@ internal struct JacobiPairSolveResult
 
         public void Execute(int pairIndex)
         {
+            if (RecoveryOnly != 0)
+            {
+                ContactPipelineExecutionState runtime = RuntimeState.Value;
+                if (runtime.IsValid == 0 || runtime.RecoveryRequired == 0)
+                    return;
+            }
+
             ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
             CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
@@ -224,6 +242,8 @@ internal struct JacobiPairSolveResult
     [BurstCompile]
     internal struct GatherAndApplyParallelJacobiBodiesJob : IJobParallelFor
     {
+        public byte RecoveryOnly;
+        [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
         public NativeArray<CrowdBodySnapshot> Bodies;
         public NativeArray<CrowdNavigationState> NavigationStates;
         public NativeArray<CrowdMotionIntent> MotionIntents;
@@ -245,6 +265,13 @@ internal struct JacobiPairSolveResult
 
         public void Execute(int bodyIndex)
         {
+            if (RecoveryOnly != 0)
+            {
+                ContactPipelineExecutionState runtime = RuntimeState.Value;
+                if (runtime.IsValid == 0 || runtime.RecoveryRequired == 0)
+                    return;
+            }
+
             float3 correctionSum = float3.zero;
             int correctionCount = 0;
             int begin = IncidentOffsets[bodyIndex];

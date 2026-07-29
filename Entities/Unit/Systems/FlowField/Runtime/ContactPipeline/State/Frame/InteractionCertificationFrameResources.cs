@@ -87,8 +87,7 @@ internal struct InteractionCertificationFrameResources
         return new InteractionCertificationJob
         {
             Configuration = configuration,
-            RuntimeState = execution.ParallelJacobiRuntimeState,
-            SerialControl = execution.SerialControlState,
+            RuntimeState = execution.PipelineRuntimeState,
             GridOrigin = grid.GridOrigin,
             GridDimensions = grid.GridDimensions,
             CellRadius = grid.CellRadius,
@@ -144,8 +143,8 @@ internal struct InteractionCertificationFrameResources
             PersistentIncidentPairLookup = candidates.IncidentPairLookup,
             PersistentIncidentLookupEpoch = candidates.IncidentLookupEpoch,
 #if RTS_CONTACT_DIAGNOSTICS
-            IterationState = execution.ParallelJacobiIterationState,
-            BlockStatistics = execution.ParallelJacobiBlockTelemetry,
+            IterationState = execution.SolverIterationState,
+            BlockStatistics = execution.JacobiBlockStatistics,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             PersistentClassificationTelemetry = PersistentClassificationTelemetry,
             IncrementalOracleContactPairs = diagnostics.IncrementalOracleContactPairs,

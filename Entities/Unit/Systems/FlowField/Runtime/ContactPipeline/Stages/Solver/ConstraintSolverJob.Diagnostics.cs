@@ -13,7 +13,7 @@ namespace RTS.Unit.FlowField.Jobs
 public partial struct ConstraintSolverJob
 {
 #if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<ParallelJacobiIterationTelemetry> IterationState;
+    public NativeReference<ContactSolverIterationTelemetry> IterationState;
     public NativeList<JacobiBlockTelemetry> BlockStatistics;
 
     public Entity DiagnosticSelectedEntity;

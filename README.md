@@ -129,14 +129,13 @@ Runtime/ContactPipeline/
 ├── Kernels/               # 无容器共享 Burst 算法（分类器、调度器、数学）
 ├── Scheduling/
 │   ├── CrowdContactPipelineScheduler.cs
+│   ├── SharedContactPipelineScheduler.cs
 │   └── Parallel/
-│       ├── ParallelContactPipelineScheduler.cs
 │       └── Jobs/          # 可执行并行 Job（Jacobi / 逃逸计数 / Scatter / Gather）
 ├── Stages/
 │   ├── Certification/     # BroadPhase / Persistent / Prediction / Validation
 │   ├── Lifecycle/
 │   ├── SoftAvoidance/
-│   ├── Motion/
 │   └── Solver/            # XPBD（Gauss-Seidel / Jacobi）、墙壁、CSR Incident Index
 │       └── Observability/ # 编译期诊断捕获（RTS_CONTACT_DIAGNOSTICS）
 └── Observability/

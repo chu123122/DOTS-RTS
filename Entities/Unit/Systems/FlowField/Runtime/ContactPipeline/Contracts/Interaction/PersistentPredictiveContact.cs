@@ -12,7 +12,7 @@ public enum PersistentContactLifecycle : byte
     Predictive,
     Actual,
     // 注：Separating 当前不被任何分类器（ClassifyPersistentNeighborPair /
-    // ClassifyPersistentPairP1P6 / UpdatePersistentContactAfterScheduledCheck）
+    // ClassifyPersistentPair / UpdatePersistentContactAfterScheduledCheck）
     // 输出。保留枚举值是因为 eligibility filter 以 Lifecycle != Expired 判定
     // eligible，Separating 落入 eligible（保守正确）。未来若实现"分离中"语义
     // 再由分类器产生此状态。

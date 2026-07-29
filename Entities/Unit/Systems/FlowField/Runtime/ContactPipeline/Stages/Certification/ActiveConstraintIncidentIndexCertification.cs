@@ -4,7 +4,7 @@ namespace RTS.Unit.FlowField.Jobs
 {
 public partial struct InteractionCertificationJob
 {
-    private void EnsureActiveConstraintIncidentIndexP1P6()
+    private void EnsureActiveConstraintIncidentIndex()
     {
         ActiveConstraintIncidentIndexBuilder.Ensure(
             ContactPositionSolver,

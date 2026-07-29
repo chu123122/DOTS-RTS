@@ -27,8 +27,8 @@ public partial struct InteractionCertificationJob
         persistentViewReady = false;
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
-        bool cacheCanBePatched = !forceFullRebuild && IsPersistentCacheStructurallyReusableP1P6();
-        SummarizePreparedIncrementalDirtyBodiesP1P6(
+        bool cacheCanBePatched = !forceFullRebuild && IsPersistentCacheStructurallyReusable();
+        SummarizePreparedIncrementalDirtyBodies(
             ref incrementalStatistics,
             out int topologyDirtyCount,
             out bool entitySetDirty);
@@ -45,7 +45,7 @@ public partial struct InteractionCertificationJob
             long buildStart = ProfilerUnsafeUtility.Timestamp;
             long localBefore = incrementalStatistics.LocalBroadPhaseNanoseconds;
             FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
-            RebuildPersistentSpatialMembershipP1P6(IncrementalCacheState.Value.TopologyEpoch);
+            RebuildPersistentSpatialMembership(IncrementalCacheState.Value.TopologyEpoch);
             long elapsed = ContactPipelineMath.TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - buildStart);
             long localElapsed = incrementalStatistics.LocalBroadPhaseNanoseconds - localBefore;
             long exclusive = elapsed - localElapsed;
@@ -64,7 +64,7 @@ public partial struct InteractionCertificationJob
             }
             else
             {
-                AdvancePersistentCacheTimestepP1P6(ref incrementalStatistics);
+                AdvancePersistentCacheTimestep(ref incrementalStatistics);
             }
             long elapsed = ContactPipelineMath.TimestampToNanoseconds(ProfilerUnsafeUtility.Timestamp - repairStart);
             long localElapsed = incrementalStatistics.LocalBroadPhaseNanoseconds - localBefore;
@@ -1007,7 +1007,7 @@ public partial struct InteractionCertificationJob
         PersistentContactMath.UpdateActiveConstraintGauges(
             ref incrementalStatistics, currentActiveConstraintCount);
 
-    private bool IsPersistentCacheStructurallyReusableP1P6() =>
+    private bool IsPersistentCacheStructurallyReusable() =>
         PersistentCacheReusability.IsStructurallyReusable(
             IncrementalCacheState.Value,
             Bodies.Length,
@@ -1027,7 +1027,7 @@ public partial struct InteractionCertificationJob
                 SoftAvoidanceVelocitySolver = SoftAvoidanceVelocitySolver
             });
 
-    private static PersistentSweptProxy BuildPersistentProxyFromStateP1P6(
+    private static PersistentSweptProxy BuildPersistentProxyFromState(
         int bodyIndex,
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
@@ -1042,7 +1042,7 @@ public partial struct InteractionCertificationJob
             guardMargin, softAvoidanceShell,
             softAvoidanceResponseRate, softSolverMode, rvoTimeHorizon);
 
-    internal static IncrementalBodyDirtyFlags ClassifyAndUpdatePersistentProxyForBodyP1P6(
+    internal static IncrementalBodyDirtyFlags ClassifyAndUpdatePersistentProxyForBody(
         int bodyIndex,
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
@@ -1064,11 +1064,11 @@ public partial struct InteractionCertificationJob
     private void PrepareInitialPersistentDirtyBodySet()
     {
         ClearIncrementalDirtyBodySet();
-        if (!IsPersistentCacheStructurallyReusableP1P6())
+        if (!IsPersistentCacheStructurallyReusable())
             return;
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            IncrementalBodyDirtyFlags flags = ClassifyAndUpdatePersistentProxyForBodyP1P6(
+            IncrementalBodyDirtyFlags flags = ClassifyAndUpdatePersistentProxyForBody(
                 bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
                 StepStates[bodyIndex], PersistentSweptProxies.AsArray(),
                 PersistentProxyIndexByBody.AsArray(), IncrementalCacheState.Value,
@@ -1079,12 +1079,12 @@ public partial struct InteractionCertificationJob
         }
     }
 
-    private bool RefreshPreparedIncrementalDirtyBodiesP1P6(
+    private bool RefreshPreparedIncrementalDirtyBodies(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         out int topologyDirtyCount)
     {
         topologyDirtyCount = 0;
-        if (!IsPersistentCacheStructurallyReusableP1P6())
+        if (!IsPersistentCacheStructurallyReusable())
             return false;
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
@@ -1092,7 +1092,7 @@ public partial struct InteractionCertificationJob
             int bodyIndex = dirty.BodyIndex;
             if ((uint)bodyIndex >= (uint)Bodies.Length)
                 return false;
-            IncrementalBodyDirtyFlags refreshed = ClassifyAndUpdatePersistentProxyForBodyP1P6(
+            IncrementalBodyDirtyFlags refreshed = ClassifyAndUpdatePersistentProxyForBody(
                 bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
                 StepStates[bodyIndex], PersistentSweptProxies.AsArray(),
                 PersistentProxyIndexByBody.AsArray(), IncrementalCacheState.Value,
@@ -1106,12 +1106,12 @@ public partial struct InteractionCertificationJob
             IncrementalDirtyBodies[dirtyIndex] = dirty;
             IncrementalDirtyFlagsByBody[bodyIndex] = (byte)merged;
         }
-        SummarizePreparedIncrementalDirtyBodiesP1P6(
+        SummarizePreparedIncrementalDirtyBodies(
             ref incrementalStatistics, out topologyDirtyCount, out _);
         return true;
     }
 
-    private void SummarizePreparedIncrementalDirtyBodiesP1P6(
+    private void SummarizePreparedIncrementalDirtyBodies(
         ref IncrementalContactPipelineStatistics incrementalStatistics,
         out int topologyDirtyCount,
         out bool entitySetDirty)
@@ -1136,7 +1136,7 @@ public partial struct InteractionCertificationJob
         }
     }
 
-    private void AdvancePersistentCacheTimestepP1P6(
+    private void AdvancePersistentCacheTimestep(
         ref IncrementalContactPipelineStatistics incrementalStatistics)
     {
         IncrementalContactCacheState state = IncrementalCacheState.Value;
@@ -1149,7 +1149,7 @@ public partial struct InteractionCertificationJob
         incrementalStatistics.NeighborPairRetainedCount = PersistentNeighborPairs.Length;
     }
 
-    private void RebuildPersistentProxyIndexByBodyP1P6()
+    private void RebuildPersistentProxyIndexByBody()
     {
         PersistentProxyIndexByBody.ResizeUninitialized(Bodies.Length);
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
@@ -1203,7 +1203,7 @@ public partial struct InteractionCertificationJob
         uint nextTimestep = IncrementalCacheState.Value.Timestep +
                             (advanceTimestep ? 1u : 0u);
         bool spatialMembershipReady =
-            RebuildPersistentSpatialMembershipP1P6(nextTopologyEpoch);
+            RebuildPersistentSpatialMembership(nextTopologyEpoch);
         for (int dirtyIndex = 0; dirtyIndex < IncrementalDirtyBodies.Length; dirtyIndex++)
         {
             IncrementalDirtyBody dirty = IncrementalDirtyBodies[dirtyIndex];
@@ -1224,7 +1224,7 @@ public partial struct InteractionCertificationJob
 
             int dirtyProxyIndex = FindPersistentProxyIndex(dirtyStateSnapshot.Entity);
             if (spatialMembershipReady && dirtyProxyIndex >= 0 &&
-                TryAppendPersistentSpatialNeighborsP1P6(
+                TryAppendPersistentSpatialNeighbors(
                     dirtyProxyIndex,
                     nextTopologyEpoch,
                     nextTimestep,
@@ -1294,7 +1294,7 @@ public partial struct InteractionCertificationJob
                 ProfilerUnsafeUtility.Timestamp - validationStart);
             return true;
         }
-        if (!RefreshPreparedIncrementalDirtyBodiesP1P6(
+        if (!RefreshPreparedIncrementalDirtyBodies(
                 ref incrementalStatistics, out int topologyDirtyCount))
         {
             incrementalStatistics.ProxyValidationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
@@ -1643,7 +1643,7 @@ public partial struct InteractionCertificationJob
 
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
-            CurrentIncrementalProxies.Add(BuildPersistentProxyFromStateP1P6(
+            CurrentIncrementalProxies.Add(BuildPersistentProxyFromState(
                 bodyIndex, Bodies[bodyIndex], MotionEvidence[bodyIndex],
                 StepStates[bodyIndex], guardMargin, SoftAvoidanceShell,
                 SoftAvoidanceResponseRate, SoftAvoidanceVelocitySolver,
@@ -1702,7 +1702,7 @@ public partial struct InteractionCertificationJob
         PersistentSweptProxies.Clear();
         PersistentNeighborPairs.Clear();
         PersistentSweptProxies.AddRange(CurrentIncrementalProxies.AsArray());
-        RebuildPersistentProxyIndexByBodyP1P6();
+        RebuildPersistentProxyIndexByBody();
 
         float cellSize = math.max(CellRadius * 2f, 0.0001f);
         int validProxyCount = 0;

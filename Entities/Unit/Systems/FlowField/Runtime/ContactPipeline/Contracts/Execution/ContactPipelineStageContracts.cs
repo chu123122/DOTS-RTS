@@ -52,7 +52,7 @@ public struct ActiveIncidentIndexState
 }
 
 /// <summary>
-/// 历史 P1-P6 实现标签背后的命名职责。该枚举是阶段调度的边界文档，并非可变运行时状态。
+/// 共享接触管线的阶段职责。该枚举是调度边界文档，并非可变运行时状态。
 /// </summary>
 internal enum StagedContactPipelinePhase : byte
 {
@@ -66,7 +66,7 @@ internal enum StagedContactPipelinePhase : byte
 }
 
 /// <summary>
-/// 分阶段并行接触管线。历史 P1-P6 标签映射到上方命名的 <see cref="StagedContactPipelinePhase"/> 职责。
-/// 独立 body/pair 工作并行运行；拓扑变更、修复与确定性压缩仍在显式阶段边界保持串行。
+/// 分阶段并行接触管线。独立 body/pair 工作并行运行；拓扑变更、修复与
+/// 确定性压缩仍在显式阶段边界保持串行协调。
 /// </summary>
 }

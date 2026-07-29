@@ -12,18 +12,15 @@ namespace RTS.Unit.FlowField.Jobs
 public enum ConstraintSolverOperation : byte
 {
     None,
-    SolveWallSerial,
-    SolveContactSerial,
-    SolveRecoverySerial,
-    SolveParallelRecovery,
-    FinalizeSerialSubstep,
-    FinalizeSerialPipeline,
-    ResetAndBuildIncidentSerial,
-    BeginParallelIteration,
-    BeginParallelFinalizeSubstep,
-    FinalizeParallelVelocity,
+    SolveGaussSeidelContact,
+    SolveGaussSeidelRecovery,
+    PrepareJacobiRecovery,
+    FinalizeJacobiRecovery,
+    InitializeContactIteration,
+    FinalizeSubstepTelemetry,
+    FinalizeVelocity,
     MergeParallelDebuggerPairs,
-    FinalizeParallelPipeline
+    FinalizePipeline
 }
 
 [BurstCompile]
@@ -31,12 +28,11 @@ public partial struct ConstraintSolverJob : IJob
 {
     public ConstraintSolverOperation Operation;
     public ContactPipelineConfiguration Configuration;
-    public NativeReference<SerialContactPipelineControlState> SerialControl;
     public int SubstepIndex;
     public int IterationIndex;
     public int BodyBlockCount;
     public int BlockCount;
-    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
     [ReadOnly] public NativeArray<FlowFieldCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
@@ -70,43 +66,33 @@ public partial struct ConstraintSolverJob : IJob
     {
         switch (Operation)
         {
-            case ConstraintSolverOperation.SolveWallSerial:
-                ExecuteSolveWallSerial();
+            case ConstraintSolverOperation.SolveGaussSeidelContact:
+                ExecuteSolveGaussSeidelContact();
                 break;
-            case ConstraintSolverOperation.SolveContactSerial:
-                ExecuteSolveContactSerial(false);
+            case ConstraintSolverOperation.SolveGaussSeidelRecovery:
+                ExecuteGaussSeidelRecovery();
                 break;
-            case ConstraintSolverOperation.SolveRecoverySerial:
-                ExecuteSolveContactSerial(true);
+            case ConstraintSolverOperation.PrepareJacobiRecovery:
+                PrepareJacobiRecovery();
                 break;
-            case ConstraintSolverOperation.SolveParallelRecovery:
-                ExecuteParallelRecovery();
+            case ConstraintSolverOperation.FinalizeJacobiRecovery:
+                FinalizeJacobiRecovery();
                 break;
-            case ConstraintSolverOperation.FinalizeSerialSubstep:
-                ExecuteFinalizeSerialSubstep();
-                break;
-            case ConstraintSolverOperation.FinalizeSerialPipeline:
-                ExecuteFinalizeSerialPipeline();
-                break;
-            case ConstraintSolverOperation.ResetAndBuildIncidentSerial:
-                ResetTimestepContactSetForSubstep();
-                RebuildActiveConstraintIncidentIndexIfNeeded();
-                break;
-            case ConstraintSolverOperation.BeginParallelIteration:
-                BeginP1P6Iteration(SubstepIndex, RuntimeState
+            case ConstraintSolverOperation.InitializeContactIteration:
+                InitializeContactIteration(SubstepIndex, RuntimeState
 #if RTS_CONTACT_DIAGNOSTICS
                     , IterationState
 #endif
                 );
                 break;
-            case ConstraintSolverOperation.BeginParallelFinalizeSubstep:
+            case ConstraintSolverOperation.FinalizeSubstepTelemetry:
 #if RTS_CONTACT_DIAGNOSTICS
-                BeginP1P6FinalizeSubstep(RuntimeState);
+                FinalizeSubstepTelemetry(RuntimeState);
 #endif
                 break;
-            case ConstraintSolverOperation.FinalizeParallelVelocity:
+            case ConstraintSolverOperation.FinalizeVelocity:
 #if RTS_CONTACT_DIAGNOSTICS
-                FinalizeP1P6VelocityStatistics(RuntimeState, BlockCount);
+                FinalizeVelocityStatistics(RuntimeState, BlockCount);
 #endif
                 break;
             case ConstraintSolverOperation.MergeParallelDebuggerPairs:
@@ -114,8 +100,8 @@ public partial struct ConstraintSolverJob : IJob
                 MergeParallelSimulationDebuggerPairScratch();
 #endif
                 break;
-            case ConstraintSolverOperation.FinalizeParallelPipeline:
-                FinalizeParallelJacobiPipeline(RuntimeState);
+            case ConstraintSolverOperation.FinalizePipeline:
+                FinalizeContactPipeline(RuntimeState);
                 break;
         }
     }

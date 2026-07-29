@@ -5,7 +5,7 @@ using RTS.Unit.FlowField;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
-/// 增量（P1P6）接触路径下的持久 swept-proxy 构建与 dirty 标记分类。纯值函数：无 Job 状态、无实例字段、
+/// 增量接触路径下的持久 swept-proxy 构建与 dirty 标记分类。纯值函数：无 Job 状态、无实例字段、
 /// 所有输入以参数传入。被认证器 Job 共享，并可独立做单元测试。
 /// </summary>
 internal static class PersistentProxyBuilder

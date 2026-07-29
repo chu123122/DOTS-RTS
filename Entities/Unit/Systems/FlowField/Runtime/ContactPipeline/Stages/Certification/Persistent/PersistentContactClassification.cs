@@ -54,16 +54,16 @@ public partial struct InteractionCertificationJob
 
 
 
-    internal JobHandle ScheduleInitialPersistentContactSetP1P6(
-        NativeReference<ParallelJacobiExecutionState> runtimeState,
+    internal JobHandle ScheduleInitialPersistentContactSet(
+        NativeReference<ContactPipelineExecutionState> runtimeState,
         JobHandle dependency)
     {
         InteractionCertificationJob prepare = this;
-        prepare.Operation = InteractionCertificationOperation.PreparePersistentClassificationP1P6;
+        prepare.Operation = InteractionCertificationOperation.PreparePersistentClassification;
         prepare.RuntimeState = runtimeState;
         JobHandle handle = prepare.Schedule(dependency);
 
-        var evaluateJob = new EvaluatePersistentPairClassificationsP1P6Job
+        var evaluateJob = new EvaluatePersistentPairClassificationsJob
         {
             Bodies = Bodies,
             NavigationStates = NavigationStates,
@@ -95,7 +95,7 @@ public partial struct InteractionCertificationJob
             handle);
 
         InteractionCertificationJob commit = this;
-        commit.Operation = InteractionCertificationOperation.CommitPersistentClassificationP1P6;
+        commit.Operation = InteractionCertificationOperation.CommitPersistentClassification;
         commit.RuntimeState = runtimeState;
         return commit.Schedule(handle);
     }
@@ -103,7 +103,7 @@ public partial struct InteractionCertificationJob
 
 
     [BurstCompile]
-    internal struct EvaluatePersistentPairClassificationsP1P6Job : IJobParallelForDefer
+    internal struct EvaluatePersistentPairClassificationsJob : IJobParallelForDefer
     {
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
@@ -146,15 +146,15 @@ public partial struct InteractionCertificationJob
                 bodyASnapshot.Entity,
                 bodyBSnapshot.Entity);
 
-            bool hasProxyA = TryFindPersistentProxyP1P6(
+            bool hasProxyA = TryFindPersistentProxy(
                 PersistentProxies,
                 key.EntityA,
                 out PersistentSweptProxy proxyA);
-            bool hasProxyB = TryFindPersistentProxyP1P6(
+            bool hasProxyB = TryFindPersistentProxy(
                 PersistentProxies,
                 key.EntityB,
                 out PersistentSweptProxy proxyB);
-            bool hasPrevious = TryFindPersistentContactP1P6(
+            bool hasPrevious = TryFindPersistentContact(
                 PreviousContacts,
                 key,
                 out PersistentPredictiveContact previous);
@@ -181,7 +181,7 @@ public partial struct InteractionCertificationJob
             }
             else
             {
-                result.Contact = ClassifyPersistentPairP1P6(
+                result.Contact = ClassifyPersistentPair(
                     key,
                     rawPair,
                     bodyASnapshot,
@@ -211,8 +211,8 @@ public partial struct InteractionCertificationJob
 
 
 
-    private void PreparePersistentClassificationP1P6(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+    private void PreparePersistentClassification(
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         PersistentClassificationPhaseState phase = new PersistentClassificationPhaseState
         {
@@ -270,7 +270,7 @@ public partial struct InteractionCertificationJob
         else
         {
 #if RTS_CONTACT_DIAGNOSTICS
-            FinalizePersistentBuildTimingP1P6(
+            FinalizePersistentBuildTiming(
                 telemetry.BuildStartTimestamp,
                 ref statistics);
 #endif
@@ -287,8 +287,8 @@ public partial struct InteractionCertificationJob
     {
         long validationStart = ProfilerUnsafeUtility.Timestamp;
         PrepareCurrentBodyLookup();
-        bool cacheCanBePatched = IsPersistentCacheStructurallyReusableP1P6();
-        SummarizePreparedIncrementalDirtyBodiesP1P6(
+        bool cacheCanBePatched = IsPersistentCacheStructurallyReusable();
+        SummarizePreparedIncrementalDirtyBodies(
             ref incrementalStatistics,
             out int topologyDirtyCount,
             out bool entitySetDirty);
@@ -307,7 +307,7 @@ public partial struct InteractionCertificationJob
             long buildStart = ProfilerUnsafeUtility.Timestamp;
             long localBefore = incrementalStatistics.LocalBroadPhaseNanoseconds;
             FullRebuildPersistentNeighborTopology(ref incrementalStatistics);
-            RebuildPersistentSpatialMembershipP1P6(
+            RebuildPersistentSpatialMembership(
                 IncrementalCacheState.Value.TopologyEpoch);
             long elapsed = ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - buildStart);
@@ -330,7 +330,7 @@ public partial struct InteractionCertificationJob
             }
             else
             {
-                AdvancePersistentCacheTimestepP1P6(ref incrementalStatistics);
+                AdvancePersistentCacheTimestep(ref incrementalStatistics);
             }
             long elapsed = ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp - repairStart);
@@ -417,8 +417,8 @@ public partial struct InteractionCertificationJob
             ref incrementalStatistics);
         return PersistentClassificationWorkset.ViewsReady;
     }
-    private void CommitPersistentClassificationP1P6(
-        NativeReference<ParallelJacobiExecutionState> runtimeState)
+    private void CommitPersistentClassification(
+        NativeReference<ContactPipelineExecutionState> runtimeState)
     {
         PersistentClassificationPhaseState phase =
             PersistentClassificationState.Value;
@@ -429,7 +429,7 @@ public partial struct InteractionCertificationJob
         IncrementalContactPipelineStatistics incremental = LoadIncrementalStatistics();
         if (phase.NeedsCommit == 3)
         {
-            CommitDirtyIncidentPersistentClassificationP1P6(
+            CommitDirtyIncidentPersistentClassification(
                 phase,
                 ref statistics,
                 ref incremental);
@@ -526,7 +526,7 @@ public partial struct InteractionCertificationJob
             PersistentClassificationTelemetry.Value;
         incremental.SweptClassificationNanoseconds += ContactPipelineMath.TimestampToNanoseconds(
             ProfilerUnsafeUtility.Timestamp - telemetry.ClassificationStartTimestamp);
-        FinalizePersistentBuildTimingP1P6(
+        FinalizePersistentBuildTiming(
             telemetry.BuildStartTimestamp,
             ref statistics);
 #endif
@@ -537,7 +537,7 @@ public partial struct InteractionCertificationJob
         StoreIncrementalStatistics(incremental);
     }
 
-    private void CommitDirtyIncidentPersistentClassificationP1P6(
+    private void CommitDirtyIncidentPersistentClassification(
         PersistentClassificationPhaseState phase,
         ref PredictiveDiscContactStatistics statistics,
         ref IncrementalContactPipelineStatistics incremental)
@@ -601,7 +601,7 @@ public partial struct InteractionCertificationJob
 #if RTS_CONTACT_DIAGNOSTICS
             PersistentClassificationTelemetryState fallbackTelemetry =
                 PersistentClassificationTelemetry.Value;
-            FinalizePersistentBuildTimingP1P6(
+            FinalizePersistentBuildTiming(
                 fallbackTelemetry.BuildStartTimestamp,
                 ref statistics);
 #endif
@@ -645,7 +645,7 @@ public partial struct InteractionCertificationJob
             ContactPipelineMath.TimestampToNanoseconds(
                 ProfilerUnsafeUtility.Timestamp -
                 telemetry.ClassificationStartTimestamp);
-        FinalizePersistentBuildTimingP1P6(
+        FinalizePersistentBuildTiming(
             telemetry.BuildStartTimestamp,
             ref statistics);
 #endif
@@ -657,7 +657,7 @@ public partial struct InteractionCertificationJob
     }
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private void FinalizePersistentBuildTimingP1P6(
+    private void FinalizePersistentBuildTiming(
         long startTimestamp,
         ref PredictiveDiscContactStatistics statistics)
     {
@@ -668,7 +668,7 @@ public partial struct InteractionCertificationJob
     }
 #endif
 
-    private bool RebuildPersistentSpatialMembershipP1P6(uint targetEpoch)
+    private bool RebuildPersistentSpatialMembership(uint targetEpoch)
     {
         if (!PersistentSpatialMembership.IsCreated ||
             !PersistentSpatialMembershipEpoch.IsCreated ||
@@ -685,7 +685,7 @@ public partial struct InteractionCertificationJob
             PersistentSweptProxy proxy = PersistentSweptProxies[proxyIndex];
             if (proxy.IsValid == 0)
                 continue;
-            if (!TryGetPersistentMembershipCellBoundsP1P6(
+            if (!TryGetPersistentMembershipCellBounds(
                     proxy,
                     cellSize,
                     out int2 minCell,
@@ -710,7 +710,7 @@ public partial struct InteractionCertificationJob
         {
             PersistentSweptProxy proxy = PersistentSweptProxies[proxyIndex];
             if (proxy.IsValid == 0 ||
-                !TryGetPersistentMembershipCellBoundsP1P6(
+                !TryGetPersistentMembershipCellBounds(
                     proxy,
                     cellSize,
                     out int2 minCell,
@@ -731,7 +731,7 @@ public partial struct InteractionCertificationJob
         return true;
     }
 
-    private bool TryAppendPersistentSpatialNeighborsP1P6(
+    private bool TryAppendPersistentSpatialNeighbors(
         int dirtyProxyIndex,
         uint expectedEpoch,
         uint validatedTimestep,
@@ -746,7 +746,7 @@ public partial struct InteractionCertificationJob
 
         PersistentSweptProxy dirtyProxy = PersistentSweptProxies[dirtyProxyIndex];
         float cellSize = CellRadius * 2f;
-        if (!TryGetPersistentMembershipCellBoundsP1P6(
+        if (!TryGetPersistentMembershipCellBounds(
                 dirtyProxy,
                 cellSize,
                 out int2 minCell,
@@ -812,7 +812,7 @@ public partial struct InteractionCertificationJob
         return true;
     }
 
-    private bool TryGetPersistentMembershipCellBoundsP1P6(
+    private bool TryGetPersistentMembershipCellBounds(
         PersistentSweptProxy proxy,
         float cellSize,
         out int2 minCell,
@@ -828,7 +828,7 @@ public partial struct InteractionCertificationJob
         return true;
     }
 
-    private static bool TryFindPersistentProxyP1P6(
+    private static bool TryFindPersistentProxy(
         NativeArray<PersistentSweptProxy> proxies,
         Entity entity,
         out PersistentSweptProxy proxy)
@@ -854,7 +854,7 @@ public partial struct InteractionCertificationJob
         return false;
     }
 
-    private static bool TryFindPersistentContactP1P6(
+    private static bool TryFindPersistentContact(
         NativeArray<PersistentPredictiveContact> contacts,
         StableEntityPairKey key,
         out PersistentPredictiveContact contact)
@@ -881,7 +881,7 @@ public partial struct InteractionCertificationJob
         return false;
     }
 
-    private static PersistentPredictiveContact ClassifyPersistentPairP1P6(
+    private static PersistentPredictiveContact ClassifyPersistentPair(
         StableEntityPairKey key,
         BodyPair rawPair,
         CrowdBodySnapshot bodyA,
@@ -1000,7 +1000,7 @@ public partial struct InteractionCertificationJob
             FixedSide = contactMode == ContactConstraintMode.Predictive
                 ? (sbyte)1
                 : (sbyte)0,
-            SoftAvoidanceCandidate = (byte)(CouldEnterSoftRangeP1P6(
+            SoftAvoidanceCandidate = (byte)(CouldEnterSoftRange(
                 bodyA,
                 evidenceA,
                 stepA,
@@ -1021,7 +1021,7 @@ public partial struct InteractionCertificationJob
         };
     }
 
-    private static bool CouldEnterSoftRangeP1P6(
+    private static bool CouldEnterSoftRange(
         CrowdBodySnapshot bodyA,
         CrowdMotionEvidence evidenceA,
         CrowdBodyStepState stepA,
@@ -1043,7 +1043,7 @@ public partial struct InteractionCertificationJob
             (evidenceA.BaselineEnd - evidenceA.TrajectoryStart);
         relativeStart.y = 0f;
         relativeTimestepDisplacement.y = 0f;
-        if (CouldRelativePathApproachP1P6(
+        if (CouldPersistentRelativePathApproach(
                 relativeStart,
                 relativeTimestepDisplacement,
                 maxDistance))
@@ -1054,13 +1054,13 @@ public partial struct InteractionCertificationJob
             (stepB.BaseVelocity - stepA.BaseVelocity) *
             math.max(0f, rvoTimeHorizon);
         relativeHorizonDisplacement.y = 0f;
-        return CouldRelativePathApproachP1P6(
+        return CouldPersistentRelativePathApproach(
             relativeStart,
             relativeHorizonDisplacement,
             maxDistance);
     }
 
-    private static bool CouldRelativePathApproachP1P6(
+    private static bool CouldPersistentRelativePathApproach(
         float3 relativeStart,
         float3 relativeDisplacement,
         float maxDistance)

@@ -9,43 +9,19 @@ using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-public struct SerialContactPipelineControlState
-{
-    public byte IsValid;
-    public byte RecoveryRequired;
-    public float PenetrationSum;
-    public long SolverStartTimestamp;
-    public long IterationStartTimestamp;
-    public long IterationAccountedStartNanoseconds;
-    public float MaxViolationBeforeSolve;
-    public float AverageViolationBeforeSolve;
-    public float TotalWallPositionCorrection;
-    public float MaxWallPositionCorrection;
-    public float TotalContactPositionCorrection;
-    public float MaxContactPositionCorrection;
-}
-
 public enum InteractionCertificationOperation : byte
 {
     None,
-    InitializeSerial,
-    BuildInitialSerial,
-    BuildSubstepInteractionSerial,
-    ValidateBaseMotionSerial,
-    ClampSoftOutputSerial,
-    ValidatePredictedAndActivateSerial,
-    ValidateSolverCorrectionSerial,
-    ValidateConsumerViewsSerial,
-    PreparePersistentClassificationP1P6,
-    CommitPersistentClassificationP1P6,
-    BuildInitialP1P6,
-    FinalizeEnvelopeEscapesP1P6,
-    PrepareSubstepRepairP1P6,
-    CommitSubstepRepairP1P6,
-    FinalizePreparedSubstepP1P6,
-    ValidateConsumerViewsP1P6,
-    FinalizeWallIterationP1P6,
-    FinalizeContactIterationP1P6
+    PreparePersistentClassification,
+    CommitPersistentClassification,
+    BuildInitial,
+    FinalizeEnvelopeEscapes,
+    PrepareSubstepRepair,
+    CommitSubstepRepair,
+    FinalizePreparedSubstep,
+    ValidateConsumerViews,
+    FinalizeWallIteration,
+    FinalizeContactIteration
 }
 
 [BurstCompile]
@@ -57,8 +33,7 @@ public partial struct InteractionCertificationJob : IJob
     public int IterationIndex;
     public byte IsLastIteration;
     public byte AfterContact;
-    public NativeReference<ParallelJacobiExecutionState> RuntimeState;
-    public NativeReference<SerialContactPipelineControlState> SerialControl;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
     public int BodyBlockCount;
 
     public float3 GridOrigin;
@@ -147,74 +122,41 @@ public partial struct InteractionCertificationJob : IJob
 
     public void Execute()
     {
-#if RTS_CONTACT_DIAGNOSTICS
-        bool measureSerialValidation = IsSerialValidationTimingOperation(Operation);
-        long timingStart = measureSerialValidation
-            ? ProfilerUnsafeUtility.Timestamp
-            : 0L;
-        long accountedStart = measureSerialValidation
-            ? AccountedCandidateNanoseconds(LoadIncrementalStatistics())
-            : 0L;
-#endif
         switch (Operation)
         {
-            case InteractionCertificationOperation.InitializeSerial:
-                ExecuteInitializeSerial();
+            case InteractionCertificationOperation.PreparePersistentClassification:
+                PreparePersistentClassification(RuntimeState);
                 break;
-            case InteractionCertificationOperation.BuildInitialSerial:
-                ExecuteBuildInitialSerial();
+            case InteractionCertificationOperation.CommitPersistentClassification:
+                CommitPersistentClassification(RuntimeState);
                 break;
-            case InteractionCertificationOperation.BuildSubstepInteractionSerial:
-                ExecuteBuildSubstepInteractionSerial();
+            case InteractionCertificationOperation.BuildInitial:
+                BuildInitialContactSet(RuntimeState);
                 break;
-            case InteractionCertificationOperation.ValidateBaseMotionSerial:
-                ExecuteValidateBaseMotionSerial();
+            case InteractionCertificationOperation.FinalizeEnvelopeEscapes:
+                FinalizeEnvelopeEscapes(SubstepIndex, RuntimeState);
                 break;
-            case InteractionCertificationOperation.ClampSoftOutputSerial:
-                ExecuteClampSoftOutputSerial();
+            case InteractionCertificationOperation.PrepareSubstepRepair:
+                PrepareSubstepRepairClassification(SubstepIndex, RuntimeState);
                 break;
-            case InteractionCertificationOperation.ValidatePredictedAndActivateSerial:
-                ExecuteValidatePredictedAndActivateSerial();
+            case InteractionCertificationOperation.CommitSubstepRepair:
+                CommitSubstepRepairClassification(SubstepIndex, RuntimeState);
                 break;
-            case InteractionCertificationOperation.ValidateSolverCorrectionSerial:
-                ExecuteValidateSolverCorrectionSerial();
+            case InteractionCertificationOperation.FinalizePreparedSubstep:
+                FinalizePreparedSubstep(SubstepIndex, RuntimeState);
                 break;
-            case InteractionCertificationOperation.ValidateConsumerViewsSerial:
-                ValidateConsumerViewsSerial();
+            case InteractionCertificationOperation.ValidateConsumerViews:
+                ValidateConsumerViews();
                 break;
-            case InteractionCertificationOperation.PreparePersistentClassificationP1P6:
-                PreparePersistentClassificationP1P6(RuntimeState);
-                break;
-            case InteractionCertificationOperation.CommitPersistentClassificationP1P6:
-                CommitPersistentClassificationP1P6(RuntimeState);
-                break;
-            case InteractionCertificationOperation.BuildInitialP1P6:
-                BuildInitialP1P6ContactSet(RuntimeState);
-                break;
-            case InteractionCertificationOperation.FinalizeEnvelopeEscapesP1P6:
-                FinalizeP1P6EnvelopeEscapes(SubstepIndex, RuntimeState);
-                break;
-            case InteractionCertificationOperation.PrepareSubstepRepairP1P6:
-                PrepareP1P6SubstepRepairClassification(SubstepIndex, RuntimeState);
-                break;
-            case InteractionCertificationOperation.CommitSubstepRepairP1P6:
-                CommitP1P6SubstepRepairClassification(SubstepIndex, RuntimeState);
-                break;
-            case InteractionCertificationOperation.FinalizePreparedSubstepP1P6:
-                FinalizeP1P6PreparedSubstep(SubstepIndex, RuntimeState);
-                break;
-            case InteractionCertificationOperation.ValidateConsumerViewsP1P6:
-                ValidateConsumerViewsP1P6();
-                break;
-            case InteractionCertificationOperation.FinalizeWallIterationP1P6:
-                FinalizeP1P6WallIteration(SubstepIndex, RuntimeState
+            case InteractionCertificationOperation.FinalizeWallIteration:
+                FinalizeWallIteration(SubstepIndex, RuntimeState
 #if RTS_CONTACT_DIAGNOSTICS
                     , IterationState, BlockStatistics
 #endif
                     , BodyBlockCount);
                 break;
-            case InteractionCertificationOperation.FinalizeContactIterationP1P6:
-                FinalizeParallelJacobiIteration(
+            case InteractionCertificationOperation.FinalizeContactIteration:
+                FinalizeContactIteration(
                     SubstepIndex,
                     IterationIndex,
                     RuntimeState
@@ -224,34 +166,9 @@ public partial struct InteractionCertificationJob : IJob
                 );
                 break;
         }
-#if RTS_CONTACT_DIAGNOSTICS
-        if (measureSerialValidation)
-        {
-            long elapsed = ContactPipelineMath.TimestampToNanoseconds(
-                ProfilerUnsafeUtility.Timestamp - timingStart);
-            long nestedCandidateNanoseconds =
-                AccountedCandidateNanoseconds(LoadIncrementalStatistics()) -
-                accountedStart;
-            PredictiveDiscContactStatistics statistics =
-                LoadContactStatistics();
-            statistics.ValidationRepairNanoseconds += math.max(
-                0L,
-                elapsed - math.max(0L, nestedCandidateNanoseconds));
-            StoreContactStatistics(statistics);
-        }
-#endif
     }
 
 #if RTS_CONTACT_DIAGNOSTICS
-    private static bool IsSerialValidationTimingOperation(
-        InteractionCertificationOperation operation) =>
-        operation == InteractionCertificationOperation.InitializeSerial ||
-        operation == InteractionCertificationOperation.BuildInitialSerial ||
-        operation == InteractionCertificationOperation.BuildSubstepInteractionSerial ||
-        operation == InteractionCertificationOperation.ValidateBaseMotionSerial ||
-        operation == InteractionCertificationOperation.ClampSoftOutputSerial ||
-        operation == InteractionCertificationOperation.ValidatePredictedAndActivateSerial;
-
     private static long AccountedCandidateNanoseconds(
         IncrementalContactPipelineStatistics statistics) =>
         statistics.ProxyValidationNanoseconds +

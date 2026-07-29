@@ -199,8 +199,8 @@ public partial struct InteractionCertificationJob
     }
 
     /// <summary>
-    /// Common commit hook used by both the serial reference path and the staged
-    /// P1-P6 Jacobi path. Every consumer-visible compact view therefore receives
+    /// Common commit hook used by both XPBD solver backends. Every
+    /// consumer-visible compact view therefore receives
     /// an explicit certificate even when the caller bypasses the serial source
     /// resolver.
     /// </summary>
@@ -332,31 +332,9 @@ public partial struct InteractionCertificationJob
 #endif
     }
 
-    private void ValidateConsumerViewsSerial()
+    private void ValidateConsumerViews()
     {
-        SerialContactPipelineControlState control = SerialControl.Value;
-        if (control.IsValid == 0)
-            return;
-        ContactSolverSkipReason failure =
-            GetConsumerCertificateFailure(SubstepIndex);
-        if (failure == ContactSolverSkipReason.None)
-            return;
-
-        RecordSolverSkip(failure);
-        RevokeInteractionCertificate(
-            -1,
-            SubstepIndex,
-            InteractionCertificateViolationReason.CommittedViewMismatch,
-            default,
-            default);
-        control.IsValid = 0;
-        control.RecoveryRequired = 1;
-        SerialControl.Value = control;
-    }
-
-    private void ValidateConsumerViewsP1P6()
-    {
-        ParallelJacobiExecutionState runtime = RuntimeState.Value;
+        ContactPipelineExecutionState runtime = RuntimeState.Value;
         if (runtime.IsValid == 0)
             return;
         ContactSolverSkipReason failure =

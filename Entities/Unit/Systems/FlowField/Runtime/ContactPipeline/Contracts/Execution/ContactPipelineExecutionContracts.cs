@@ -10,7 +10,7 @@ using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
 
-public struct ParallelJacobiExecutionState
+public struct ContactPipelineExecutionState
 {
     public byte IsValid;
     public byte RecoveryRequired;
@@ -32,12 +32,14 @@ public struct ParallelJacobiExecutionState
 }
 
 #if RTS_CONTACT_DIAGNOSTICS
-public struct ParallelJacobiIterationTelemetry
+public struct ContactSolverIterationTelemetry
 {
     public float MaxViolationBeforeSolve;
     public float AverageViolationBeforeSolve;
     public float TotalWallPositionCorrection;
     public float MaxWallPositionCorrection;
+    public float TotalContactPositionCorrection;
+    public float MaxContactPositionCorrection;
 }
 
 public struct JacobiBlockTelemetry
@@ -52,7 +54,8 @@ public struct JacobiBlockTelemetry
 #endif
 
 /// <summary>
-/// 多 Job 的 Jacobi 路径。拓扑、生命周期、包络校验与回退仍是串行协调阶段；对评估与 body 收集/应用是无冲突并行阶段。
-/// 已选对调试器捕获使用对独占的临时槽位和确定性压缩，不改变求解器后端。
+/// GS 与 Jacobi 共用的多 Job 接触管线状态。拓扑、生命周期、包络校验与
+/// 回退由短 IJob 协调；可按 body/pair 拆分的阶段保持无冲突并行。
+/// 只有 XPBD 接触投影按后端分叉。
 /// </summary>
 }

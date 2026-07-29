@@ -55,8 +55,7 @@ internal struct ConstraintSolverFrameResources
         return new ConstraintSolverJob
         {
             Configuration = configuration,
-            RuntimeState = execution.ParallelJacobiRuntimeState,
-            SerialControl = execution.SerialControlState,
+            RuntimeState = execution.PipelineRuntimeState,
             Grid = grid.Grid,
             GridOrigin = grid.GridOrigin,
             GridDimensions = grid.GridDimensions,
@@ -76,8 +75,8 @@ internal struct ConstraintSolverFrameResources
             ActiveIncidentIndexState = ActiveIncidentIndexState,
             ParallelBodyStatistics = ParallelBodyResults,
 #if RTS_CONTACT_DIAGNOSTICS
-            IterationState = execution.ParallelJacobiIterationState,
-            BlockStatistics = execution.ParallelJacobiBlockTelemetry,
+            IterationState = execution.SolverIterationState,
+            BlockStatistics = execution.JacobiBlockStatistics,
             DiagnosticSelectedEntity = diagnosticSelectedEntity,
             IncrementalStatistics = diagnostics.IncrementalStatistics,
             Statistics = diagnostics.ContactStatistics,

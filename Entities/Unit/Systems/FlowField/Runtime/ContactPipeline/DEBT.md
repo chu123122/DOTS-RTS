@@ -8,11 +8,10 @@
   `State/Frame`; Unity `.meta` GUIDs were preserved for moved assets.
 - Body and persistent interaction contracts were split from aggregate source files.
 - The four stage ABIs were split into independent job files.
-- Serial and parallel lifecycle ABIs are separate, and every direct stage
-  NativeContainer capability is constructed before scheduling; inactive enum
-  branches no longer rely on invalid `default` containers.
-- Every `InteractionCertificationJob`, `MotionIntegrationJob`, `SoftAvoidanceJob`
-  and `ConstraintSolverJob` fragment now lives below its owning stage.
+- GS and Jacobi share one lifecycle and parallel stage graph. Only XPBD contact
+  projection branches into ordered GS and parallel Jacobi backends.
+- Every `InteractionCertificationJob`, `SoftAvoidanceJob` and
+  `ConstraintSolverJob` fragment now lives below its owning stage.
 - `ActiveConstraintIncidentIndex` was split into a shared kernel plus certification
   and solver adapters.
 - Parallel executable jobs were extracted from the scheduler partial into
@@ -23,7 +22,7 @@
   diagnostics entity and proxy-view inputs; it no longer reaches through a system
   partial to candidate storage.
 - Certificate flags are derived from committed structure, mapping, configuration,
-  topology and classification evidence. Serial and parallel consumers fail closed
+  topology and classification evidence. Both solver backends fail closed
   before SoftAvoidance and Solver when the certificate scope/view counts mismatch.
 - Diagnostics-on and diagnostics-off script compilation are both permanent
   validation configurations.
