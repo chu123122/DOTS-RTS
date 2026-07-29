@@ -51,7 +51,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 if (DetectPersistentDirty != 0)
-                    DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationAlgorithms.ClassifyAndUpdatePersistentProxyForBody(
+                    DirtyFlagsByBody[bodyIndex] = (byte)CertificationStageKernel.ClassifyAndUpdatePersistentProxyForBody(
                         bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                         PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -98,7 +98,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
             if (DetectPersistentDirty != 0)
-                DirtyFlagsByBody[bodyIndex] = (byte)InteractionCertificationAlgorithms.ClassifyAndUpdatePersistentProxyForBody(
+                DirtyFlagsByBody[bodyIndex] = (byte)CertificationStageKernel.ClassifyAndUpdatePersistentProxyForBody(
                     bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                     PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,

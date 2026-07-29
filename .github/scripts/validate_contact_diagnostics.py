@@ -99,7 +99,7 @@ if "JacobiPairCorrections.ResizeUninitialized" in parallel_scheduler:
     fail("Scheduler resizes a deferred Jacobi workset outside its dependency job")
 
 incremental_certification = read(
-    PIPE / "Stages/Certification/Persistent/PersistentCertificationOperations.cs")
+    PIPE / "Stages/Certification/SubstepRepair/PersistentRepairKernel.cs")
 contact_workset = re.compile(
     r"JacobiPairCorrections\.ResizeUninitialized\(\s*"
     r"TimestepContactPairs\.Length\s*\).*?"

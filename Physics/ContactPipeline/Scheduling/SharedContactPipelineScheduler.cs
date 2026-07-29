@@ -37,17 +37,17 @@ public partial struct CrowdContactPipelineScheduler
             ContactPositionSolverMode.Jacobi;
 #if RTS_CONTACT_DIAGNOSTICS
         bool captureSelectedPairs = false;
-        if (EnableDiagnostics)
+        if (Configuration.EnableDiagnostics)
         {
-            captureSelectedPairs = DiagnosticSelectedEntity != Entity.Null &&
-                (SimulationDebuggerCaptureMask &
+            captureSelectedPairs = ConstraintSolver.DiagnosticSelectedEntity != Entity.Null &&
+                (ConstraintSolver.SimulationDebuggerCaptureMask &
                  SimulationDebuggerCaptureMask.SelectedUnit) != 0 &&
-                (SimulationDebuggerCaptureMask &
+                (ConstraintSolver.SimulationDebuggerCaptureMask &
                  SimulationDebuggerCaptureMask.SelectedPairs) != 0;
         }
 #endif
         int escapeBlockCount =
-            (Bodies.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
+            (CertificationBody.Bodies.Length + ParallelBodyBatchSize - 1) / ParallelBodyBatchSize;
         if (substepDeltaTime <= 0f)
         {
 #if RTS_CONTACT_DIAGNOSTICS
@@ -67,49 +67,49 @@ public partial struct CrowdContactPipelineScheduler
         {
             handle = new PrepareTimestepPredictionBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
-                PersistentProxyIndexByBody = PersistentProxyIndexByBody.AsDeferredJobArray(),
-                PersistentCacheState = IncrementalCacheState,
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                PersistentProxies = CertificationPersistent.PersistentSweptProxies.AsDeferredJobArray(),
+                PersistentProxyIndexByBody = CertificationPersistent.PersistentProxyIndexByBody.AsDeferredJobArray(),
+                PersistentCacheState = CertificationPersistent.IncrementalCacheState,
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
                 Duration = Configuration.DeltaTime,
                 Skin = Configuration.PredictiveSkin,
                 Margin = Configuration.TimestepContactMargin,
                 GuardMargin = Configuration.GuardEnvelopeMargin,
-                GridOrigin = GridOrigin,
-                CellRadius = CellRadius,
+                GridOrigin = CertificationEnvironment.GridOrigin,
+                CellRadius = CertificationEnvironment.CellRadius,
                 FromSolvedPosition = 0,
                 DetectPersistentDirty = (byte)(Configuration.EnablePersistentContactCache ? 1 : 0),
                 SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
             if (Configuration.EnablePersistentContactCache)
             {
                 handle = new CountInitialDirtyBodyBlocksJob
                 {
-                    DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                    BodyCount = Bodies.Length
+                    DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                    BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
                 handle = new PrefixInitialDirtyBodiesJob
                 {
-                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                    DirtyBodies = IncrementalDirtyBodies,
+                    BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                    DirtyBodies = CertificationPersistent.IncrementalDirtyBodies,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
                 handle = new ScatterInitialDirtyBodiesJob
                 {
-                    DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                    BlockOffsets = DirtyBodyBlockOffsets,
-                    DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
-                    BodyCount = Bodies.Length
+                    DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                    BlockOffsets = CertificationSolver.DirtyBodyBlockOffsets,
+                    DirtyBodies = CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
             }
         }
@@ -117,13 +117,89 @@ public partial struct CrowdContactPipelineScheduler
         if (Configuration.EnableTimestepContactSetCache &&
             Configuration.EnablePersistentContactCache)
         {
-            handle = Certification.ScheduleInitialPersistentContactSet(
-                runtimeState,
+            handle = new PrepareCurrentBodyIndexJob
+            {
+                CurrentBodyIndexByEntity =
+                    CertificationViews.CurrentBodyIndexByEntity,
+                BodyCount = CertificationBody.Bodies.Length
+            }.Schedule(handle);
+            handle = new BuildCurrentBodyIndexJob
+            {
+                Bodies = CertificationBody.Bodies,
+                CurrentBodyIndexByEntity = CertificationViews
+                    .CurrentBodyIndexByEntity.AsParallelWriter()
+            }.Schedule(
+                CertificationBody.Bodies.Length,
+                ParallelBodyBatchSize,
                 handle);
+            handle = ScheduleDirtyContactScheduleCompaction(handle);
+        }
+
+        if (Configuration.EnableTimestepContactSetCache)
+            handle = ScheduleFullSweepBroadPhase(handle);
+
+        if (Configuration.EnableTimestepContactSetCache &&
+            Configuration.EnablePersistentContactCache)
+        {
+            handle = new CertificationStageKernel.PreparePersistentClassificationJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
+            handle = new CertificationStageKernel.EvaluatePersistentPairClassificationsJob
+            {
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                RawPairs = CertificationViews.ClassificationBodyPairs.AsDeferredJobArray(),
+                PersistentProxies = CertificationPersistent.PersistentSweptProxies.AsDeferredJobArray(),
+                PreviousContacts = CertificationPersistent.PersistentPredictiveContacts.AsDeferredJobArray(),
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                PhaseState = CertificationPersistent.PersistentClassificationState,
+                Results = CertificationPersistent.PersistentClassificationResults.AsDeferredJobArray(),
+                PredictiveSkin = Configuration.PredictiveSkin,
+                TimestepContactMargin = Configuration.TimestepContactMargin,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
+                SoftAvoidanceVelocitySolver = Configuration.SoftAvoidanceVelocitySolver,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon,
+                EnablePredictivePairGeneration =
+                    (byte)(Configuration.EnablePredictivePairGeneration ? 1 : 0),
+                EnablePredictiveContacts =
+                    (byte)(Configuration.EnablePredictiveContacts ? 1 : 0),
+                SubstepCount = substepCount,
+                ScheduleStartSubstep = 0
+            }.Schedule(
+                CertificationPersistent.PersistentClassificationResults,
+                SoftPairBatchSize,
+                handle);
+            handle = new CertificationStageKernel.CommitPersistentClassificationJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
         }
         else
         {
-            handle = Certification.CreateBuildInitialContactSetJob(runtimeState).Schedule(handle);
+            handle = new CertificationStageKernel.BuildInitialContactSetJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState
+            }.Schedule(handle);
         }
 #if RTS_CONTACT_DIAGNOSTICS
         handle = EndStageTiming(
@@ -139,15 +215,15 @@ public partial struct CrowdContactPipelineScheduler
 #endif
             handle = new PrepareBaseVelocityBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
                 SubstepDeltaTime = substepDeltaTime,
-                GridOrigin = GridOrigin,
-                CellRadius = CellRadius
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+                GridOrigin = CertificationEnvironment.GridOrigin,
+                CellRadius = CertificationEnvironment.CellRadius
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 #if RTS_CONTACT_DIAGNOSTICS
             handle = EndStageTiming(
                 runtimeState,
@@ -160,33 +236,34 @@ public partial struct CrowdContactPipelineScheduler
             {
                 handle = new PrepareTimestepPredictionBodiesJob
                 {
-                    Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
+                    Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
                     Duration = substepDeltaTime,
                     Skin = Configuration.PredictiveSkin,
                     Margin = Configuration.TimestepContactMargin,
-                    GridOrigin = GridOrigin,
-                    CellRadius = CellRadius,
+                    GridOrigin = CertificationEnvironment.GridOrigin,
+                    CellRadius = CertificationEnvironment.CellRadius,
                     FromSolvedPosition = 1,
                     SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
                     SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                     SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                     RvoTimeHorizon = Configuration.RvoTimeHorizon,
                     DetectPersistentDirty = 0
-                }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+                }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
+                handle = ScheduleFullSweepBroadPhase(handle);
             }
 
             handle = new ValidateBaseMotionBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                EscapeFlags = EnvelopeEscapeFlags,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0),
                 PredictiveSkin = Configuration.PredictiveSkin,
                 TimestepContactMargin = Configuration.TimestepContactMargin,
@@ -194,78 +271,149 @@ public partial struct CrowdContactPipelineScheduler
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
             handle = new CountEnvelopeEscapeBlocksJob
             {
-                EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                BodyCount = Bodies.Length,
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
+                BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                BodyCount = CertificationBody.Bodies.Length,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
             }.Schedule(escapeBlockCount, 1, handle);
 
             handle = new PrefixEnvelopeEscapesJob
             {
-                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                DirtyBodies = IncrementalDirtyBodies,
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies,
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
             handle = new ScatterEnvelopeEscapesJob
             {
-                EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsets = DirtyBodyBlockOffsets,
-                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                BodyStatistics = ParallelBodyStatistics,
-                BodyCount = Bodies.Length
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
+                BlockOffsets = CertificationSolver.DirtyBodyBlockOffsets,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                BodyStatistics = CertificationSolver.ParallelBodyStatistics,
+                BodyCount = CertificationBody.Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = Certification.CreateFinalizeEnvelopeEscapesJob(substepIndex, runtimeState).Schedule(handle);
+            handle = new CertificationStageKernel.FinalizeEnvelopeEscapesJob
+            {
+                Configuration = Configuration,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies,
+                BodyStatistics = CertificationSolver.ParallelBodyStatistics,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex,
+#if RTS_CONTACT_DIAGNOSTICS
+                IncrementalStatistics = CertificationDiagnostics.IncrementalStatistics,
+                Statistics = CertificationDiagnostics.Statistics
+#endif
+            }.Schedule(handle);
 
             handle = new PrepareRepairPredictionBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
                 Duration = math.max(
                     substepDeltaTime,
                     (substepCount - substepIndex) * substepDeltaTime),
                 Skin = Configuration.PredictiveSkin,
                 Margin = Configuration.TimestepContactMargin,
-                GridOrigin = GridOrigin,
-                CellRadius = CellRadius,
+                GridOrigin = CertificationEnvironment.GridOrigin,
+                CellRadius = CertificationEnvironment.CellRadius,
                 SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon,
                 Enabled = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
-            }.Schedule(IncrementalDirtyBodies, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationPersistent.IncrementalDirtyBodies, ParallelBodyBatchSize, handle);
 
-            handle = Certification.CreatePrepareSubstepRepairJob(substepIndex, runtimeState).Schedule(handle);
-
-            handle = new InteractionCertificationAlgorithms.EvaluatePersistentPairClassificationsJob
+            handle = new RefreshDirtyBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                RawPairs = ClassificationBodyPairs.AsDeferredJobArray(),
-                PersistentProxies = PersistentSweptProxies.AsDeferredJobArray(),
-                PreviousContacts = PersistentPredictiveContacts.AsDeferredJobArray(),
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                PhaseState = PersistentClassificationState,
-                Results = PersistentClassificationResults.AsDeferredJobArray(),
+                Bodies = CertificationBody.Bodies,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                DirtyBodies =
+                    CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
+                DirtyFlagsByBody =
+                    CertificationPersistent.IncrementalDirtyFlagsByBody,
+                PersistentProxies =
+                    CertificationPersistent.PersistentSweptProxies.AsDeferredJobArray(),
+                PersistentProxyIndexByBody =
+                    CertificationPersistent.PersistentProxyIndexByBody.AsDeferredJobArray(),
+                CacheState = CertificationPersistent.IncrementalCacheState,
+                Results = CertificationPersistent.DirtyBodyRefreshResults,
+                GuardMargin = Configuration.GuardEnvelopeMargin,
+                PredictiveSkin = Configuration.PredictiveSkin,
+                TimestepContactMargin = Configuration.TimestepContactMargin,
+                SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate =
+                    Configuration.SoftAvoidanceResponseRate,
+                RvoTimeHorizon = Configuration.RvoTimeHorizon,
+                SubstepCount = substepCount,
+                SoftAvoidanceVelocitySolver =
+                    Configuration.SoftAvoidanceVelocitySolver,
+                PredictivePairGenerationEnabled =
+                    (byte)(Configuration.EnablePredictivePairGeneration ? 1 : 0),
+                PredictiveContactsEnabled =
+                    (byte)(Configuration.EnablePredictiveContacts ? 1 : 0),
+                Enabled = (byte)(
+                    Configuration.EnableTimestepContactSetCache &&
+                    Configuration.EnablePersistentContactCache ? 1 : 0)
+            }.Schedule(
+                CertificationPersistent.IncrementalDirtyBodies,
+                ParallelBodyBatchSize,
+                handle);
+            handle = new ReduceDirtyBodyRefreshJob
+            {
+                DirtyBodies =
+                    CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
+                Results = CertificationPersistent.DirtyBodyRefreshResults,
+                Summary = CertificationPersistent.DirtyBodyRefreshSummary,
+                Enabled = (byte)(
+                    Configuration.EnableTimestepContactSetCache &&
+                    Configuration.EnablePersistentContactCache ? 1 : 0)
+            }.Schedule(handle);
+            if (Configuration.EnableTimestepContactSetCache &&
+                Configuration.EnablePersistentContactCache)
+                handle = ScheduleDirtyContactScheduleCompaction(handle);
+
+            handle = new CertificationStageKernel.PrepareSubstepRepairJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Solver = CertificationSolver,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex
+            }.Schedule(handle);
+
+            handle = new CertificationStageKernel.EvaluatePersistentPairClassificationsJob
+            {
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                RawPairs = CertificationViews.ClassificationBodyPairs.AsDeferredJobArray(),
+                PersistentProxies = CertificationPersistent.PersistentSweptProxies.AsDeferredJobArray(),
+                PreviousContacts = CertificationPersistent.PersistentPredictiveContacts.AsDeferredJobArray(),
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                PhaseState = CertificationPersistent.PersistentClassificationState,
+                Results = CertificationPersistent.PersistentClassificationResults.AsDeferredJobArray(),
                 PredictiveSkin = Configuration.PredictiveSkin,
                 TimestepContactMargin = Configuration.TimestepContactMargin,
                 SoftAvoidanceShell = Configuration.SoftAvoidanceShell,
@@ -278,10 +426,35 @@ public partial struct CrowdContactPipelineScheduler
                     (byte)(Configuration.EnablePredictiveContacts ? 1 : 0),
                 SubstepCount = math.max(1, Configuration.SubstepCount),
                 ScheduleStartSubstep = substepIndex
-            }.Schedule(PersistentClassificationResults, SoftPairBatchSize, handle);
+            }.Schedule(CertificationPersistent.PersistentClassificationResults, SoftPairBatchSize, handle);
 
-            handle = Certification.CreateCommitSubstepRepairJob(substepIndex, runtimeState).Schedule(handle);
-            handle = Certification.CreateValidateConsumerViewsJob(substepIndex, runtimeState).Schedule(handle);
+            handle = new CertificationStageKernel.CommitSubstepRepairJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Solver = CertificationSolver,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex
+            }.Schedule(handle);
+            handle = new CertificationStageKernel.ValidateConsumerViewsJob
+            {
+                Configuration = Configuration,
+                Bodies = CertificationBody.Bodies,
+                SoftAvoidancePairs = CertificationViews.SoftAvoidancePairs,
+                TimestepContactPairs = CertificationViews.TimestepContactPairs,
+                PredictiveContactSchedule = CertificationPersistent.PredictiveContactSchedule,
+                InteractionCertificate = CertificationPersistent.InteractionCertificate,
+                InteractionCertificateViolations =
+                    CertificationPersistent.InteractionCertificateViolations,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex,
+#if RTS_CONTACT_DIAGNOSTICS
+                Statistics = CertificationDiagnostics.Statistics
+#endif
+            }.Schedule(handle);
 #if RTS_CONTACT_DIAGNOSTICS
             handle = EndStageTiming(
                 runtimeState,
@@ -299,45 +472,45 @@ public partial struct CrowdContactPipelineScheduler
 
             handle = new InitializeSoftAvoidanceBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                Grid = Grid,
-                GridOrigin = GridOrigin,
-                GridDimensions = GridDimensions,
-                CellRadius = CellRadius,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                Grid = CertificationEnvironment.Grid,
+                GridOrigin = CertificationEnvironment.GridOrigin,
+                GridDimensions = CertificationEnvironment.GridDimensions,
+                CellRadius = CertificationEnvironment.CellRadius,
                 SoftShell = Configuration.SoftAvoidanceShell
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
             var evaluateSoftPairsJob = new EvaluateSoftAvoidancePairsJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                Pairs = SoftAvoidancePairs.AsDeferredJobArray(),
-                Contributions = SoftPairContributions.AsDeferredJobArray(),
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                Pairs = CertificationViews.SoftAvoidancePairs.AsDeferredJobArray(),
+                Contributions = SoftAvoidance.SoftPairContributions.AsDeferredJobArray(),
                 SolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 SoftShell = Configuration.SoftAvoidanceShell,
                 RvoTimeHorizon = Configuration.RvoTimeHorizon,
                 SubstepDeltaTime = substepDeltaTime
             };
             handle = evaluateSoftPairsJob.Schedule(
-                SoftAvoidancePairs,
+                CertificationViews.SoftAvoidancePairs,
                 SoftPairBatchSize,
                 handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
             // ReduceSoftAvoidanceBlocksJob carries block telemetry counters
-            // (no EnableDiagnostics runtime gate) so benchmarks with the oracle
+            // (no Configuration.EnableDiagnostics runtime gate) so benchmarks with the oracle
             // off still capture valid soft-avoidance stats.
             {
                 handle = new ReduceSoftAvoidanceBlocksJob
                 {
-                    Contributions = SoftPairContributions.AsDeferredJobArray(),
+                    Contributions = SoftAvoidance.SoftPairContributions.AsDeferredJobArray(),
                     Blocks = blockStatistics.AsDeferredJobArray()
                 }.Schedule(blockStatistics, 1, handle);
             }
@@ -345,16 +518,16 @@ public partial struct CrowdContactPipelineScheduler
 
             handle = new GatherSoftAvoidanceBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                Pairs = SoftAvoidancePairs.AsDeferredJobArray(),
-                Contributions = SoftPairContributions.AsDeferredJobArray(),
-                IncidentOffsets = SoftIncidentOffsets,
-                IncidentPairIndices = SoftIncidentPairIndices.AsDeferredJobArray(),
-                EscapeFlags = EnvelopeEscapeFlags,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                Pairs = CertificationViews.SoftAvoidancePairs.AsDeferredJobArray(),
+                Contributions = SoftAvoidance.SoftPairContributions.AsDeferredJobArray(),
+                IncidentOffsets = SoftAvoidance.SoftIncidentOffsets,
+                IncidentPairIndices = SoftAvoidance.SoftIncidentPairIndices.AsDeferredJobArray(),
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
                 SoftSolverMode = Configuration.SoftAvoidanceVelocitySolver,
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SettledMultiplier = Configuration.SettledSoftAvoidanceMultiplier,
@@ -363,25 +536,25 @@ public partial struct CrowdContactPipelineScheduler
                 TimestepContactMargin = Configuration.TimestepContactMargin,
                 SoftShell = Configuration.SoftAvoidanceShell,
                 ClampToEnvelope = (byte)(Configuration.EnableTimestepContactSetCache ? 1 : 0)
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
             // Soft-avoidance finalize carries timing/escape counters (no
-            // EnableDiagnostics runtime gate) so benchmarks with the oracle
+            // Configuration.EnableDiagnostics runtime gate) so benchmarks with the oracle
             // disabled still capture valid soft-avoidance telemetry.
             {
                 handle = new ReduceSoftEscapeBlocksJob
                 {
-                    EscapeFlags = EnvelopeEscapeFlags,
-                    EscapeCountsByBlock = DirtyBodyBlockOffsets,
-                    BodyCount = Bodies.Length
+                    EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
+                    EscapeCountsByBlock = CertificationSolver.DirtyBodyBlockOffsets,
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 SoftAvoidanceJob finalizeSoft = SoftAvoidance;
                 finalizeSoft.Operation = SoftAvoidanceOperation.FinalizeParallel;
                 finalizeSoft.RuntimeState = runtimeState;
                 finalizeSoft.BlockStatistics = blockStatistics;
-                finalizeSoft.EscapeCountsByBlock = DirtyBodyBlockOffsets;
+                finalizeSoft.EscapeCountsByBlock = CertificationSolver.DirtyBodyBlockOffsets;
                 finalizeSoft.EscapeBlockCount = escapeBlockCount;
                 handle = finalizeSoft.Schedule(handle);
             }
@@ -392,15 +565,15 @@ public partial struct CrowdContactPipelineScheduler
 #endif
             handle = new PredictUnconstrainedBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
                 SoftAvoidanceResponseRate = Configuration.SoftAvoidanceResponseRate,
                 SettledMultiplier = Configuration.SettledSoftAvoidanceMultiplier,
                 SubstepDeltaTime = substepDeltaTime
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 #if RTS_CONTACT_DIAGNOSTICS
             handle = EndStageTiming(
                 runtimeState,
@@ -411,53 +584,78 @@ public partial struct CrowdContactPipelineScheduler
 
             handle = new ValidatePredictedContactEnvelopeBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                EscapeFlags = EnvelopeEscapeFlags,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
                 PredictiveSkin = Configuration.PredictiveSkin
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
             handle = new CountEnvelopeEscapeBlocksJob
             {
-                EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                BodyCount = Bodies.Length,
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
+                BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                BodyCount = CertificationBody.Bodies.Length,
                 Enabled = 1
             }.Schedule(escapeBlockCount, 1, handle);
 
             handle = new PrefixEnvelopeEscapesJob
             {
-                BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                DirtyBodies = IncrementalDirtyBodies,
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
+                BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies,
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
                 BlockCount = escapeBlockCount
             }.Schedule(handle);
 
             handle = new ScatterEnvelopeEscapesJob
             {
-                EscapeFlags = EnvelopeEscapeFlags,
-                BlockOffsets = DirtyBodyBlockOffsets,
-                DirtyBodies = IncrementalDirtyBodies.AsDeferredJobArray(),
-                DirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                BodyStatistics = ParallelBodyStatistics,
-                BodyCount = Bodies.Length
+                EscapeFlags = CertificationSolver.EnvelopeEscapeFlags,
+                BlockOffsets = CertificationSolver.DirtyBodyBlockOffsets,
+                DirtyBodies = CertificationPersistent.IncrementalDirtyBodies.AsDeferredJobArray(),
+                DirtyFlagsByBody = CertificationPersistent.IncrementalDirtyFlagsByBody,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                BodyStatistics = CertificationSolver.ParallelBodyStatistics,
+                BodyCount = CertificationBody.Bodies.Length
             }.Schedule(escapeBlockCount, 1, handle);
 
-            handle = Certification.CreateFinalizePreparedSubstepJob(substepIndex, runtimeState).Schedule(handle);
-            handle = Certification.CreateValidateConsumerViewsJob(substepIndex, runtimeState).Schedule(handle);
+            handle = new CertificationStageKernel.FinalizePreparedSubstepJob
+            {
+                Environment = CertificationEnvironment,
+                Body = CertificationBody,
+                Views = CertificationViews,
+                Persistent = CertificationPersistent,
+                Solver = CertificationSolver,
+                Diagnostics = CertificationDiagnostics,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex
+            }.Schedule(handle);
+            handle = new CertificationStageKernel.ValidateConsumerViewsJob
+            {
+                Configuration = Configuration,
+                Bodies = CertificationBody.Bodies,
+                SoftAvoidancePairs = CertificationViews.SoftAvoidancePairs,
+                TimestepContactPairs = CertificationViews.TimestepContactPairs,
+                PredictiveContactSchedule = CertificationPersistent.PredictiveContactSchedule,
+                InteractionCertificate = CertificationPersistent.InteractionCertificate,
+                InteractionCertificateViolations =
+                    CertificationPersistent.InteractionCertificateViolations,
+                RuntimeState = runtimeState,
+                SubstepIndex = substepIndex,
+#if RTS_CONTACT_DIAGNOSTICS
+                Statistics = CertificationDiagnostics.Statistics
+#endif
+            }.Schedule(handle);
 
             handle = new ResetContactPairStateJob
             {
-                Pairs = TimestepContactPairs.AsDeferredJobArray()
-            }.Schedule(TimestepContactPairs, SoftPairBatchSize, handle);
+                Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray()
+            }.Schedule(CertificationViews.TimestepContactPairs, SoftPairBatchSize, handle);
 #if RTS_CONTACT_DIAGNOSTICS
             handle = EndStageTiming(
                 runtimeState,
@@ -479,43 +677,54 @@ public partial struct CrowdContactPipelineScheduler
 
                 handle = new SolveWallConstraintBodiesJob
                 {
-                    Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                    Grid = Grid,
-                    GridOrigin = GridOrigin,
-                    GridDimensions = GridDimensions,
-                    CellRadius = CellRadius,
-                    CorrectedBodyFlags = CorrectedBodyFlags,
-                    BodyStatistics = ParallelBodyStatistics
-                }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+                    Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                    Grid = CertificationEnvironment.Grid,
+                    GridOrigin = CertificationEnvironment.GridOrigin,
+                    GridDimensions = CertificationEnvironment.GridDimensions,
+                    CellRadius = CertificationEnvironment.CellRadius,
+                    CorrectedBodyFlags = CertificationSolver.CorrectedBodyFlags,
+                    BodyStatistics = CertificationSolver.ParallelBodyStatistics
+                }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
                 handle = new CountAndReduceWallBlocksJob
                 {
-                    CorrectedBodyFlags = CorrectedBodyFlags,
-                    BodyStatistics = ParallelBodyStatistics,
-                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                    BodyCount = Bodies.Length
+                    CorrectedBodyFlags = CertificationSolver.CorrectedBodyFlags,
+                    BodyStatistics = CertificationSolver.ParallelBodyStatistics,
+                    BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 handle = new PrefixCorrectedBodiesJob
                 {
-                    BlockOffsetsAndCounts = DirtyBodyBlockOffsets,
-                    CorrectedBodyIndices = CorrectedBodyIndices,
+                    BlockOffsetsAndCounts = CertificationSolver.DirtyBodyBlockOffsets,
+                    CorrectedBodyIndices = CertificationSolver.CorrectedBodyIndices,
                     BlockCount = escapeBlockCount
                 }.Schedule(handle);
 
                 handle = new ScatterCorrectedBodiesJob
                 {
-                    CorrectedBodyFlags = CorrectedBodyFlags,
-                    BlockOffsets = DirtyBodyBlockOffsets,
-                    CorrectedBodyIndices = CorrectedBodyIndices.AsDeferredJobArray(),
-                    BodyCount = Bodies.Length
+                    CorrectedBodyFlags = CertificationSolver.CorrectedBodyFlags,
+                    BlockOffsets = CertificationSolver.DirtyBodyBlockOffsets,
+                    CorrectedBodyIndices = CertificationSolver.CorrectedBodyIndices.AsDeferredJobArray(),
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
-                handle = Certification.CreateFinalizeWallIterationJob(substepIndex, escapeBlockCount, runtimeState).Schedule(handle);
+                handle = new CertificationStageKernel.FinalizeWallIterationJob
+                {
+                    Environment = CertificationEnvironment,
+                    Body = CertificationBody,
+                    Views = CertificationViews,
+                    Persistent = CertificationPersistent,
+                    Solver = CertificationSolver,
+                    Diagnostics = CertificationDiagnostics,
+                    RuntimeState = runtimeState,
+                    SubstepIndex = substepIndex,
+                    BodyBlockCount = escapeBlockCount
+                }.Schedule(handle);
 
                 if (iterationIndex != iterationCount - 1)
                     continue;
@@ -547,17 +756,17 @@ public partial struct CrowdContactPipelineScheduler
                             SubstepIndex = substepIndex,
                             RecoveryOnly = 0,
                             RuntimeState = runtimeState,
-                            Bodies = Bodies,
-                            NavigationStates = NavigationStates,
-                            MotionIntents = MotionIntents,
-                            MotionEvidence = MotionEvidence,
-                            StepStates = StepStates,
-                            Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                            Corrections = JacobiPairCorrections.AsDeferredJobArray(),
+                            Bodies = CertificationBody.Bodies,
+                            NavigationStates = CertificationBody.NavigationStates,
+                            MotionIntents = CertificationBody.MotionIntents,
+                            MotionEvidence = CertificationBody.MotionEvidence,
+                            StepStates = CertificationBody.StepStates,
+                            Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray(),
+                            Corrections = CertificationSolver.JacobiPairCorrections.AsDeferredJobArray(),
                             DiagnosticPairCandidates =
-                                ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
-                            DiagnosticSelectedEntity = DiagnosticSelectedEntity
-                        }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                                CertificationDiagnostics.ParallelSimulationDebuggerPairCandidates.AsDeferredJobArray(),
+                            DiagnosticSelectedEntity = ConstraintSolver.DiagnosticSelectedEntity
+                        }.Schedule(CertificationViews.TimestepContactPairs, JacobiPairBatchSize, handle);
                     }
                     else
 #endif
@@ -571,20 +780,20 @@ public partial struct CrowdContactPipelineScheduler
                             SubstepIndex = substepIndex,
                             RecoveryOnly = 0,
                             RuntimeState = runtimeState,
-                            Bodies = Bodies,
-                            NavigationStates = NavigationStates,
-                            MotionIntents = MotionIntents,
-                            MotionEvidence = MotionEvidence,
-                            StepStates = StepStates,
-                            Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                            Corrections = JacobiPairCorrections.AsDeferredJobArray()
-                        }.Schedule(TimestepContactPairs, JacobiPairBatchSize, handle);
+                            Bodies = CertificationBody.Bodies,
+                            NavigationStates = CertificationBody.NavigationStates,
+                            MotionIntents = CertificationBody.MotionIntents,
+                            MotionEvidence = CertificationBody.MotionEvidence,
+                            StepStates = CertificationBody.StepStates,
+                            Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray(),
+                            Corrections = CertificationSolver.JacobiPairCorrections.AsDeferredJobArray()
+                        }.Schedule(CertificationViews.TimestepContactPairs, JacobiPairBatchSize, handle);
                     }
 
 #if RTS_CONTACT_DIAGNOSTICS
                     handle = new ReduceParallelJacobiBlocksJob
                     {
-                        Corrections = JacobiPairCorrections,
+                        Corrections = CertificationSolver.JacobiPairCorrections,
                         Blocks = blockStatistics.AsDeferredJobArray()
                     }.Schedule(blockStatistics, 1, handle);
 #endif
@@ -595,22 +804,22 @@ public partial struct CrowdContactPipelineScheduler
                         handle = new CountParallelSimulationDebuggerPairBlocksJob
                         {
                             Candidates =
-                                ParallelSimulationDebuggerPairCandidates,
+                                CertificationDiagnostics.ParallelSimulationDebuggerPairCandidates,
                             Blocks = blockStatistics
                         }.Schedule(blockStatistics, 1, handle);
 
                         handle = new PrefixParallelSimulationDebuggerPairsJob
                         {
                             Blocks = blockStatistics,
-                            Scratch = ParallelSimulationDebuggerPairScratch
+                            Scratch = ConstraintSolver.ParallelSimulationDebuggerPairScratch
                         }.Schedule(handle);
 
                         handle = new ScatterParallelSimulationDebuggerPairsJob
                         {
                             Candidates =
-                                ParallelSimulationDebuggerPairCandidates,
+                                CertificationDiagnostics.ParallelSimulationDebuggerPairCandidates,
                             Blocks = blockStatistics,
-                            Scratch = ParallelSimulationDebuggerPairScratch
+                            Scratch = ConstraintSolver.ParallelSimulationDebuggerPairScratch
                         }.Schedule(blockStatistics, 1, handle);
 
                         ConstraintSolverJob mergeDebuggerPairs = ConstraintSolver;
@@ -624,21 +833,32 @@ public partial struct CrowdContactPipelineScheduler
                     {
                         RecoveryOnly = 0,
                         RuntimeState = runtimeState,
-                        Bodies = Bodies,
-                        NavigationStates = NavigationStates,
-                        MotionIntents = MotionIntents,
-                        MotionEvidence = MotionEvidence,
-                        StepStates = StepStates,
-                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
-                        Corrections = JacobiPairCorrections.AsDeferredJobArray(),
-                        IncidentOffsets = ActiveIncidentOffsets,
+                        Bodies = CertificationBody.Bodies,
+                        NavigationStates = CertificationBody.NavigationStates,
+                        MotionIntents = CertificationBody.MotionIntents,
+                        MotionEvidence = CertificationBody.MotionEvidence,
+                        StepStates = CertificationBody.StepStates,
+                        Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray(),
+                        Corrections = CertificationSolver.JacobiPairCorrections.AsDeferredJobArray(),
+                        IncidentOffsets = CertificationSolver.ActiveIncidentOffsets,
                         IncidentPairIndices =
-                            ActiveIncidentPairIndices.AsDeferredJobArray(),
-                        CorrectedBodyFlags = CorrectedBodyFlags
-                    }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+                            CertificationSolver.ActiveIncidentPairIndices.AsDeferredJobArray(),
+                        CorrectedBodyFlags = CertificationSolver.CorrectedBodyFlags
+                    }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
                 }
 
-                handle = Certification.CreateFinalizeContactIterationJob(substepIndex, iterationIndex, runtimeState).Schedule(handle);
+                handle = new CertificationStageKernel.FinalizeContactIterationJob
+                {
+                    Environment = CertificationEnvironment,
+                    Body = CertificationBody,
+                    Views = CertificationViews,
+                    Persistent = CertificationPersistent,
+                    Solver = CertificationSolver,
+                    Diagnostics = CertificationDiagnostics,
+                    RuntimeState = runtimeState,
+                    SubstepIndex = substepIndex,
+                    IterationIndex = iterationIndex
+                }.Schedule(handle);
 
                 if (!useJacobiSolver)
                 {
@@ -666,23 +886,23 @@ public partial struct CrowdContactPipelineScheduler
                         SubstepIndex = substepIndex,
                         RecoveryOnly = 1,
                         RuntimeState = runtimeState,
-                        Bodies = Bodies,
-                        NavigationStates = NavigationStates,
-                        MotionIntents = MotionIntents,
-                        MotionEvidence = MotionEvidence,
-                        StepStates = StepStates,
-                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Bodies = CertificationBody.Bodies,
+                        NavigationStates = CertificationBody.NavigationStates,
+                        MotionIntents = CertificationBody.MotionIntents,
+                        MotionEvidence = CertificationBody.MotionEvidence,
+                        StepStates = CertificationBody.StepStates,
+                        Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray(),
                         Corrections =
-                            JacobiPairCorrections.AsDeferredJobArray()
+                            CertificationSolver.JacobiPairCorrections.AsDeferredJobArray()
                     }.Schedule(
-                        TimestepContactPairs,
+                        CertificationViews.TimestepContactPairs,
                         JacobiPairBatchSize,
                         handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
                     handle = new ReduceParallelJacobiBlocksJob
                     {
-                        Corrections = JacobiPairCorrections,
+                        Corrections = CertificationSolver.JacobiPairCorrections,
                         Blocks = blockStatistics.AsDeferredJobArray()
                     }.Schedule(blockStatistics, 1, handle);
 #endif
@@ -691,20 +911,20 @@ public partial struct CrowdContactPipelineScheduler
                     {
                         RecoveryOnly = 1,
                         RuntimeState = runtimeState,
-                        Bodies = Bodies,
-                        NavigationStates = NavigationStates,
-                        MotionIntents = MotionIntents,
-                        MotionEvidence = MotionEvidence,
-                        StepStates = StepStates,
-                        Pairs = TimestepContactPairs.AsDeferredJobArray(),
+                        Bodies = CertificationBody.Bodies,
+                        NavigationStates = CertificationBody.NavigationStates,
+                        MotionIntents = CertificationBody.MotionIntents,
+                        MotionEvidence = CertificationBody.MotionEvidence,
+                        StepStates = CertificationBody.StepStates,
+                        Pairs = CertificationViews.TimestepContactPairs.AsDeferredJobArray(),
                         Corrections =
-                            JacobiPairCorrections.AsDeferredJobArray(),
-                        IncidentOffsets = ActiveIncidentOffsets,
+                            CertificationSolver.JacobiPairCorrections.AsDeferredJobArray(),
+                        IncidentOffsets = CertificationSolver.ActiveIncidentOffsets,
                         IncidentPairIndices =
-                            ActiveIncidentPairIndices.AsDeferredJobArray(),
-                        CorrectedBodyFlags = CorrectedBodyFlags
+                            CertificationSolver.ActiveIncidentPairIndices.AsDeferredJobArray(),
+                        CorrectedBodyFlags = CertificationSolver.CorrectedBodyFlags
                     }.Schedule(
-                        Bodies.Length,
+                        CertificationBody.Bodies.Length,
                         ParallelBodyBatchSize,
                         handle);
 
@@ -718,7 +938,7 @@ public partial struct CrowdContactPipelineScheduler
 
 #if RTS_CONTACT_DIAGNOSTICS
             // FinalizeSubstepTelemetry accumulates IterationNanoseconds and
-            // constraint counters (no EnableDiagnostics runtime gate) so
+            // constraint counters (no Configuration.EnableDiagnostics runtime gate) so
             // benchmarks with the oracle disabled still capture valid iteration
             // timing.
             {
@@ -735,23 +955,23 @@ public partial struct CrowdContactPipelineScheduler
 #endif
             handle = new ReconstructVelocityBodiesJob
             {
-                Bodies = Bodies,
-                NavigationStates = NavigationStates,
-                MotionIntents = MotionIntents,
-                MotionEvidence = MotionEvidence,
-                StepStates = StepStates,
-                BodyStatistics = ParallelBodyStatistics,
+                Bodies = CertificationBody.Bodies,
+                NavigationStates = CertificationBody.NavigationStates,
+                MotionIntents = CertificationBody.MotionIntents,
+                MotionEvidence = CertificationBody.MotionEvidence,
+                StepStates = CertificationBody.StepStates,
+                BodyStatistics = CertificationSolver.ParallelBodyStatistics,
                 SubstepDeltaTime = substepDeltaTime
-            }.Schedule(Bodies.Length, ParallelBodyBatchSize, handle);
+            }.Schedule(CertificationBody.Bodies.Length, ParallelBodyBatchSize, handle);
 
 #if RTS_CONTACT_DIAGNOSTICS
             // Velocity-body block reduce + finalize carry timing/counters
-            // (no EnableDiagnostics runtime gate) for benchmarks with oracle off.
+            // (no Configuration.EnableDiagnostics runtime gate) for benchmarks with oracle off.
             {
                 handle = new ReduceVelocityBodyBlocksJob
                 {
-                    BodyStatistics = ParallelBodyStatistics,
-                    BodyCount = Bodies.Length
+                    BodyStatistics = CertificationSolver.ParallelBodyStatistics,
+                    BodyCount = CertificationBody.Bodies.Length
                 }.Schedule(escapeBlockCount, 1, handle);
 
                 ConstraintSolverJob finalizeVelocity = ConstraintSolver;
@@ -769,7 +989,7 @@ public partial struct CrowdContactPipelineScheduler
 
 #if RTS_CONTACT_DIAGNOSTICS
         // FinalizePipeline publishes SolverNanoseconds, UniqueActivatedPairCount
-        // and the cross-stage ratios. No EnableDiagnostics runtime gate so benchmarks
+        // and the cross-stage ratios. No Configuration.EnableDiagnostics runtime gate so benchmarks
         // with the oracle disabled still get valid pipeline-total telemetry.
         {
             ConstraintSolverJob finalizePipeline = ConstraintSolver;
@@ -790,8 +1010,8 @@ public partial struct CrowdContactPipelineScheduler
         {
             Operation = ContactPipelineTimingOperation.Begin,
             RuntimeState = runtimeState,
-            Statistics = Statistics,
-            IncrementalStatistics = IncrementalStatistics
+            Statistics = CertificationDiagnostics.Statistics,
+            IncrementalStatistics = CertificationDiagnostics.IncrementalStatistics
         }.Schedule(dependency);
 
     private JobHandle EndStageTiming(
@@ -802,9 +1022,176 @@ public partial struct CrowdContactPipelineScheduler
         {
             Operation = operation,
             RuntimeState = runtimeState,
-            Statistics = Statistics,
-            IncrementalStatistics = IncrementalStatistics
+            Statistics = CertificationDiagnostics.Statistics,
+            IncrementalStatistics = CertificationDiagnostics.IncrementalStatistics
         }.Schedule(dependency);
 #endif
+
+    private JobHandle ScheduleDirtyContactScheduleCompaction(
+        JobHandle handle)
+    {
+        handle = new PrepareDirtyContactScheduleBlocksJob
+        {
+            Contacts =
+                CertificationPersistent.PersistentPredictiveContacts,
+            Schedule = CertificationPersistent.PredictiveContactSchedule,
+            BlockCounts =
+                CertificationPersistent.DirtyContactScheduleBlockCounts,
+            BlockOffsets =
+                CertificationPersistent.DirtyContactScheduleBlockOffsets,
+            BlockSize = SoftPairBatchSize
+        }.Schedule(handle);
+        handle = new CountDirtyContactScheduleJob
+        {
+            Contacts = CertificationPersistent
+                .PersistentPredictiveContacts.AsDeferredJobArray(),
+            Schedule = CertificationPersistent
+                .PredictiveContactSchedule.AsDeferredJobArray(),
+            CurrentBodyIndexByEntity =
+                CertificationViews.CurrentBodyIndexByEntity,
+            DirtyFlagsByBody =
+                CertificationPersistent.IncrementalDirtyFlagsByBody,
+            BlockCounts = CertificationPersistent
+                .DirtyContactScheduleBlockCounts.AsDeferredJobArray(),
+            ScheduleCursor =
+                CertificationPersistent.PredictiveContactScheduleCursor,
+            BlockSize = SoftPairBatchSize,
+            Enabled = 1
+        }.Schedule(
+            CertificationPersistent.DirtyContactScheduleBlockCounts,
+            1,
+            handle);
+        handle = new PrefixDirtyContactScheduleJob
+        {
+            BlockCounts = CertificationPersistent
+                .DirtyContactScheduleBlockCounts.AsDeferredJobArray(),
+            BlockOffsets = CertificationPersistent
+                .DirtyContactScheduleBlockOffsets.AsDeferredJobArray(),
+            ContactScratch =
+                CertificationPersistent.PredictiveContactScratch,
+            ScheduleScratch =
+                CertificationPersistent.PredictiveContactScheduleScratch
+        }.Schedule(handle);
+        handle = new ScatterDirtyContactScheduleJob
+        {
+            Contacts = CertificationPersistent
+                .PersistentPredictiveContacts.AsDeferredJobArray(),
+            Schedule = CertificationPersistent
+                .PredictiveContactSchedule.AsDeferredJobArray(),
+            CurrentBodyIndexByEntity =
+                CertificationViews.CurrentBodyIndexByEntity,
+            DirtyFlagsByBody =
+                CertificationPersistent.IncrementalDirtyFlagsByBody,
+            BlockOffsets = CertificationPersistent
+                .DirtyContactScheduleBlockOffsets.AsDeferredJobArray(),
+            ContactScratch = CertificationPersistent
+                .PredictiveContactScratch.AsDeferredJobArray(),
+            ScheduleScratch = CertificationPersistent
+                .PredictiveContactScheduleScratch.AsDeferredJobArray(),
+            ScheduleCursor =
+                CertificationPersistent.PredictiveContactScheduleCursor,
+            BlockSize = SoftPairBatchSize
+        }.Schedule(
+            CertificationPersistent.DirtyContactScheduleBlockCounts,
+            1,
+            handle);
+        handle = new CommitDirtyContactScheduleJob
+        {
+            ContactScratch =
+                CertificationPersistent.PredictiveContactScratch,
+            ScheduleScratch =
+                CertificationPersistent.PredictiveContactScheduleScratch,
+            ContactIndex =
+                CertificationPersistent.PersistentContactIndex,
+            Schedule = CertificationPersistent.PredictiveContactSchedule,
+            ScheduleCursor =
+                CertificationPersistent.PredictiveContactScheduleCursor
+        }.Schedule(handle);
+        return handle;
+    }
+
+    private JobHandle ScheduleFullSweepBroadPhase(JobHandle handle)
+    {
+        handle = new CountBodyCellsJob
+        {
+            Bodies = CertificationBody.Bodies,
+            MotionEvidence = CertificationBody.MotionEvidence,
+            BodyCellCounts = CertificationViews.BodyCellCounts,
+            GridOrigin = CertificationEnvironment.GridOrigin,
+            GridDimensions = CertificationEnvironment.GridDimensions,
+            CellRadius = CertificationEnvironment.CellRadius
+        }.Schedule(
+            CertificationBody.Bodies.Length,
+            ParallelBodyBatchSize,
+            handle);
+        handle = new PrefixBodyCellsJob
+        {
+            BodyCellCounts = CertificationViews.BodyCellCounts,
+            BodyCellOffsets = CertificationViews.BodyCellOffsets,
+            SweptCellEntries = CertificationViews.SweptCellEntries,
+            CellPairCounts = CertificationViews.CellPairCounts,
+            CellPairOffsets = CertificationViews.CellPairOffsets
+        }.Schedule(handle);
+        handle = new ScatterBodyCellsJob
+        {
+            Bodies = CertificationBody.Bodies,
+            MotionEvidence = CertificationBody.MotionEvidence,
+            BodyCellCounts = CertificationViews.BodyCellCounts,
+            BodyCellOffsets = CertificationViews.BodyCellOffsets,
+            SweptCellEntries =
+                CertificationViews.SweptCellEntries.AsDeferredJobArray(),
+            GridOrigin = CertificationEnvironment.GridOrigin,
+            GridDimensions = CertificationEnvironment.GridDimensions,
+            CellRadius = CertificationEnvironment.CellRadius
+        }.Schedule(
+            CertificationBody.Bodies.Length,
+            ParallelBodyBatchSize,
+            handle);
+        handle = new SortBodyCellsJob
+        {
+            SweptCellEntries = CertificationViews.SweptCellEntries
+        }.Schedule(handle);
+        handle = new CountCellPairsJob
+        {
+            SweptCellEntries =
+                CertificationViews.SweptCellEntries.AsDeferredJobArray(),
+            CellPairCounts =
+                CertificationViews.CellPairCounts.AsDeferredJobArray()
+        }.Schedule(
+            CertificationViews.CellPairCounts,
+            SoftPairBatchSize,
+            handle);
+        handle = new PrefixCellPairsJob
+        {
+            CellPairCounts =
+                CertificationViews.CellPairCounts.AsDeferredJobArray(),
+            CellPairOffsets =
+                CertificationViews.CellPairOffsets.AsDeferredJobArray(),
+            Pairs = CertificationViews.Pairs
+        }.Schedule(handle);
+        handle = new ScatterCellPairsJob
+        {
+            SweptCellEntries =
+                CertificationViews.SweptCellEntries.AsDeferredJobArray(),
+            CellPairCounts =
+                CertificationViews.CellPairCounts.AsDeferredJobArray(),
+            CellPairOffsets =
+                CertificationViews.CellPairOffsets.AsDeferredJobArray(),
+            Pairs = CertificationViews.Pairs.AsDeferredJobArray()
+        }.Schedule(
+            CertificationViews.CellPairCounts,
+            SoftPairBatchSize,
+            handle);
+        handle = new SortAndDeduplicateBroadPhasePairsJob
+        {
+            Pairs = CertificationViews.Pairs,
+            TimestepInteractionPairs =
+                CertificationViews.TimestepInteractionPairs,
+            FullSweepPrepared = CertificationViews.FullSweepPrepared
+        }.Schedule(handle);
+
+        return handle;
+    }
+
 }
 }

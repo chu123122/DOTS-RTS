@@ -52,8 +52,8 @@ for token in ("InteractionCandidateStore.Create(", "CrowdStepBodyResources.Creat
     if token not in base:
         fail(f"Composition root wiring missing: {token}")
 
-certifier = read(PIPE / "Stages/Certification/Prediction/InteractionCorrectnessCertifier.cs")
-timestep = read(PIPE / "Stages/Certification/Prediction/TimestepContactSet.cs")
+certifier = read(PIPE / "Stages/Certification/Certificate/InteractionCorrectnessKernel.cs")
+timestep = read(PIPE / "Stages/Certification/InitialContact/TimestepContactSetKernel.cs")
 for token in ("IssueCertificateForCommittedViews(", "RevokeInteractionCertificate("):
     if token not in certifier:
         fail(f"Certification boundary missing: {token}")
@@ -61,7 +61,7 @@ for token in ("ResolveInteractionSource(", "CommitTimestepContactViews("):
     if token not in timestep:
         fail(f"Interaction view phase missing: {token}")
 
-oracle = read(PIPE / "Stages/Certification/Validation/IncrementalContactOracle.cs")
+oracle = read(PIPE / "Stages/Certification/Certificate/IncrementalContactOracleKernel.cs")
 if "IncrementalCacheState" in oracle or ".IsValid = 0" in oracle:
     fail("Oracle controls authoritative cache state")
 

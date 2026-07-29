@@ -207,15 +207,109 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 solverResources,
                 diagnostics,
                 _simulationDebuggerSelectedPairs);
-        InteractionCertificationAlgorithms certification = certificationResources.CreateAlgorithms(
-            configuration,
-            gridComponent,
-            body,
-            _candidateStore,
-            solverResources,
-            executionResources,
-            diagnostics,
-            selectedEntity);
+        CertificationEnvironmentResources certificationEnvironment = new CertificationEnvironmentResources
+        {
+            Configuration = configuration,
+            GridOrigin = gridComponent.GridOrigin,
+            GridDimensions = gridComponent.GridDimensions,
+            CellRadius = gridComponent.CellRadius,
+            Grid = gridComponent.Grid
+        };
+        CertificationBodyResources certificationBody = new CertificationBodyResources
+        {
+            Bodies = body.Bodies,
+            NavigationStates = body.NavigationStates,
+            MotionIntents = body.MotionIntents,
+            MotionEvidence = body.MotionEvidence,
+            StepStates = body.StepStates
+        };
+        CertificationViewResources certificationViews = new CertificationViewResources
+        {
+            SweptCellEntries = certificationResources.SweptCellEntries,
+            BodyCellCounts = certificationResources.BodyCellCounts,
+            BodyCellOffsets = certificationResources.BodyCellOffsets,
+            CellPairCounts = certificationResources.CellPairCounts,
+            CellPairOffsets = certificationResources.CellPairOffsets,
+            FullSweepPrepared = certificationResources.FullSweepPrepared,
+            Pairs = certificationResources.CollisionPairs,
+            TimestepContactPairs = certificationResources.TimestepContactPairs,
+            PreviousTimestepContactPairs = certificationResources.PreviousTimestepContactPairs,
+            TimestepInteractionPairs = certificationResources.TimestepInteractionPairs,
+            SoftAvoidancePairs = certificationResources.SoftAvoidancePairs,
+            ClassificationBodyPairs = certificationResources.ClassificationBodyPairs,
+            CurrentBodyIndexByEntity = certificationResources.CurrentBodyIndexByEntity
+        };
+        PersistentCertificationResources certificationPersistent =
+            new PersistentCertificationResources
+            {
+                CurrentIncrementalProxies = certificationResources.CurrentIncrementalProxies,
+                PersistentSweptProxies = _candidateStore.SweptProxies,
+                PersistentProxyIndexByBody = _candidateStore.ProxyIndexByBody,
+                PersistentNeighborPairs = _candidateStore.NeighborPairs,
+                PersistentPredictiveContacts = _candidateStore.PredictiveContacts,
+                PersistentContactIndex = _candidateStore.PredictiveContactIndex,
+                PersistentActiveContactKeys = _candidateStore.ActiveContactKeys,
+                PersistentSoftAvoidancePairKeys = _candidateStore.SoftAvoidancePairKeys,
+                PersistentDormantContactSchedule = _candidateStore.DormantContactSchedule,
+                PredictiveContactScratch = certificationResources.PredictiveContactScratch,
+                IncrementalDirtyBodies = certificationResources.IncrementalDirtyBodies,
+                IncrementalDirtyFlagsByBody = certificationResources.IncrementalDirtyFlagsByBody,
+                IncrementalNeighborPairScratch = certificationResources.IncrementalNeighborPairScratch,
+                PredictiveContactSchedule = certificationResources.PredictiveContactSchedule,
+                PredictiveContactScheduleScratch = certificationResources.PredictiveContactScheduleScratch,
+                PredictiveContactScheduleCursor = certificationResources.PredictiveContactScheduleCursor,
+                IncrementalCacheState = _candidateStore.CacheState,
+                InteractionCertificate = certificationResources.InteractionCertificate,
+                InteractionCertificateViolations = certificationResources.InteractionViolations,
+                PersistentClassificationResults = certificationResources.PersistentClassificationResults,
+                PersistentClassificationState = certificationResources.PersistentClassificationState,
+                PersistentSpatialMembership = _candidateStore.SpatialMembership,
+                PersistentSpatialMembershipEpoch = _candidateStore.SpatialMembershipEpoch,
+                PersistentSpatialVisitStampByProxy = certificationResources.PersistentSpatialVisitStampByProxy,
+                PersistentSpatialVisitStamp = certificationResources.PersistentSpatialVisitStamp,
+                PersistentIncidentPairLookup = _candidateStore.IncidentPairLookup,
+                PersistentIncidentLookupEpoch = _candidateStore.IncidentLookupEpoch,
+                DirtyBodyRefreshResults =
+                    certificationResources.DirtyBodyRefreshResults,
+                DirtyBodyRefreshSummary =
+                    certificationResources.DirtyBodyRefreshSummary,
+                DirtyContactScheduleBlockCounts =
+                    certificationResources.DirtyContactScheduleBlockCounts,
+                DirtyContactScheduleBlockOffsets =
+                    certificationResources.DirtyContactScheduleBlockOffsets
+            };
+        CertificationSolverResources certificationSolver = new CertificationSolverResources
+        {
+            CorrectedBodyFlags = solverResources.CorrectedBodyFlags,
+            CorrectedBodyIndices = solverResources.CorrectedBodyIndices,
+            ParallelBodyStatistics = solverResources.ParallelBodyResults,
+            EnvelopeEscapeFlags = solverResources.EnvelopeEscapeFlags,
+            DirtyBodyBlockOffsets = solverResources.DirtyBodyBlockOffsets,
+            ActiveIncidentIndexState = solverResources.ActiveIncidentIndexState,
+            ActiveIncidentOffsets = solverResources.ActiveIncidentOffsets,
+            ActiveIncidentWriteCursors = solverResources.ActiveIncidentWriteCursors,
+            ActiveIncidentPairIndices = solverResources.ActiveIncidentPairIndices,
+            JacobiPairCorrections = solverResources.JacobiPairCorrections
+        };
+        CertificationDiagnosticsResources certificationDiagnostics =
+            new CertificationDiagnosticsResources
+            {
+#if RTS_CONTACT_DIAGNOSTICS
+                IterationState = executionResources.SolverIterationState,
+                BlockStatistics = executionResources.JacobiBlockStatistics,
+                DiagnosticSelectedEntity = selectedEntity,
+                PersistentClassificationTelemetry =
+                    certificationResources.PersistentClassificationTelemetry,
+                IncrementalOracleContactPairs = diagnostics.IncrementalOracleContactPairs,
+                IncrementalStatistics = diagnostics.IncrementalStatistics,
+                Statistics = diagnostics.ContactStatistics,
+                IterationDiagnostics = diagnostics.Iterations,
+                PairDiagnostics = diagnostics.Pairs,
+                HeatSamples = diagnostics.HeatSamples,
+                ParallelSimulationDebuggerPairCandidates =
+                    diagnostics.ParallelPairCandidates
+#endif
+            };
         SoftAvoidanceJob softAvoidance = softResources.CreateJob(
             configuration,
             gridComponent,
@@ -241,7 +335,12 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
         {
             Configuration = configuration,
             Lifecycle = pipelineLifecycle,
-            Certification = certification,
+            CertificationEnvironment = certificationEnvironment,
+            CertificationBody = certificationBody,
+            CertificationViews = certificationViews,
+            CertificationPersistent = certificationPersistent,
+            CertificationSolver = certificationSolver,
+            CertificationDiagnostics = certificationDiagnostics,
             SoftAvoidance = softAvoidance,
             ConstraintSolver = constraintSolver
         };

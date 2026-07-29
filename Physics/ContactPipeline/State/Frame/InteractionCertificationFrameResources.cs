@@ -14,6 +14,11 @@ namespace RTS.Unit.FlowField.Systems
 internal struct InteractionCertificationFrameResources
 {
     public NativeList<SweptDiscCellEntry> SweptCellEntries;
+    public NativeArray<int> BodyCellCounts;
+    public NativeArray<int> BodyCellOffsets;
+    public NativeList<int> CellPairCounts;
+    public NativeList<int> CellPairOffsets;
+    public NativeReference<byte> FullSweepPrepared;
     public NativeList<ContactConstraint> CollisionPairs;
     public NativeList<ContactConstraint> TimestepContactPairs;
     public NativeList<ContactConstraint> PreviousTimestepContactPairs;
@@ -37,6 +42,10 @@ internal struct InteractionCertificationFrameResources
     public NativeReference<PersistentClassificationPhaseState> PersistentClassificationState;
     public NativeArray<uint> PersistentSpatialVisitStampByProxy;
     public NativeReference<uint> PersistentSpatialVisitStamp;
+    public NativeArray<DirtyBodyRefreshResult> DirtyBodyRefreshResults;
+    public NativeReference<DirtyBodyRefreshSummary> DirtyBodyRefreshSummary;
+    public NativeList<DirtyContactScheduleBlock> DirtyContactScheduleBlockCounts;
+    public NativeList<DirtyContactScheduleBlock> DirtyContactScheduleBlockOffsets;
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeReference<PersistentClassificationTelemetryState> PersistentClassificationTelemetry;
 #endif
@@ -47,6 +56,13 @@ internal struct InteractionCertificationFrameResources
         return new InteractionCertificationFrameResources
         {
             SweptCellEntries = new NativeList<SweptDiscCellEntry>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            BodyCellCounts = new NativeArray<int>(
+                unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            BodyCellOffsets = new NativeArray<int>(
+                unitCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory),
+            CellPairCounts = new NativeList<int>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            CellPairOffsets = new NativeList<int>(math.max(unitCount * 4, 1), Allocator.TempJob),
+            FullSweepPrepared = new NativeReference<byte>(Allocator.TempJob),
             CollisionPairs = new NativeList<ContactConstraint>(math.max(unitCount * 4, 1), Allocator.TempJob),
             TimestepContactPairs = new NativeList<ContactConstraint>(math.max(unitCount * 4, 1), Allocator.TempJob),
             PreviousTimestepContactPairs = new NativeList<ContactConstraint>(math.max(unitCount * 8, 1), Allocator.TempJob),
@@ -68,103 +84,18 @@ internal struct InteractionCertificationFrameResources
             PersistentClassificationState = new NativeReference<PersistentClassificationPhaseState>(Allocator.TempJob),
             PersistentSpatialVisitStampByProxy = new NativeArray<uint>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             PersistentSpatialVisitStamp = new NativeReference<uint>(Allocator.TempJob),
+            DirtyBodyRefreshResults = new NativeArray<DirtyBodyRefreshResult>(
+                unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
+            DirtyBodyRefreshSummary =
+                new NativeReference<DirtyBodyRefreshSummary>(Allocator.TempJob),
+            DirtyContactScheduleBlockCounts =
+                new NativeList<DirtyContactScheduleBlock>(
+                    one, Allocator.TempJob),
+            DirtyContactScheduleBlockOffsets =
+                new NativeList<DirtyContactScheduleBlock>(
+                    one, Allocator.TempJob),
 #if RTS_CONTACT_DIAGNOSTICS
             PersistentClassificationTelemetry = new NativeReference<PersistentClassificationTelemetryState>(Allocator.TempJob),
-#endif
-        };
-    }
-
-    public InteractionCertificationAlgorithms CreateAlgorithms(
-        ContactPipelineConfiguration configuration,
-        FlowFieldGrid grid,
-        CrowdStepBodyResources body,
-        InteractionCandidateStore candidates,
-        ConstraintSolverFrameResources solver,
-        ContactPipelineExecutionResources execution,
-        ContactDiagnosticsFrameResources diagnostics,
-        Entity diagnosticSelectedEntity)
-    {
-        return new InteractionCertificationAlgorithms
-        {
-            Environment = new CertificationEnvironmentResources
-            {
-                Configuration = configuration, GridOrigin = grid.GridOrigin,
-                GridDimensions = grid.GridDimensions, CellRadius = grid.CellRadius, Grid = grid.Grid
-            },
-            Body = new CertificationBodyResources
-            {
-                Bodies = body.Bodies, NavigationStates = body.NavigationStates,
-                MotionIntents = body.MotionIntents, MotionEvidence = body.MotionEvidence,
-                StepStates = body.StepStates
-            },
-            Views = new CertificationViewResources
-            {
-                SweptCellEntries = SweptCellEntries, Pairs = CollisionPairs,
-                TimestepContactPairs = TimestepContactPairs,
-                PreviousTimestepContactPairs = PreviousTimestepContactPairs,
-                TimestepInteractionPairs = TimestepInteractionPairs,
-                SoftAvoidancePairs = SoftAvoidancePairs,
-                ClassificationBodyPairs = ClassificationBodyPairs,
-                CurrentBodyIndexByEntity = CurrentBodyIndexByEntity
-            },
-            Persistent = new PersistentCertificationResources
-            {
-                CurrentIncrementalProxies = CurrentIncrementalProxies,
-                PersistentSweptProxies = candidates.SweptProxies,
-                PersistentProxyIndexByBody = candidates.ProxyIndexByBody,
-                PersistentNeighborPairs = candidates.NeighborPairs,
-                PersistentPredictiveContacts = candidates.PredictiveContacts,
-                PersistentContactIndex = candidates.PredictiveContactIndex,
-                PersistentActiveContactKeys = candidates.ActiveContactKeys,
-                PersistentSoftAvoidancePairKeys = candidates.SoftAvoidancePairKeys,
-                PersistentDormantContactSchedule = candidates.DormantContactSchedule,
-                PredictiveContactScratch = PredictiveContactScratch,
-                IncrementalDirtyBodies = IncrementalDirtyBodies,
-                IncrementalDirtyFlagsByBody = IncrementalDirtyFlagsByBody,
-                IncrementalNeighborPairScratch = IncrementalNeighborPairScratch,
-                PredictiveContactSchedule = PredictiveContactSchedule,
-                PredictiveContactScheduleScratch = PredictiveContactScheduleScratch,
-                PredictiveContactScheduleCursor = PredictiveContactScheduleCursor,
-                IncrementalCacheState = candidates.CacheState,
-                InteractionCertificate = InteractionCertificate,
-                InteractionCertificateViolations = InteractionViolations,
-                PersistentClassificationResults = PersistentClassificationResults,
-                PersistentClassificationState = PersistentClassificationState,
-                PersistentSpatialMembership = candidates.SpatialMembership,
-                PersistentSpatialMembershipEpoch = candidates.SpatialMembershipEpoch,
-                PersistentSpatialVisitStampByProxy = PersistentSpatialVisitStampByProxy,
-                PersistentSpatialVisitStamp = PersistentSpatialVisitStamp,
-                PersistentIncidentPairLookup = candidates.IncidentPairLookup,
-                PersistentIncidentLookupEpoch = candidates.IncidentLookupEpoch
-            },
-            Solver = new CertificationSolverResources
-            {
-                CorrectedBodyFlags = solver.CorrectedBodyFlags,
-                CorrectedBodyIndices = solver.CorrectedBodyIndices,
-                ParallelBodyStatistics = solver.ParallelBodyResults,
-                EnvelopeEscapeFlags = solver.EnvelopeEscapeFlags,
-                DirtyBodyBlockOffsets = solver.DirtyBodyBlockOffsets,
-                ActiveIncidentIndexState = solver.ActiveIncidentIndexState,
-                ActiveIncidentOffsets = solver.ActiveIncidentOffsets,
-                ActiveIncidentWriteCursors = solver.ActiveIncidentWriteCursors,
-                ActiveIncidentPairIndices = solver.ActiveIncidentPairIndices,
-                JacobiPairCorrections = solver.JacobiPairCorrections
-            },
-#if RTS_CONTACT_DIAGNOSTICS
-            Diagnostics = new CertificationDiagnosticsResources
-            {
-                IterationState = execution.SolverIterationState,
-                BlockStatistics = execution.JacobiBlockStatistics,
-                DiagnosticSelectedEntity = diagnosticSelectedEntity,
-                PersistentClassificationTelemetry = PersistentClassificationTelemetry,
-                IncrementalOracleContactPairs = diagnostics.IncrementalOracleContactPairs,
-                IncrementalStatistics = diagnostics.IncrementalStatistics,
-                Statistics = diagnostics.ContactStatistics,
-                IterationDiagnostics = diagnostics.Iterations,
-                PairDiagnostics = diagnostics.Pairs,
-                HeatSamples = diagnostics.HeatSamples,
-                ParallelSimulationDebuggerPairCandidates = diagnostics.ParallelPairCandidates
-            }
 #endif
         };
     }
@@ -173,6 +104,11 @@ internal struct InteractionCertificationFrameResources
     {
         JobHandle combined = finalReader;
         combined = Combine(combined, SweptCellEntries.Dispose(finalReader));
+        combined = Combine(combined, BodyCellCounts.Dispose(finalReader));
+        combined = Combine(combined, BodyCellOffsets.Dispose(finalReader));
+        combined = Combine(combined, CellPairCounts.Dispose(finalReader));
+        combined = Combine(combined, CellPairOffsets.Dispose(finalReader));
+        combined = Combine(combined, FullSweepPrepared.Dispose(finalReader));
         combined = Combine(combined, CollisionPairs.Dispose(finalReader));
         combined = Combine(combined, TimestepContactPairs.Dispose(finalReader));
         combined = Combine(combined, PreviousTimestepContactPairs.Dispose(finalReader));
@@ -196,6 +132,12 @@ internal struct InteractionCertificationFrameResources
             combined = Combine(combined, PersistentClassificationState.Dispose(finalReader));
         combined = Combine(combined, PersistentSpatialVisitStampByProxy.Dispose(finalReader));
         combined = Combine(combined, PersistentSpatialVisitStamp.Dispose(finalReader));
+        combined = Combine(combined, DirtyBodyRefreshResults.Dispose(finalReader));
+        combined = Combine(combined, DirtyBodyRefreshSummary.Dispose(finalReader));
+        combined = Combine(
+            combined, DirtyContactScheduleBlockCounts.Dispose(finalReader));
+        combined = Combine(
+            combined, DirtyContactScheduleBlockOffsets.Dispose(finalReader));
 #if RTS_CONTACT_DIAGNOSTICS
         if (PersistentClassificationTelemetry.IsCreated)
             combined = Combine(combined, PersistentClassificationTelemetry.Dispose(finalReader));

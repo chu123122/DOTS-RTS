@@ -19,6 +19,11 @@ required_dirs = (
     "Contracts/Body", "Contracts/Certification", "Contracts/Execution",
     "Contracts/Interaction", "State/Frame", "State/Persistent", "Kernels",
     "Scheduling/Parallel/Jobs", "Stages/Lifecycle", "Stages/Certification",
+    "Stages/Certification/InitialContact",
+    "Stages/Certification/SubstepRepair",
+    "Stages/Certification/PersistentClassification",
+    "Stages/Certification/Certificate",
+    "Stages/Certification/IterationFinalize",
     "Stages/SoftAvoidance", "Stages/Solver",
     "Observability/Contracts")
 for relative in required_dirs:
@@ -40,11 +45,16 @@ for name, path in stage_files.items():
     if f"public partial struct {name} : IJob" not in read(path):
         fail(f"Focused stage ABI missing: {name}")
 certification_algorithms = read(
-    PIPE / "Stages/Certification/InteractionCertificationJob.cs")
-certification_jobs = read(
-    PIPE / "Stages/Certification/InteractionCertificationStageJobs.cs")
-if "public partial struct InteractionCertificationAlgorithms" not in certification_algorithms:
-    fail("Certification algorithm facade missing")
+    PIPE / "Stages/Certification/CertificationStageKernel.cs")
+certification_jobs = "\n".join(read(path) for path in (
+    PIPE / "Stages/Certification/InitialContact/InitialContactStageJobs.cs",
+    PIPE / "Stages/Certification/SubstepRepair/SubstepRepairStageJobs.cs",
+    PIPE / "Stages/Certification/PersistentClassification/PersistentClassificationStageJobs.cs",
+    PIPE / "Stages/Certification/Certificate/CertificateStageJobs.cs",
+    PIPE / "Stages/Certification/IterationFinalize/IterationFinalizeStageJobs.cs",
+))
+if "internal partial struct CertificationStageKernel" not in certification_algorithms:
+    fail("Certification stage kernel missing")
 if ": IJob" in certification_algorithms or "InteractionCertificationOperation" in certification_algorithms:
     fail("Retired certification god job returned")
 for name in (
@@ -79,7 +89,7 @@ for token in ("EvaluateParallelJacobiPairsJob", "GatherAndApplyParallelJacobiBod
 
 # All partial fragments must live under their owning stage/scheduling root.
 allowed = {
-    "InteractionCertificationAlgorithms": PIPE / "Stages/Certification",
+    "CertificationStageKernel": PIPE / "Stages/Certification",
     "SoftAvoidanceJob": PIPE / "Stages/SoftAvoidance",
     "ConstraintSolverJob": PIPE / "Stages/Solver",
     "ContactPipelineLifecycleJob": PIPE / "Stages/Lifecycle",
@@ -113,13 +123,6 @@ for relative in ("Stages/Lifecycle/ContactPipelineLifecycleJob.cs",):
         fail(f"Lifecycle execution-mode ABI missing: {relative}")
 
 for relative, required_bindings in {
-    "Frame/InteractionCertificationFrameResources.cs": (
-        "Environment = new CertificationEnvironmentResources",
-        "Persistent = new PersistentCertificationResources",
-        "Solver = new CertificationSolverResources",
-        "IterationState = execution.SolverIterationState",
-        "BlockStatistics = execution.JacobiBlockStatistics",
-    ),
     "Frame/SoftAvoidanceFrameResources.cs": (
         "RuntimeState = execution.PipelineRuntimeState",
     ),
@@ -134,7 +137,19 @@ for relative, required_bindings in {
         if binding not in source:
             fail(f"Stage capability binding missing in {relative}: {binding}")
 
-certifier = read(PIPE / "Stages/Certification/Prediction/InteractionCorrectnessCertifier.cs")
+composition = read(FLOW / "BaseFlowMovementSystem.cs")
+for binding in (
+    "CertificationEnvironment = certificationEnvironment",
+    "CertificationBody = certificationBody",
+    "CertificationViews = certificationViews",
+    "CertificationPersistent = certificationPersistent",
+    "CertificationSolver = certificationSolver",
+    "CertificationDiagnostics = certificationDiagnostics",
+):
+    if binding not in composition:
+        fail(f"Scheduler resource composition missing: {binding}")
+
+certifier = read(PIPE / "Stages/Certification/Certificate/InteractionCorrectnessKernel.cs")
 certificate = read(PIPE / "Contracts/Certification/InteractionCertificationContracts.cs")
 for token in ("BuildCertificationFlags(", "GetConsumerCertificateFailure(",
               "ValidateConsumerViews("):
