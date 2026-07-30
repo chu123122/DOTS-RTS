@@ -3437,7 +3437,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b783ec7727753c64fb7ba4b3d8089c01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  UnitCount: 200
+  UnitCount: 1000
   ClusterCenter:
     x: 0
     y: 0
@@ -3449,48 +3449,20 @@ MonoBehaviour:
   StatisticsFrames: 300
   IssueMoveBeforeTrials: 0
   MoveTargetSpread: 10
-  TrialList:
-  - Label: baseline_timestep_swept_A0_B1
-    EnablePredictivePairGeneration: 1
-    EnableFatAabbCache: 0
-    EnableAdaptiveFatAabb: 0
-    EnableTimestepContactSetCache: 1
-    EnableDiagnostics: 0
-    PredictiveSkin: 0
-    FatAabbCacheMargin: 0.5
-    SubstepCount: 4
-    IterationCount: 4
-    AdaptiveDetectionCellSpan: 0
-    AdaptiveMinimumUnitsPerCell: 0
-    AdaptiveMinimumUnitsPerRegion: 0
-    AdaptiveEnableScore: 0
-  - Label: incremental_persistent_A1_B1
-    EnablePredictivePairGeneration: 1
-    EnableFatAabbCache: 1
-    EnableAdaptiveFatAabb: 0
-    EnableTimestepContactSetCache: 1
-    EnableDiagnostics: 0
-    PredictiveSkin: 0
-    FatAabbCacheMargin: 0.5
-    SubstepCount: 4
-    IterationCount: 4
-    AdaptiveDetectionCellSpan: 0
-    AdaptiveMinimumUnitsPerCell: 0
-    AdaptiveMinimumUnitsPerRegion: 0
-    AdaptiveEnableScore: 0
+  TrialList: []
   UseScenarioBenchmark: 1
-  BenchmarkRepetitions: 7
+  BenchmarkRepetitions: 3
   BenchmarkCachePrimingFrames: 60
   BenchmarkHoldFrames: 600
   BenchmarkFramesPerLeg: 300
   BenchmarkRawSampleInterval: 10
-  BenchmarkSettledFrames: 45
-  BenchmarkMaxPreparationFrames: 1800
-  BenchmarkSettledSpeedThreshold: 0.05
-  BenchmarkSettledUnitRatio: 0.903
+  BenchmarkSettledFrames: 30
+  BenchmarkMaxPreparationFrames: 3600
+  BenchmarkSettledSpeedThreshold: 0.25
+  BenchmarkSettledUnitRatio: 0.99
   BenchmarkScenarios:
-  - Enabled: 1
-    Label: settled_hold
+  - Enabled: 0
+    Label: "\u9759\u6B62\u5BC6\u96C6"
     Mode: 0
     PointA:
       x: 2.584251
@@ -3502,7 +3474,7 @@ MonoBehaviour:
       z: 0
     RoundTripCount: 1
   - Enabled: 1
-    Label: open_ping_pong
+    Label: "\u5F00\u9614\u5F80\u8FD4"
     Mode: 1
     PointA:
       x: 2.584251
@@ -3514,7 +3486,7 @@ MonoBehaviour:
       z: -2.884846
     RoundTripCount: 2
   - Enabled: 1
-    Label: obstacle_ping_pong
+    Label: "\u969C\u788D\u5F80\u8FD4"
     Mode: 2
     PointA:
       x: 2.584251

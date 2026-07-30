@@ -910,10 +910,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cdf488e4d49348bcaf10e4f25f6cb55b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  enableContactDiagnostics: 1
   cellRadius: 0.65
   gridSize:
-    x: 50
-    y: 50
+    x: 60
+    y: 60
   gridOrigin:
     x: -25
     y: 0
@@ -926,25 +927,26 @@ MonoBehaviour:
   visualizationHeightOffset: 0.05
   softAvoidanceResponseRate: 4
   softAvoidanceShell: 0.2
-  settledSoftAvoidanceMultiplier: 0.3
+  settledSoftAvoidanceMultiplier: 0.27
   softAvoidanceVelocitySolver: 1
   rvoTimeHorizon: 0.5
   contactSubsteps: 3
   contactIterations: 5
   contactCompliance: 0
-  predictiveContactSkin: 0.05
+  contactPositionSolver: 0
+  predictiveContactSkin: 0
   enablePredictivePairGeneration: 1
   enablePredictiveContacts: 1
-  enableContactDiagnostics: 0
+  enableTimestepContactSetCache: 1
+  enablePersistentContactCache: 0
+  persistentGuardEnvelopeMargin: 0.5
+  timestepContactMargin: 0.25
   visualizeSelectedContacts: 1
   visualizeContactHeatmap: 1
   contactHeatmapMode: 0
   diagnosticSlowMotionScale: 0.2
   diagnosticCaptureDuration: 10
   diagnosticCaptureInterval: 0.1
-  enableFatAabbCache: 1
-  fatAabbCacheMargin: 0.5
-  timestepContactMargin: 0.25
 --- !u!4 &921903694
 Transform:
   m_ObjectHideFlags: 0
