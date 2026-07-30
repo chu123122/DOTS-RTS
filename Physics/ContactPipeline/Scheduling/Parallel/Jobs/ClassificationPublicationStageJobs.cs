@@ -183,7 +183,6 @@ internal struct PrefixClassificationPublicationJob : IJob
     public NativeList<ContactConstraint> InitialTimestepContacts;
     public NativeList<BodyPair> SoftAvoidancePairs;
     public NativeList<PredictiveContactScheduleEntry> Schedule;
-    public NativeReference<int> ScheduleCursor;
     public NativeReference<IncrementalContactCacheState> CacheState;
     public byte PublishInitialTimestepContacts;
 #if RTS_CONTACT_DIAGNOSTICS
@@ -228,7 +227,6 @@ internal struct PrefixClassificationPublicationJob : IJob
             InitialTimestepContacts.ResizeUninitialized(constraintOffset);
         SoftAvoidancePairs.ResizeUninitialized(softOffset);
         Schedule.ResizeUninitialized(scheduleOffset);
-        ScheduleCursor.Value = 0;
         IncrementalContactCacheState cache = CacheState.Value;
         cache.DormantContactCount = dormant;
         cache.ApproachingContactCount = approaching;

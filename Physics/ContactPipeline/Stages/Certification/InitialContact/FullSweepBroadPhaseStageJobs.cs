@@ -162,6 +162,7 @@ internal struct PrepareBodyCellSortJob : IJob
     [ReadOnly] public NativeList<SweptDiscCellEntry> Entries;
     public NativeList<byte> BlockWorkset;
     public NativeList<SweptDiscCellEntry> Scratch;
+    public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute()
@@ -169,6 +170,10 @@ internal struct PrepareBodyCellSortJob : IJob
         int blockCount = (Entries.Length + BlockSize - 1) / BlockSize;
         BlockWorkset.ResizeUninitialized(blockCount);
         Scratch.ResizeUninitialized(Entries.Length);
+        int requiredMergePassCount = 0;
+        for (int width = 1; width < blockCount; width <<= 1)
+            requiredMergePassCount++;
+        RequiredMergePassCount.Value = requiredMergePassCount;
     }
 }
 
@@ -201,9 +206,12 @@ internal struct MergeBodyCellBlocksJob : IJobParallelForDefer
     public NativeArray<SweptDiscCellEntry> Destination;
     public int BlockSize;
     public int MergePass;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
 
     public void Execute(int blockIndex)
     {
+        if (MergePass >= RequiredMergePassCount.Value)
+            return;
         int sourceBlocksPerGroup = 1 << MergePass;
         int destinationBlocksPerGroup = sourceBlocksPerGroup << 1;
         if (blockIndex % destinationBlocksPerGroup != 0)
@@ -248,10 +256,13 @@ internal struct CopyBodyCellSortResultJob : IJobParallelForDefer
     [ReadOnly] public NativeArray<SweptDiscCellEntry> Source;
     [NativeDisableParallelForRestriction]
     public NativeArray<SweptDiscCellEntry> Destination;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute(int blockIndex)
     {
+        if ((RequiredMergePassCount.Value & 1) == 0)
+            return;
         int start = blockIndex * BlockSize;
         int end = math.min(start + BlockSize, Source.Length);
         for (int index = start; index < end; index++)
@@ -308,7 +319,7 @@ internal struct PrefixCellPairsJob : IJob
 {
     [ReadOnly] public NativeArray<int> CellPairCounts;
     public NativeArray<int> CellPairOffsets;
-    public NativeList<ContactConstraint> Pairs;
+    public NativeList<BodyPair> Pairs;
 
     public void Execute()
     {
@@ -330,7 +341,7 @@ internal struct ScatterCellPairsJob : IJobParallelForDefer
     [ReadOnly] public NativeArray<int> CellPairCounts;
     [ReadOnly] public NativeArray<int> CellPairOffsets;
     [NativeDisableParallelForRestriction]
-    public NativeArray<ContactConstraint> Pairs;
+    public NativeArray<BodyPair> Pairs;
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
@@ -359,14 +370,7 @@ internal struct ScatterCellPairsJob : IJobParallelForDefer
                         GridDimensions,
                         CellRadius))
                     continue;
-                Pairs[writeIndex++] = new ContactConstraint
-                {
-                    Definition = new ContactConstraintDefinition
-                    {
-                        BodyA = math.min(bodyA, bodyB),
-                        BodyB = math.max(bodyA, bodyB)
-                    }
-                };
+                Pairs[writeIndex++] = new BodyPair(bodyA, bodyB);
             }
         }
     }
@@ -375,7 +379,7 @@ internal struct ScatterCellPairsJob : IJobParallelForDefer
 [BurstCompile]
 internal struct DeduplicateAndPublishBroadPhasePairsJob : IJob
 {
-    public NativeList<ContactConstraint> Pairs;
+    public NativeList<BodyPair> Pairs;
     public NativeList<BodyPair> TimestepInteractionPairs;
     public NativeReference<byte> FullSweepPrepared;
     public NativeReference<ContactPipelineExecutionState> RuntimeState;
@@ -386,8 +390,8 @@ internal struct DeduplicateAndPublishBroadPhasePairsJob : IJob
             return;
         for (int pairIndex = 0; pairIndex < Pairs.Length; pairIndex++)
         {
-            ContactConstraint pair = Pairs[pairIndex];
-            if (pair.BodyA >= 0 && pair.BodyB >= 0)
+            BodyPair pair = Pairs[pairIndex];
+            if (pair.BodyA >= 0 && pair.BodyB > pair.BodyA)
                 continue;
 
             ContactPipelineExecutionState runtime = RuntimeState.Value;
@@ -402,10 +406,10 @@ internal struct DeduplicateAndPublishBroadPhasePairsJob : IJob
         if (Pairs.Length > 1)
         {
             int writeIndex = 1;
-            ContactConstraint previous = Pairs[0];
+            BodyPair previous = Pairs[0];
             for (int readIndex = 1; readIndex < Pairs.Length; readIndex++)
             {
-                ContactConstraint current = Pairs[readIndex];
+                BodyPair current = Pairs[readIndex];
                 if (current.BodyA == previous.BodyA &&
                     current.BodyB == previous.BodyB)
                     continue;
@@ -415,8 +419,7 @@ internal struct DeduplicateAndPublishBroadPhasePairsJob : IJob
             Pairs.ResizeUninitialized(writeIndex);
         }
         TimestepInteractionPairs.Clear();
-        ContactPipelineShared.CopyConstraintsToBodyPairs(
-            Pairs.AsArray(), TimestepInteractionPairs);
+        TimestepInteractionPairs.AddRange(Pairs.AsArray());
         FullSweepPrepared.Value = 1;
     }
 }
@@ -447,9 +450,10 @@ internal static class FullSweepBroadPhaseMath
 [BurstCompile]
 internal struct PrepareBroadPhasePairSortJob : IJob
 {
-    [ReadOnly] public NativeList<ContactConstraint> Pairs;
+    [ReadOnly] public NativeList<BodyPair> Pairs;
     public NativeList<byte> BlockWorkset;
-    public NativeList<ContactConstraint> Scratch;
+    public NativeList<BodyPair> Scratch;
+    public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute()
@@ -458,6 +462,10 @@ internal struct PrepareBroadPhasePairSortJob : IJob
             (Pairs.Length + BlockSize - 1) / BlockSize;
         BlockWorkset.ResizeUninitialized(blockCount);
         Scratch.ResizeUninitialized(Pairs.Length);
+        int requiredMergePassCount = 0;
+        for (int width = 1; width < blockCount; width <<= 1)
+            requiredMergePassCount++;
+        RequiredMergePassCount.Value = requiredMergePassCount;
     }
 }
 
@@ -466,7 +474,7 @@ internal struct SortBroadPhasePairBlocksJob : IJobParallelForDefer
 {
     [ReadOnly] public NativeArray<byte> Workset;
     [NativeDisableParallelForRestriction]
-    public NativeArray<ContactConstraint> Pairs;
+    public NativeArray<BodyPair> Pairs;
     public int BlockSize;
 
     public void Execute(int blockIndex)
@@ -476,7 +484,7 @@ internal struct SortBroadPhasePairBlocksJob : IJobParallelForDefer
         if (length > 1)
         {
             Pairs.GetSubArray(start, length).Sort(
-                new ContactConstraintComparer());
+                new BodyPairComparer());
         }
     }
 }
@@ -485,14 +493,17 @@ internal struct SortBroadPhasePairBlocksJob : IJobParallelForDefer
 internal struct MergeBroadPhasePairBlocksJob : IJobParallelForDefer
 {
     [ReadOnly] public NativeArray<byte> Workset;
-    [ReadOnly] public NativeArray<ContactConstraint> Source;
+    [ReadOnly] public NativeArray<BodyPair> Source;
     [NativeDisableParallelForRestriction]
-    public NativeArray<ContactConstraint> Destination;
+    public NativeArray<BodyPair> Destination;
     public int BlockSize;
     public int MergePass;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
 
     public void Execute(int blockIndex)
     {
+        if (MergePass >= RequiredMergePassCount.Value)
+            return;
         int sourceBlocksPerGroup = 1 << MergePass;
         int destinationBlocksPerGroup = sourceBlocksPerGroup << 1;
         if (blockIndex % destinationBlocksPerGroup != 0)
@@ -508,11 +519,11 @@ internal struct MergeBroadPhasePairBlocksJob : IJobParallelForDefer
         int left = start;
         int right = middle;
         int write = start;
-        var comparer = new ContactConstraintComparer();
+        var comparer = new BodyPairComparer();
         while (left < middle && right < end)
         {
-            ContactConstraint a = Source[left];
-            ContactConstraint b = Source[right];
+            BodyPair a = Source[left];
+            BodyPair b = Source[right];
             if (comparer.Compare(a, b) <= 0)
             {
                 Destination[write++] = a;
@@ -535,13 +546,16 @@ internal struct MergeBroadPhasePairBlocksJob : IJobParallelForDefer
 internal struct CopyBroadPhasePairSortResultJob : IJobParallelForDefer
 {
     [ReadOnly] public NativeArray<byte> Workset;
-    [ReadOnly] public NativeArray<ContactConstraint> Source;
+    [ReadOnly] public NativeArray<BodyPair> Source;
     [NativeDisableParallelForRestriction]
-    public NativeArray<ContactConstraint> Destination;
+    public NativeArray<BodyPair> Destination;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute(int blockIndex)
     {
+        if ((RequiredMergePassCount.Value & 1) == 0)
+            return;
         int start = blockIndex * BlockSize;
         int end = math.min(start + BlockSize, Source.Length);
         for (int index = start; index < end; index++)

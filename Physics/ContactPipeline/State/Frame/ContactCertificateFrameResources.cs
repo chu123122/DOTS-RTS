@@ -10,7 +10,6 @@ internal struct ContactCertificateFrameResources
 {
     public NativeList<PredictiveContactScheduleEntry> Schedule;
     public NativeList<PredictiveContactScheduleEntry> ScheduleScratch;
-    public NativeReference<int> ScheduleCursor;
     public NativeReference<InteractionCertificate> Certificate;
     public NativeList<InteractionCertificateViolation> Violations;
     public NativeList<PredictiveContactActivationRecord> ActivationRecords;
@@ -34,8 +33,6 @@ internal struct ContactCertificateFrameResources
             ScheduleScratch =
                 new NativeList<PredictiveContactScheduleEntry>(
                     scheduleCapacity, Allocator.TempJob),
-            ScheduleCursor =
-                new NativeReference<int>(Allocator.TempJob),
             Certificate =
                 new NativeReference<InteractionCertificate>(
                     Allocator.TempJob),
@@ -69,8 +66,6 @@ internal struct ContactCertificateFrameResources
         JobHandle combined = Schedule.Dispose(finalReader);
         combined = JobHandle.CombineDependencies(
             combined, ScheduleScratch.Dispose(finalReader));
-        combined = JobHandle.CombineDependencies(
-            combined, ScheduleCursor.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, Certificate.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(

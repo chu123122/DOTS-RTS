@@ -22,6 +22,7 @@ internal struct PrepareRepairContactViewPublicationJob : IJob
     public NativeList<ContactViewPublicationBlock> PublicationBlocks;
     public NativeList<byte> BlockWorkset;
     public NativeList<ContactConstraint> OutputContacts;
+    public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute()
@@ -31,6 +32,7 @@ internal struct PrepareRepairContactViewPublicationJob : IJob
         CandidateWorkset.Clear();
         PublicationBlocks.Clear();
         BlockWorkset.Clear();
+        RequiredMergePassCount.Value = 0;
         if (RuntimeState.Value.IsValid == 0 ||
             PhaseState.Value.NeedsCommit != 2)
             return;
@@ -42,6 +44,10 @@ internal struct PrepareRepairContactViewPublicationJob : IJob
         CandidateWorkset.ResizeUninitialized(candidateCount);
         PublicationBlocks.ResizeUninitialized(blockCount);
         BlockWorkset.ResizeUninitialized(blockCount);
+        int requiredMergePassCount = 0;
+        for (int width = 1; width < blockCount; width <<= 1)
+            requiredMergePassCount++;
+        RequiredMergePassCount.Value = requiredMergePassCount;
         OutputContacts.Clear();
     }
 }
@@ -117,9 +123,12 @@ internal struct MergeContactViewCandidateBlocksJob :
     public NativeArray<ContactViewCandidate> Destination;
     public int BlockSize;
     public int MergePass;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
 
     public void Execute(int blockIndex)
     {
+        if (MergePass >= RequiredMergePassCount.Value)
+            return;
         int sourceBlocksPerGroup = 1 << MergePass;
         int destinationBlocksPerGroup = sourceBlocksPerGroup << 1;
         if (blockIndex % destinationBlocksPerGroup != 0)
@@ -166,10 +175,13 @@ internal struct CopyContactViewCandidateSortResultJob :
     [ReadOnly] public NativeArray<ContactViewCandidate> Source;
     [NativeDisableParallelForRestriction]
     public NativeArray<ContactViewCandidate> Destination;
+    [ReadOnly] public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute(int blockIndex)
     {
+        if ((RequiredMergePassCount.Value & 1) == 0)
+            return;
         int start = blockIndex * BlockSize;
         int end = math.min(start + BlockSize, Source.Length);
         for (int candidateIndex = start;
@@ -353,6 +365,7 @@ internal struct PrepareActivationContactViewPublicationJob : IJob
     public NativeList<byte> CandidateWorkset;
     public NativeList<ContactViewPublicationBlock> PublicationBlocks;
     public NativeList<byte> BlockWorkset;
+    public NativeReference<int> RequiredMergePassCount;
     public int BlockSize;
 
     public void Execute()
@@ -362,6 +375,7 @@ internal struct PrepareActivationContactViewPublicationJob : IJob
         CandidateWorkset.Clear();
         PublicationBlocks.Clear();
         BlockWorkset.Clear();
+        RequiredMergePassCount.Value = 0;
         if (RuntimeState.Value.IsValid == 0 ||
             ActivatedContacts.Length == 0)
             return;
@@ -374,6 +388,10 @@ internal struct PrepareActivationContactViewPublicationJob : IJob
         CandidateWorkset.ResizeUninitialized(candidateCount);
         PublicationBlocks.ResizeUninitialized(blockCount);
         BlockWorkset.ResizeUninitialized(blockCount);
+        int requiredMergePassCount = 0;
+        for (int width = 1; width < blockCount; width <<= 1)
+            requiredMergePassCount++;
+        RequiredMergePassCount.Value = requiredMergePassCount;
     }
 }
 

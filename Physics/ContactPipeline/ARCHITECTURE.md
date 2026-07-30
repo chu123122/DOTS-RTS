@@ -426,3 +426,14 @@ capabilities, not sleep/wake semantics.
   consumer 已有 runtime；统计、oracle 与 certificate 独立收尾。
 - Predictive schedule 由已去重的 stable pair 分类结果发布，并保持每个 key
   至多一个 entry；activation scatter 因而按唯一 persistent index 并行写回。
+
+## Correctness cleanup: BroadPhase pairs and merge guards（2026-07-30）
+
+- BroadPhase spatial emission, persistent reuse mapping, block sort and
+  deduplicate carry `BodyPair` only. NarrowPhase classification owns a separate
+  `HardContactScratch`.
+- Repair inheritance copies the complete `ContactConstraintRuntime`.
+- `ScheduleCursor` and the pre-full-sweep dirty contact/schedule compaction chain
+  are deleted; schedule is the complete future workset.
+- Body-cell, BroadPhase-pair and repair/activation candidate merges guard data
+  movement and parity copy with actual block-derived pass counts.

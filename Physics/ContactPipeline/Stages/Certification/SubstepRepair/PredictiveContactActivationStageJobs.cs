@@ -260,7 +260,6 @@ internal struct PrefixPredictiveContactActivationJob : IJob
     public NativeList<ContactConstraint> ActivatedContacts;
     public NativeList<PredictiveContactScheduleEntry> ScheduleScratch;
     public NativeReference<PredictiveContactActivationSummary> Summary;
-    public NativeReference<int> ScheduleCursor;
     public NativeReference<IncrementalContactCacheState> CacheState;
     public byte EnablePersistentContactCache;
 
@@ -282,7 +281,6 @@ internal struct PrefixPredictiveContactActivationJob : IJob
 
         ActivatedContacts.ResizeUninitialized(activatedOffset);
         ScheduleScratch.ResizeUninitialized(scheduleOffset);
-        ScheduleCursor.Value = 0;
         Summary.Value = new PredictiveContactActivationSummary
         {
             ActivatedCount = activatedOffset,

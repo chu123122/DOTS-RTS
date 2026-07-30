@@ -112,7 +112,7 @@ internal struct BuildPersistentProxyIndexJob : IJobParallelForDefer
 [BurstCompile]
 internal struct PublishPersistentNeighborPairsJob : IJobParallelForDefer
 {
-    [ReadOnly] public NativeArray<ContactConstraint> Workset;
+    [ReadOnly] public NativeArray<BodyPair> Workset;
     [ReadOnly] public NativeReference<byte> FullSweepPrepared;
     [ReadOnly] public NativeArray<BodyPair> BodyPairs;
     [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
@@ -150,7 +150,7 @@ internal struct PreparePersistentReusePublicationJob : IJob
     [ReadOnly] public NativeList<PersistentNeighborPair> PersistentPairs;
     public NativeReference<byte> FullSweepPrepared;
     public NativeList<byte> PairWorkset;
-    public NativeList<ContactConstraint> MappedPairs;
+    public NativeList<BodyPair> MappedPairs;
     public int BodyCount;
     public ContactPipelineConfiguration Configuration;
     public byte Enabled;
@@ -189,7 +189,7 @@ internal struct MapPersistentReusePairsJob : IJobParallelForDefer
     [ReadOnly] public NativeParallelHashMap<Entity, int>
         CurrentBodyIndexByEntity;
     [NativeDisableParallelForRestriction]
-    public NativeArray<ContactConstraint> MappedPairs;
+    public NativeArray<BodyPair> MappedPairs;
 
     public void Execute(int pairIndex)
     {
@@ -202,25 +202,15 @@ internal struct MapPersistentReusePairsJob : IJobParallelForDefer
             !CurrentBodyIndexByEntity.TryGetValue(
                 key.EntityB, out int bodyB))
         {
-            MappedPairs[pairIndex] = new ContactConstraint
+            MappedPairs[pairIndex] = new BodyPair
             {
-                Definition = new ContactConstraintDefinition
-                {
-                    BodyA = -1,
-                    BodyB = -1
-                }
+                BodyA = -1,
+                BodyB = -1
             };
             return;
         }
 
-        MappedPairs[pairIndex] = new ContactConstraint
-        {
-            Definition = new ContactConstraintDefinition
-            {
-                BodyA = math.min(bodyA, bodyB),
-                BodyB = math.max(bodyA, bodyB)
-            }
-        };
+        MappedPairs[pairIndex] = new BodyPair(bodyA, bodyB);
     }
 }
 

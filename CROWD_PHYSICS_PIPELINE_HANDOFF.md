@@ -539,3 +539,10 @@ materialize → block sort/merge → Count/Prefix/Scatter publication。
 Predictive activation 已从全 schedule 串行扫描与有序插入，改为并行 evaluate、
 分块压缩 future schedule、并行发布 activated constraints，并在独立 job 中更新
 统计和重签 certificate。Unity/Burst/PlayMode 仍需本机复验。
+
+## 追加：正确性清理 1-5（2026-07-30）
+
+Repair runtime 改为整结构继承；BroadPhase 候选、持久复用映射与排序只使用
+`BodyPair`，classification hard-contact scratch 迁入独立 owner。删除无推进写者
+的 `ScheduleCursor` 和 full-sweep 前重复 compaction。三条 staged merge 链新增
+实际 pass guard。仍需在完整 Unity 工作区复验编译、Burst、Safety 与 PlayMode。

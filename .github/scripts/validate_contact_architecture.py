@@ -136,6 +136,9 @@ retired_symbols = (
     "FinalizePreparedSubstepJob",
     "MergeEscapedTimestepContactView(",
     "ActivateScheduledPredictiveContactsForSubstep(",
+    "ScheduleDirtyContactScheduleCompaction",
+    "DirtyContactScheduleBlock",
+    "ScheduleCursor",
 )
 for symbol in retired_symbols:
     if symbol in all_physics + all_gameplay:

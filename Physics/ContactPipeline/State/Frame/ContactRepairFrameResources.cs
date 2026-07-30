@@ -9,14 +9,10 @@ namespace RTS.Unit.FlowField.Systems
 internal struct ContactRepairFrameResources
 {
     public NativeList<IncrementalDirtyBody> DirtyBodies;
-    public NativeList<PersistentPredictiveContact>
-        PersistentContactCompactionScratch;
     public NativeArray<byte> DirtyFlagsByBody;
     public NativeList<PersistentNeighborPair> NeighborPairScratch;
     public NativeArray<DirtyBodyRefreshResult> BodyRefreshResults;
     public NativeReference<DirtyBodyRefreshSummary> BodyRefreshSummary;
-    public NativeList<DirtyContactScheduleBlock> ScheduleBlockCounts;
-    public NativeList<DirtyContactScheduleBlock> ScheduleBlockOffsets;
     public NativeList<byte> PersistentIncidentPairWorkset;
     public NativeReference<int> PersistentIncidentRebuildPairCount;
     public NativeList<ContactViewCandidate> ContactViewCandidates;
@@ -25,6 +21,7 @@ internal struct ContactRepairFrameResources
     public NativeList<ContactViewPublicationBlock>
         ContactViewPublicationBlocks;
     public NativeList<byte> ContactViewBlockWorkset;
+    public NativeReference<int> ContactViewRequiredMergePassCount;
 
     public static ContactRepairFrameResources Create(int bodyCount)
     {
@@ -35,9 +32,6 @@ internal struct ContactRepairFrameResources
             DirtyBodies =
                 new NativeList<IncrementalDirtyBody>(
                     one, Allocator.TempJob),
-            PersistentContactCompactionScratch =
-                new NativeList<PersistentPredictiveContact>(
-                    math.max(bodyCount * 4, 1), Allocator.TempJob),
             DirtyFlagsByBody = new NativeArray<byte>(
                 bodyCount,
                 Allocator.TempJob,
@@ -52,12 +46,6 @@ internal struct ContactRepairFrameResources
             BodyRefreshSummary =
                 new NativeReference<DirtyBodyRefreshSummary>(
                     Allocator.TempJob),
-            ScheduleBlockCounts =
-                new NativeList<DirtyContactScheduleBlock>(
-                    one, Allocator.TempJob),
-            ScheduleBlockOffsets =
-                new NativeList<DirtyContactScheduleBlock>(
-                    one, Allocator.TempJob),
             PersistentIncidentPairWorkset =
                 new NativeList<byte>(one, Allocator.TempJob),
             PersistentIncidentRebuildPairCount =
@@ -75,16 +63,15 @@ internal struct ContactRepairFrameResources
                 new NativeList<ContactViewPublicationBlock>(
                     one, Allocator.TempJob),
             ContactViewBlockWorkset =
-                new NativeList<byte>(one, Allocator.TempJob)
+                new NativeList<byte>(one, Allocator.TempJob),
+            ContactViewRequiredMergePassCount =
+                new NativeReference<int>(Allocator.TempJob)
         };
     }
 
     public JobHandle Dispose(JobHandle finalReader)
     {
         JobHandle combined = DirtyBodies.Dispose(finalReader);
-        combined = JobHandle.CombineDependencies(
-            combined,
-            PersistentContactCompactionScratch.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, DirtyFlagsByBody.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
@@ -93,10 +80,6 @@ internal struct ContactRepairFrameResources
             combined, BodyRefreshResults.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, BodyRefreshSummary.Dispose(finalReader));
-        combined = JobHandle.CombineDependencies(
-            combined, ScheduleBlockCounts.Dispose(finalReader));
-        combined = JobHandle.CombineDependencies(
-            combined, ScheduleBlockOffsets.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, PersistentIncidentPairWorkset.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
@@ -111,6 +94,9 @@ internal struct ContactRepairFrameResources
             combined, ContactViewPublicationBlocks.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, ContactViewBlockWorkset.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined,
+            ContactViewRequiredMergePassCount.Dispose(finalReader));
         return combined;
     }
 }

@@ -45,29 +45,30 @@ internal partial struct CrowdContactPipelineScheduler
                     ? Repair.ContactViewSortScratch.AsDeferredJobArray()
                     : Repair.ContactViewCandidates.AsDeferredJobArray(),
                 BlockSize = blockSize,
-                MergePass = mergePass
+                MergePass = mergePass,
+                RequiredMergePassCount =
+                    Repair.ContactViewRequiredMergePassCount
             }.Schedule(
                 Repair.ContactViewBlockWorkset,
                 1,
                 handle);
         }
 
-        if ((mergePassCount & 1) != 0)
+        handle = new CopyContactViewCandidateSortResultJob
         {
-            handle = new CopyContactViewCandidateSortResultJob
-            {
-                Workset =
-                    Repair.ContactViewBlockWorkset.AsDeferredJobArray(),
-                Source =
-                    Repair.ContactViewSortScratch.AsDeferredJobArray(),
-                Destination =
-                    Repair.ContactViewCandidates.AsDeferredJobArray(),
-                BlockSize = blockSize
-            }.Schedule(
-                Repair.ContactViewBlockWorkset,
-                1,
-                handle);
-        }
+            Workset =
+                Repair.ContactViewBlockWorkset.AsDeferredJobArray(),
+            Source =
+                Repair.ContactViewSortScratch.AsDeferredJobArray(),
+            Destination =
+                Repair.ContactViewCandidates.AsDeferredJobArray(),
+            RequiredMergePassCount =
+                Repair.ContactViewRequiredMergePassCount,
+            BlockSize = blockSize
+        }.Schedule(
+            Repair.ContactViewBlockWorkset,
+            1,
+            handle);
     }
 
     private void ScheduleRepairContactViewPublication(
@@ -80,13 +81,15 @@ internal partial struct CrowdContactPipelineScheduler
             RuntimeState = runtimeState,
             PhaseState = Classification.State,
             PreviousContacts = PreviousTimestepContactPairs,
-            NewContacts = BroadPhase.CollisionPairs,
+            NewContacts = Classification.HardContactScratch,
             Candidates = Repair.ContactViewCandidates,
             SortScratch = Repair.ContactViewSortScratch,
             CandidateWorkset = Repair.ContactViewCandidateWorkset,
             PublicationBlocks = Repair.ContactViewPublicationBlocks,
             BlockWorkset = Repair.ContactViewBlockWorkset,
             OutputContacts = NarrowPhaseConstraints.HardContacts,
+            RequiredMergePassCount =
+                Repair.ContactViewRequiredMergePassCount,
             BlockSize = blockSize
         }.Schedule(handle);
         handle = new MaterializeRepairContactCandidatesJob
@@ -96,7 +99,7 @@ internal partial struct CrowdContactPipelineScheduler
             PreviousContacts =
                 PreviousTimestepContactPairs.AsDeferredJobArray(),
             NewContacts =
-                BroadPhase.CollisionPairs.AsDeferredJobArray(),
+                Classification.HardContactScratch.AsDeferredJobArray(),
             DirtyFlagsByBody = Repair.DirtyFlagsByBody,
             Candidates =
                 Repair.ContactViewCandidates.AsDeferredJobArray()
@@ -236,7 +239,6 @@ internal partial struct CrowdContactPipelineScheduler
             ActivatedContacts = Certificate.ActivatedContacts,
             ScheduleScratch = Certificate.ScheduleScratch,
             Summary = Certificate.ActivationSummary,
-            ScheduleCursor = Certificate.ScheduleCursor,
             CacheState = Persistent.IncrementalCacheState,
             EnablePersistentContactCache = (byte)(
                 Configuration.EnablePersistentContactCache ? 1 : 0)
@@ -288,6 +290,8 @@ internal partial struct CrowdContactPipelineScheduler
             CandidateWorkset = Repair.ContactViewCandidateWorkset,
             PublicationBlocks = Repair.ContactViewPublicationBlocks,
             BlockWorkset = Repair.ContactViewBlockWorkset,
+            RequiredMergePassCount =
+                Repair.ContactViewRequiredMergePassCount,
             BlockSize = contactViewBlockSize
         }.Schedule(handle);
         handle = new MaterializeActivationContactCandidatesJob

@@ -179,16 +179,7 @@ internal static class TimestepContactRepairViewKernel
         ContactConstraint previous,
         ref ContactConstraint current)
     {
-        current.WasActivatedThisTimestep =
-            previous.WasActivatedThisTimestep;
-        current.WasCorrectedThisTimestep =
-            previous.WasCorrectedThisTimestep;
-        current.FirstActivatedSubstep =
-            previous.FirstActivatedSubstep;
-        current.ActivatedSubstepCount =
-            previous.ActivatedSubstepCount;
-        current.WasAddedByFallback =
-            previous.WasAddedByFallback;
+        current.Runtime = previous.Runtime;
     }
 }
 }

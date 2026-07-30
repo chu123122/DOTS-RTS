@@ -10,6 +10,7 @@ namespace RTS.Unit.FlowField.Systems
 internal struct ContactClassificationFrameResources
 {
     public NativeList<BodyPair> BodyPairs;
+    public NativeList<ContactConstraint> HardContactScratch;
     public NativeList<PersistentPairClassificationResult> Results;
     public NativeReference<PersistentClassificationPhaseState> State;
     public NativeList<ClassificationPublicationRecord> PublicationRecords;
@@ -25,6 +26,8 @@ internal struct ContactClassificationFrameResources
         return new ContactClassificationFrameResources
         {
             BodyPairs = new NativeList<BodyPair>(
+                math.max(bodyCount * 8, 1), Allocator.TempJob),
+            HardContactScratch = new NativeList<ContactConstraint>(
                 math.max(bodyCount * 8, 1), Allocator.TempJob),
             Results =
                 new NativeList<PersistentPairClassificationResult>(
@@ -50,6 +53,8 @@ internal struct ContactClassificationFrameResources
     public JobHandle Dispose(JobHandle finalReader)
     {
         JobHandle combined = BodyPairs.Dispose(finalReader);
+        combined = JobHandle.CombineDependencies(
+            combined, HardContactScratch.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, Results.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(

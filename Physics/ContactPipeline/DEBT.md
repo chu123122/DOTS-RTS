@@ -82,3 +82,13 @@ still require stronger runtime evidence:
 - repair publication 与 predictive activation 均改为显式并行阶段。
 - 仍需在 Unity Editor 中复验 Burst、Collections Safety、PlayMode 和代表性
   Profiler 数据；静态结构完成不等同于运行性能结论。
+
+## Completed: correctness cleanup 1-5（2026-07-30）
+
+- Repair preserves the complete timestep runtime rather than selected flags.
+- BroadPhase candidate scratch is `BodyPair`; classification owns hard-contact
+  scratch.
+- Removed the dead schedule cursor and dirty pre-compaction.
+- Actual merge-pass guards remove unnecessary data copies. The scheduler still
+  emits a conservative upper-bound count of no-op merge Job nodes; eliminating
+  those nodes remains a separate scheduling/performance question.

@@ -18,10 +18,12 @@ internal struct BroadPhaseFrameResources
     public NativeList<byte> CellSortBlockWorkset;
     public NativeList<SweptDiscCellEntry> CellSortScratch;
     public NativeList<byte> PairSortBlockWorkset;
-    public NativeList<ContactConstraint> PairSortScratch;
+    public NativeList<BodyPair> PairSortScratch;
+    public NativeReference<int> CellRequiredMergePassCount;
+    public NativeReference<int> PairRequiredMergePassCount;
     public NativeList<PersistentSweptProxy> PreviousProxies;
     public NativeReference<byte> FullSweepPrepared;
-    public NativeList<ContactConstraint> CollisionPairs;
+    public NativeList<BodyPair> CollisionPairs;
 
     public static BroadPhaseFrameResources Create(int bodyCount)
     {
@@ -51,14 +53,18 @@ internal struct BroadPhaseFrameResources
                     math.max(bodyCount * 4, 1), Allocator.TempJob),
             PairSortBlockWorkset =
                 new NativeList<byte>(one, Allocator.TempJob),
-            PairSortScratch = new NativeList<ContactConstraint>(
+            PairSortScratch = new NativeList<BodyPair>(
                 math.max(bodyCount * 4, 1), Allocator.TempJob),
+            CellRequiredMergePassCount =
+                new NativeReference<int>(Allocator.TempJob),
+            PairRequiredMergePassCount =
+                new NativeReference<int>(Allocator.TempJob),
             PreviousProxies =
                 new NativeList<PersistentSweptProxy>(
                     one, Allocator.TempJob),
             FullSweepPrepared =
                 new NativeReference<byte>(Allocator.TempJob),
-            CollisionPairs = new NativeList<ContactConstraint>(
+            CollisionPairs = new NativeList<BodyPair>(
                 math.max(bodyCount * 4, 1), Allocator.TempJob)
         };
     }
@@ -81,6 +87,10 @@ internal struct BroadPhaseFrameResources
         combined = Combine(
             combined, PairSortBlockWorkset.Dispose(finalReader));
         combined = Combine(combined, PairSortScratch.Dispose(finalReader));
+        combined = Combine(
+            combined, CellRequiredMergePassCount.Dispose(finalReader));
+        combined = Combine(
+            combined, PairRequiredMergePassCount.Dispose(finalReader));
         combined = Combine(combined, PreviousProxies.Dispose(finalReader));
         combined = Combine(combined, FullSweepPrepared.Dispose(finalReader));
         combined = Combine(combined, CollisionPairs.Dispose(finalReader));

@@ -94,12 +94,18 @@ classification_publication_jobs = read(
     "Scheduling/Parallel/Jobs/ClassificationPublicationStageJobs.cs")
 dirty_refresh_jobs = read(
     PIPE / "Stages/Certification/SubstepRepair/DirtyBodyRefreshStageJobs.cs")
-dirty_contact_jobs = read(
-    PIPE / "Stages/Certification/SubstepRepair/DirtyContactScheduleStageJobs.cs")
 dirty_incident_jobs = read(
     PIPE / "Stages/Certification/SubstepRepair/SubstepRepairStageJobs.cs")
 full_sweep_jobs = read(
     PIPE / "Stages/Certification/InitialContact/FullSweepBroadPhaseStageJobs.cs")
+broadphase_resources = read(
+    PIPE / "State/Frame/BroadPhaseFrameResources.cs")
+classification_resources_source = read(
+    PIPE / "State/Frame/ContactClassificationFrameResources.cs")
+repair_resources_source = read(
+    PIPE / "State/Frame/ContactRepairFrameResources.cs")
+certificate_resources_source = read(
+    PIPE / "State/Frame/ContactCertificateFrameResources.cs")
 persistent_topology_jobs = read(
     PIPE /
     "Stages/Certification/PersistentClassification/"
@@ -179,16 +185,6 @@ for field_name in (
             "Uncached timestep prediction leaves a NativeContainer unbound: "
             f"{field_name}")
 
-for source, job_name in (
-    (dirty_contact_jobs, "ScatterDirtyContactScheduleJob"),
-):
-    scatter_job = source.split(
-        f"internal struct {job_name}", 1)[1].split(
-            "internal struct ", 1)[0]
-    if "BlockCounts" not in scatter_job:
-        fail(
-            "Deferred scatter job does not retain its iteration-count "
-            f"container: {job_name}")
 
 classification_resources = read(
     PIPE / "State/Frame/ContactClassificationFrameResources.cs")
@@ -278,6 +274,52 @@ for token in (
 ):
     if token not in scatter_activation:
         fail(f"Activation persistent update scatter missing: {token}")
+
+for source, name in (
+    (full_sweep_jobs, "FullSweepBroadPhaseStageJobs"),
+    (persistent_topology_jobs, "PersistentTopologyStageJobs"),
+    (broadphase_resources, "BroadPhaseFrameResources"),
+):
+    if "ContactConstraint" in source:
+        fail(f"BroadPhase candidate path still carries ContactConstraint: {name}")
+for token in (
+    "public NativeList<BodyPair> PairSortScratch;",
+    "public NativeList<BodyPair> CollisionPairs;",
+    "CellRequiredMergePassCount",
+    "PairRequiredMergePassCount",
+):
+    if token not in broadphase_resources:
+        fail(f"BroadPhase BodyPair/merge-pass contract missing: {token}")
+if "public NativeList<ContactConstraint> HardContactScratch;" not in \
+        classification_resources_source:
+    fail("NarrowPhase classification hard-contact scratch owner missing")
+if "current.Runtime = previous.Runtime;" not in repair_view:
+    fail("Repair does not preserve the complete ContactConstraintRuntime")
+for retired in (
+    "ScheduleCursor",
+    "DirtyContactScheduleBlock",
+    "PersistentContactCompactionScratch",
+    "ScheduleBlockCounts",
+    "ScheduleBlockOffsets",
+    "ScheduleDirtyContactScheduleCompaction",
+):
+    if retired in parallel_repair_source + broadphase_resources + \
+            repair_resources_source + certificate_resources_source:
+        fail(f"Dead cursor/dirty compaction symbol returned: {retired}")
+if (PIPE / "Stages/Certification/SubstepRepair/"
+        "DirtyContactScheduleStageJobs.cs").exists():
+    fail("Dead dirty contact/schedule compaction file returned")
+for source, name in (
+    (full_sweep_jobs, "full sweep merge jobs"),
+    (contact_view_jobs, "contact view merge jobs"),
+):
+    for token in (
+        "RequiredMergePassCount",
+        "MergePass >= RequiredMergePassCount.Value",
+        "(RequiredMergePassCount.Value & 1) == 0",
+    ):
+        if token not in source:
+            fail(f"Actual merge-pass guard missing in {name}: {token}")
 
 persistent_classification_schedules = parallel_schedule.split(
     "new EvaluatePersistentPairClassificationsJob")[1:]
@@ -547,13 +589,6 @@ for token in (
     if token not in dirty_refresh_jobs or token.split(" :")[0] not in parallel_schedule:
         fail(f"Dirty body refresh chain missing: {token}")
 for token in (
-    "CountDirtyContactScheduleJob : IJobParallelForDefer",
-    "PrefixDirtyContactScheduleJob : IJob",
-    "ScatterDirtyContactScheduleJob : IJobParallelForDefer",
-):
-    if token not in dirty_contact_jobs or token.split(" :")[0] not in parallel_schedule:
-        fail(f"Dirty contact/schedule chain missing: {token}")
-for token in (
     "CountBodyCellsJob : IJobParallelForDefer",
     "PrefixBodyCellsJob : IJob",
     "ScatterBodyCellsJob : IJobParallelForDefer",
@@ -567,8 +602,6 @@ for token in (
 
 for chain in (
     ("RefreshDirtyBodiesJob", "ReduceDirtyBodyRefreshJob"),
-    ("CountDirtyContactScheduleJob", "PrefixDirtyContactScheduleJob",
-     "ScatterDirtyContactScheduleJob"),
     ("CountBodyCellsJob", "PrefixBodyCellsJob", "ScatterBodyCellsJob",
      "CountCellPairsJob", "PrefixCellPairsJob", "ScatterCellPairsJob",
      "PrepareBroadPhasePairSortJob", "SortBroadPhasePairBlocksJob",

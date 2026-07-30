@@ -135,7 +135,6 @@ internal partial struct CrowdContactPipelineScheduler
                 Body.Bodies.Length,
                 ParallelBodyBatchSize,
                 handle);
-            ScheduleDirtyContactScheduleCompaction(ref handle);
         }
 
         if (Configuration.EnableTimestepContactSetCache)
@@ -420,8 +419,7 @@ internal partial struct CrowdContactPipelineScheduler
             if (Configuration.EnableTimestepContactSetCache &&
                 Configuration.EnablePersistentContactCache)
             {
-                ScheduleDirtyContactScheduleCompaction(ref handle);
-                ScheduleFullSweepBroadPhase(
+                    ScheduleFullSweepBroadPhase(
                     ref handle,
                     true,
                     runtimeState);
@@ -1227,7 +1225,6 @@ internal partial struct CrowdContactPipelineScheduler
         if (Configuration.EnableTimestepContactSetCache &&
             Configuration.EnablePersistentContactCache)
         {
-            ScheduleDirtyContactScheduleCompaction(ref handle);
             ScheduleFullSweepBroadPhase(
                 ref handle,
                 true,
@@ -1408,97 +1405,6 @@ internal partial struct CrowdContactPipelineScheduler
         }.Schedule(handle);
     }
 
-    private void ScheduleDirtyContactScheduleCompaction(
-        ref JobHandle handle)
-    {
-        handle = new PrepareDirtyContactScheduleBlocksJob
-        {
-            Contacts =
-                Persistent.PersistentPredictiveContacts,
-            Schedule = Certificate.Schedule,
-            DirtyBodies =
-                Repair.DirtyBodies,
-            BlockCounts =
-                Repair.ScheduleBlockCounts,
-            BlockOffsets =
-                Repair.ScheduleBlockOffsets,
-            BlockSize = SoftPairBatchSize
-        }.Schedule(handle);
-        handle = new CountDirtyContactScheduleJob
-        {
-            Contacts = Persistent.PersistentPredictiveContacts.AsDeferredJobArray(),
-            Schedule = Certificate.Schedule.AsDeferredJobArray(),
-            CurrentBodyIndexByEntity =
-                Body.CurrentBodyIndexByEntity,
-            DirtyFlagsByBody =
-                Repair.DirtyFlagsByBody,
-            BlockCounts = Repair.ScheduleBlockCounts.AsDeferredJobArray(),
-            ScheduleCursor =
-                Certificate.ScheduleCursor,
-            BlockSize = SoftPairBatchSize
-        }.Schedule(
-            Repair.ScheduleBlockCounts,
-            1,
-            handle);
-        handle = new PrefixDirtyContactScheduleJob
-        {
-            BlockCounts = Repair.ScheduleBlockCounts.AsDeferredJobArray(),
-            BlockOffsets = Repair.ScheduleBlockOffsets.AsDeferredJobArray(),
-            ContactScratch =
-                Repair.PersistentContactCompactionScratch,
-            ScheduleScratch =
-                Certificate.ScheduleScratch
-        }.Schedule(handle);
-        handle = new ScatterDirtyContactScheduleJob
-        {
-            Contacts = Persistent.PersistentPredictiveContacts.AsDeferredJobArray(),
-            Schedule = Certificate.Schedule.AsDeferredJobArray(),
-            CurrentBodyIndexByEntity =
-                Body.CurrentBodyIndexByEntity,
-            DirtyFlagsByBody =
-                Repair.DirtyFlagsByBody,
-            BlockCounts = Repair.ScheduleBlockCounts.AsDeferredJobArray(),
-            BlockOffsets = Repair.ScheduleBlockOffsets.AsDeferredJobArray(),
-            ContactScratch =
-                Repair.PersistentContactCompactionScratch
-                    .AsDeferredJobArray(),
-            ScheduleScratch = Certificate.ScheduleScratch.AsDeferredJobArray(),
-            ScheduleCursor =
-                Certificate.ScheduleCursor,
-            BlockSize = SoftPairBatchSize
-        }.Schedule(
-            Repair.ScheduleBlockCounts,
-            1,
-            handle);
-        handle = new CommitDirtyContactScheduleJob
-        {
-            ContactScratch =
-                Repair.PersistentContactCompactionScratch,
-            ScheduleScratch =
-                Certificate.ScheduleScratch,
-            Contacts =
-                Persistent.PersistentPredictiveContacts,
-            ContactIndex =
-                Persistent.PersistentContactIndex,
-            Schedule = Certificate.Schedule,
-            ScheduleCursor =
-                Certificate.ScheduleCursor,
-            DirtyBodies =
-                Repair.DirtyBodies
-        }.Schedule(handle);
-        handle = new BuildDirtyContactIndexJob
-        {
-            Contacts =
-                Persistent.PersistentPredictiveContacts
-                    .AsDeferredJobArray(),
-            ContactIndex =
-                Persistent.PersistentContactIndex.AsParallelWriter()
-        }.Schedule(
-            Persistent.PersistentPredictiveContacts,
-            SoftPairBatchSize,
-            handle);
-    }
-
     private void ScheduleFullSweepBroadPhase(
         ref JobHandle handle,
         bool requireDirtyBodies,
@@ -1636,6 +1542,8 @@ internal partial struct CrowdContactPipelineScheduler
             Entries = BroadPhase.SweptCellEntries,
             BlockWorkset = BroadPhase.CellSortBlockWorkset,
             Scratch = BroadPhase.CellSortScratch,
+            RequiredMergePassCount =
+                BroadPhase.CellRequiredMergePassCount,
             BlockSize = cellSortBlockSize
         }.Schedule(handle);
         handle = new SortBodyCellBlocksJob
@@ -1678,28 +1586,29 @@ internal partial struct CrowdContactPipelineScheduler
                     ? BroadPhase.CellSortScratch.AsDeferredJobArray()
                     : BroadPhase.SweptCellEntries.AsDeferredJobArray(),
                 BlockSize = cellSortBlockSize,
-                MergePass = mergePass
+                MergePass = mergePass,
+                RequiredMergePassCount =
+                    BroadPhase.CellRequiredMergePassCount
             }.Schedule(
                 BroadPhase.CellSortBlockWorkset,
                 1,
                 handle);
         }
-        if ((mergePassCount & 1) != 0)
+        handle = new CopyBodyCellSortResultJob
         {
-            handle = new CopyBodyCellSortResultJob
-            {
-                Workset = BroadPhase.CellSortBlockWorkset
-                    .AsDeferredJobArray(),
-                Source =
-                    BroadPhase.CellSortScratch.AsDeferredJobArray(),
-                Destination =
-                    BroadPhase.SweptCellEntries.AsDeferredJobArray(),
-                BlockSize = cellSortBlockSize
-            }.Schedule(
-                BroadPhase.CellSortBlockWorkset,
-                1,
-                handle);
-        }
+            Workset = BroadPhase.CellSortBlockWorkset
+                .AsDeferredJobArray(),
+            Source =
+                BroadPhase.CellSortScratch.AsDeferredJobArray(),
+            Destination =
+                BroadPhase.SweptCellEntries.AsDeferredJobArray(),
+            RequiredMergePassCount =
+                BroadPhase.CellRequiredMergePassCount,
+            BlockSize = cellSortBlockSize
+        }.Schedule(
+            BroadPhase.CellSortBlockWorkset,
+            1,
+            handle);
     }
 
     private void ScheduleBroadPhasePairSortAndPublish(
@@ -1711,6 +1620,8 @@ internal partial struct CrowdContactPipelineScheduler
             Pairs = BroadPhase.CollisionPairs,
             BlockWorkset = BroadPhase.PairSortBlockWorkset,
             Scratch = BroadPhase.PairSortScratch,
+            RequiredMergePassCount =
+                BroadPhase.PairRequiredMergePassCount,
             BlockSize = pairSortBlockSize
         }.Schedule(handle);
         handle = new SortBroadPhasePairBlocksJob
@@ -1749,28 +1660,29 @@ internal partial struct CrowdContactPipelineScheduler
                     ? BroadPhase.PairSortScratch.AsDeferredJobArray()
                     : BroadPhase.CollisionPairs.AsDeferredJobArray(),
                 BlockSize = pairSortBlockSize,
-                MergePass = mergePass
+                MergePass = mergePass,
+                RequiredMergePassCount =
+                    BroadPhase.PairRequiredMergePassCount
             }.Schedule(
                 BroadPhase.PairSortBlockWorkset,
                 1,
                 handle);
         }
-        if ((mergePassCount & 1) != 0)
+        handle = new CopyBroadPhasePairSortResultJob
         {
-            handle = new CopyBroadPhasePairSortResultJob
-            {
-                Workset = BroadPhase.PairSortBlockWorkset
-                    .AsDeferredJobArray(),
-                Source =
-                    BroadPhase.PairSortScratch.AsDeferredJobArray(),
-                Destination =
-                    BroadPhase.CollisionPairs.AsDeferredJobArray(),
-                BlockSize = pairSortBlockSize
-            }.Schedule(
-                BroadPhase.PairSortBlockWorkset,
-                1,
-                handle);
-        }
+            Workset = BroadPhase.PairSortBlockWorkset
+                .AsDeferredJobArray(),
+            Source =
+                BroadPhase.PairSortScratch.AsDeferredJobArray(),
+            Destination =
+                BroadPhase.CollisionPairs.AsDeferredJobArray(),
+            RequiredMergePassCount =
+                BroadPhase.PairRequiredMergePassCount,
+            BlockSize = pairSortBlockSize
+        }.Schedule(
+            BroadPhase.PairSortBlockWorkset,
+            1,
+            handle);
         handle = new DeduplicateAndPublishBroadPhasePairsJob
         {
             Pairs = BroadPhase.CollisionPairs,
@@ -1927,7 +1839,7 @@ internal partial struct CrowdContactPipelineScheduler
             TimestepInteractionPairs = BroadPhaseCandidates.Pairs,
             ClassificationBodyPairs =
                 Classification.BodyPairs,
-            Pairs = BroadPhase.CollisionPairs,
+            Pairs = Classification.HardContactScratch,
             DirtyBodies = Repair.DirtyBodies,
             IncrementalCacheState = Persistent.IncrementalCacheState,
             ClassificationResults =
@@ -1982,7 +1894,7 @@ internal partial struct CrowdContactPipelineScheduler
                 NarrowPhaseConstraints.SoftInteractions,
             PersistentNeighborPairs =
                 Persistent.PersistentNeighborPairs,
-            Constraints = BroadPhase.CollisionPairs,
+            Constraints = Classification.HardContactScratch,
             Schedule = Certificate.Schedule,
             CacheState = Persistent.IncrementalCacheState,
             PhaseState = Classification.State,
@@ -2052,7 +1964,7 @@ internal partial struct CrowdContactPipelineScheduler
         {
             PersistentNeighborPairs =
                 Persistent.PersistentNeighborPairs,
-            Constraints = BroadPhase.CollisionPairs,
+            Constraints = Classification.HardContactScratch,
             SoftAvoidancePairs =
                 NarrowPhaseConstraints.SoftInteractions,
             Schedule = Certificate.Schedule,
@@ -2167,7 +2079,7 @@ internal partial struct CrowdContactPipelineScheduler
             BlockWorkset = Classification.PublicationBlockWorkset,
             PersistentContacts =
                 Persistent.PersistentPredictiveContacts,
-            Constraints = BroadPhase.CollisionPairs,
+            Constraints = Classification.HardContactScratch,
             InitialTimestepContacts =
                 NarrowPhaseConstraints.HardContacts,
             SoftAvoidancePairs =
@@ -2224,13 +2136,12 @@ internal partial struct CrowdContactPipelineScheduler
         handle = new PrefixClassificationPublicationJob
         {
             Blocks = Classification.PublicationBlocks,
-            Constraints = BroadPhase.CollisionPairs,
+            Constraints = Classification.HardContactScratch,
             InitialTimestepContacts =
                 NarrowPhaseConstraints.HardContacts,
             SoftAvoidancePairs =
                 NarrowPhaseConstraints.SoftInteractions,
             Schedule = Certificate.Schedule,
-            ScheduleCursor = Certificate.ScheduleCursor,
             CacheState = Persistent.IncrementalCacheState,
             PublishInitialTimestepContacts =
                 (byte)(expectedCommitState == 1 ? 1 : 0),
@@ -2253,7 +2164,7 @@ internal partial struct CrowdContactPipelineScheduler
             Blocks =
                 Classification.PublicationBlocks.AsDeferredJobArray(),
             Constraints =
-                BroadPhase.CollisionPairs.AsDeferredJobArray(),
+                Classification.HardContactScratch.AsDeferredJobArray(),
             InitialTimestepContacts =
                 NarrowPhaseConstraints.HardContacts
                     .AsDeferredJobArray(),
