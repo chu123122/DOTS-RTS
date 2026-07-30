@@ -490,9 +490,10 @@ Diagnostics define 的具体构建参数应沿用项目当前验证脚本或上�
 - `CommitPersistentClassificationJob`、`CommitSubstepRepairJob` 已删除。分类
   结果统一走 `Prepare → Materialize → Count → Prefix → Scatter`；初始路径
   再执行状态发布、Oracle、Certificate 三个明确 Job，修复路径再执行状态发布、
-  线性 contact merge、并行清除 escape、并行 incident lookup、Certificate。
-- 修复 contact view 不再对每个新 Pair 二分查旧列表后全量 sort/deduplicate，
-  而是合并两个已排序流，复杂度从 `O(n log n)`（且带重复二分）收敛为 `O(n)`。
+  candidate materialize、block sort/merge、Count/Prefix/Scatter、并行清除
+  escape、并行 incident lookup、Certificate。
+- Repair 与 activation contact view 共用 staged candidate sort/deduplicate 链；
+  不再保留完整列表的串行 merge 或逐 pair 有序插入。
 - `CrowdBodyStepState` 改为正式的 `CrowdSolverBodyState`，软避让字段迁到
   `CrowdAvoidanceState`；
 - `InternalsVisibleTo("RTS.Gameplay")` 已删除。Gameplay 只使用
@@ -523,10 +524,18 @@ Collections/Burst 问题：
 - `PrepareClassificationPublicationJob.ContactIndex` 未绑定；
 - publication block 同时作为 deferred iteration list 和可写 block 数组产生
   alias，现已拆成独立 `NativeList<byte>` workset；
-- repair 线性 merge 在“旧流剩余项全部 dirty、而新流已耗尽”时会越界，现已
-  改为仅在两个流都有当前项时比较，再分别消费尾部；匹配到 dirty 旧 Pair 时仍
-  保留旧 timestep runtime，并加入静态回归约束。
+- 旧 repair 线性 merge 曾在“旧流剩余项全部 dirty、而新流已耗尽”时越界；
+  该路径本轮已整体删除，由 staged candidate publication 取代，并由静态契约禁止
+  `MergeRepairedContactViewJob` 与旧 Kernel 入口回归。
 
 修复后重新取得 `LOCAL_GAMEPLAY_VALIDATION_OK`，并在 `ConnectionScene`
 连续 Play Mode 约 20 秒；新增日志中无脚本异常、Collections 异常或 Native
 Collection leak。该结果仍不是 5k 单位性能结论。
+
+## 追加：P1 repair / activation 并行化（2026-07-30）
+
+Repair contact view 已从串行双流 merge 改为 candidate
+materialize → block sort/merge → Count/Prefix/Scatter publication。
+Predictive activation 已从全 schedule 串行扫描与有序插入，改为并行 evaluate、
+分块压缩 future schedule、并行发布 activated constraints，并在独立 job 中更新
+统计和重签 certificate。Unity/Burst/PlayMode 仍需本机复验。

@@ -177,69 +177,6 @@ internal struct PublishSubstepRepairClassificationJob : IJob
 }
 
 [BurstCompile]
-internal struct MergeRepairedContactViewJob : IJob
-{
-    public ContactPipelineConfiguration Configuration;
-    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-    [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
-    [ReadOnly] public NativeList<ContactConstraint> Constraints;
-    public NativeList<ContactConstraint> TimestepContactPairs;
-    [ReadOnly] public NativeList<ContactConstraint>
-        PreviousTimestepContactPairs;
-    [ReadOnly] public NativeList<BodyPair> SoftAvoidancePairs;
-    [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
-    [ReadOnly] public NativeList<PersistentPredictiveContact>
-        PersistentContacts;
-    [ReadOnly] public NativeReference<PersistentClassificationPhaseState>
-        PhaseState;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeReference<IncrementalContactPipelineStatistics>
-        IncrementalStatistics;
-    public NativeList<BodyPair> OracleContactPairs;
-#endif
-    [ReadOnly] public NativeReference<ContactPipelineExecutionState>
-        RuntimeState;
-
-    public void Execute()
-    {
-        if (RuntimeState.Value.IsValid == 0 ||
-            PhaseState.Value.NeedsCommit != 2)
-            return;
-#if RTS_CONTACT_DIAGNOSTICS
-        PredictiveDiscContactStatistics statistics = Statistics.Value;
-        IncrementalContactPipelineStatistics incremental =
-            IncrementalStatistics.Value;
-#else
-        PredictiveDiscContactStatistics statistics = default;
-        IncrementalContactPipelineStatistics incremental = default;
-#endif
-        TimestepContactRepairViewKernel.MergeEscapedTimestepContactView(
-            ref statistics,
-            ref incremental,
-            Configuration,
-            Bodies,
-            MotionEvidence,
-            StepStates,
-            Constraints,
-            TimestepContactPairs,
-            PreviousTimestepContactPairs,
-            SoftAvoidancePairs,
-            DirtyFlagsByBody,
-            PersistentContacts
-#if RTS_CONTACT_DIAGNOSTICS
-            , OracleContactPairs
-#endif
-        );
-#if RTS_CONTACT_DIAGNOSTICS
-        Statistics.Value = statistics;
-        IncrementalStatistics.Value = incremental;
-#endif
-    }
-}
-
-[BurstCompile]
 internal struct ClearRepairedEnvelopeEscapeJob : IJobParallelForDefer
 {
     [ReadOnly] public NativeArray<IncrementalDirtyBody> Workset;
@@ -413,65 +350,6 @@ internal struct FinalizeSubstepRepairCertificateJob : IJob
         IncrementalStatistics.Value = incremental;
 #endif
     }
-}
-
-[BurstCompile]
-internal struct FinalizePreparedSubstepJob : IJob
-{
-    public ContactPipelineConfiguration Configuration;
-    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-    [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
-    [ReadOnly] public NativeParallelHashMap<Entity, int>
-        CurrentBodyIndexByEntity;
-    [ReadOnly] public NativeList<BodyPair> TimestepInteractionPairs;
-    [ReadOnly] public NativeList<BodyPair> SoftAvoidancePairs;
-    public NativeList<ContactConstraint> TimestepContactPairs;
-    [ReadOnly] public NativeList<PersistentNeighborPair>
-        PersistentNeighborPairs;
-    public NativeList<PersistentPredictiveContact> PersistentContacts;
-    [ReadOnly] public NativeParallelHashMap<StableEntityPairKey, int> ContactIndex;
-    public NativeList<PredictiveContactScheduleEntry> Schedule;
-    public NativeList<PredictiveContactScheduleEntry> ScheduleScratch;
-    public NativeReference<int> ScheduleCursor;
-    public NativeReference<IncrementalContactCacheState> CacheState;
-    [ReadOnly] public NativeList<IncrementalDirtyBody> DirtyBodies;
-    public NativeReference<InteractionCertificate> InteractionCertificate;
-    public NativeList<InteractionCertificateViolation> CertificateViolations;
-#if RTS_CONTACT_DIAGNOSTICS
-    public NativeReference<PredictiveDiscContactStatistics> Statistics;
-    public NativeReference<IncrementalContactPipelineStatistics>
-        IncrementalStatistics;
-#endif
-    public NativeReference<ContactPipelineExecutionState> RuntimeState;
-    public int SubstepIndex;
-
-    public void Execute() => SubstepRepairDataFlow.FinalizePreparedSubstep(
-        SubstepIndex,
-        RuntimeState,
-        Configuration,
-        Bodies,
-        MotionEvidence,
-        StepStates,
-        CurrentBodyIndexByEntity,
-        TimestepInteractionPairs,
-        SoftAvoidancePairs,
-        TimestepContactPairs,
-        PersistentNeighborPairs,
-        PersistentContacts,
-        ContactIndex,
-        Schedule,
-        ScheduleScratch,
-        ScheduleCursor,
-        CacheState,
-        DirtyBodies,
-        InteractionCertificate,
-        CertificateViolations
-#if RTS_CONTACT_DIAGNOSTICS
-        , Statistics,
-        IncrementalStatistics
-#endif
-    );
 }
 
 }

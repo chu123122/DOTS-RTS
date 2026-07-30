@@ -692,43 +692,11 @@ internal partial struct CrowdContactPipelineScheduler
                 substepCount,
                 substepDeltaTime,
                 true);
-            handle = new FinalizePreparedSubstepJob
-            {
-                Configuration = Configuration,
-                Bodies = Body.Bodies,
-                MotionEvidence = Body.MotionEvidence,
-                StepStates = Body.StepStates,
-                CurrentBodyIndexByEntity =
-                    Body.CurrentBodyIndexByEntity,
-                TimestepInteractionPairs =
-                    BroadPhaseCandidates.Pairs,
-                SoftAvoidancePairs =
-                    NarrowPhaseConstraints.SoftInteractions,
-                TimestepContactPairs =
-                    NarrowPhaseConstraints.HardContacts,
-                PersistentNeighborPairs =
-                    Persistent.PersistentNeighborPairs,
-                PersistentContacts = Persistent.PersistentPredictiveContacts,
-                ContactIndex =
-                    Persistent.PersistentContactIndex,
-                Schedule =
-                    Certificate.Schedule,
-                ScheduleScratch = Certificate.ScheduleScratch,
-                ScheduleCursor = Certificate.ScheduleCursor,
-                CacheState =
-                    Persistent.IncrementalCacheState,
-                DirtyBodies =
-                    Repair.DirtyBodies,
-                InteractionCertificate = Certificate.Certificate,
-                CertificateViolations = Certificate.Violations,
-#if RTS_CONTACT_DIAGNOSTICS
-                Statistics = Diagnostics.ContactStatistics,
-                IncrementalStatistics =
-                    Diagnostics.IncrementalStatistics,
-#endif
-                RuntimeState = runtimeState,
-                SubstepIndex = substepIndex
-            }.Schedule(handle);
+            SchedulePredictiveContactActivation(
+                ref handle,
+                runtimeState,
+                substepIndex,
+                substepCount);
             ScheduleActiveConstraintIncidentIndex(ref handle);
             handle = new ValidateConsumerViewsJob
             {
@@ -2099,31 +2067,9 @@ internal partial struct CrowdContactPipelineScheduler
 #endif
             RuntimeState = runtimeState
         }.Schedule(handle);
-        handle = new MergeRepairedContactViewJob
-        {
-            Configuration = Configuration,
-            Bodies = Body.Bodies,
-            MotionEvidence = Body.MotionEvidence,
-            StepStates = Body.StepStates,
-            Constraints = BroadPhase.CollisionPairs,
-            TimestepContactPairs =
-                NarrowPhaseConstraints.HardContacts,
-            PreviousTimestepContactPairs =
-                PreviousTimestepContactPairs,
-            SoftAvoidancePairs =
-                NarrowPhaseConstraints.SoftInteractions,
-            DirtyFlagsByBody = Repair.DirtyFlagsByBody,
-            PersistentContacts =
-                Persistent.PersistentPredictiveContacts,
-            PhaseState = Classification.State,
-#if RTS_CONTACT_DIAGNOSTICS
-            Statistics = Diagnostics.ContactStatistics,
-            IncrementalStatistics =
-                Diagnostics.IncrementalStatistics,
-            OracleContactPairs = Diagnostics.IncrementalOracleContactPairs,
-#endif
-            RuntimeState = runtimeState
-        }.Schedule(handle);
+        ScheduleRepairContactViewPublication(
+            ref handle,
+            runtimeState);
         handle = new ClearRepairedEnvelopeEscapeJob
         {
             Workset = Repair.DirtyBodies.AsDeferredJobArray(),

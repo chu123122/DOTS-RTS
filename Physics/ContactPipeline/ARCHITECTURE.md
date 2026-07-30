@@ -356,9 +356,10 @@ ContactCertificateFrameResources  certificate, schedule and contact scratch
 Initial classification finalization is
 `PublishPersistentClassificationState → ValidatePersistentClassificationOracles
 → FinalizePersistentClassificationCertificate`. Repair finalization is
-`PublishSubstepRepairClassification → MergeRepairedContactView
-→ ClearRepairedEnvelopeEscape → Prepare/Scatter/FinalizePersistentIncidentLookup
-→ FinalizeSubstepRepairCertificate`. The two former aggregate commit jobs are
+`PublishSubstepRepairClassification → Materialize/Sort/Merge/Count/Prefix/Scatter
+RepairContactView → ClearRepairedEnvelopeEscape →
+Prepare/Scatter/FinalizePersistentIncidentLookup →
+FinalizeSubstepRepairCertificate`. The two former aggregate commit jobs are
 retired symbols.
 
 ## Execution topology
@@ -410,3 +411,18 @@ Safety, replay-hash, differential pair-set or runtime performance verification.
 Contact islands and sleeping are not implemented. They require a separate
 island/wake design and evidence. This architecture refactor changes ownership and
 capabilities, not sleep/wake semantics.
+
+## P1 repair / activation publication（2026-07-30）
+
+- Repair contact view 不再由单个 `IJob` 串行归并完整旧/新列表。
+- 旧 runtime 与新定义先物化为 `ContactViewCandidate`，再执行 block sort、
+  merge passes、Count → Prefix → Scatter 去重发布。
+- 同 pair 时 repair 保留新定义并继承旧 runtime；dirty old-only pair 不发布；
+  new-only pair 标记 fallback。
+- Predictive activation 使用 `EvaluateScheduledContactsJob`
+  (`IJobParallelForDefer`) 并行判定，schedule 与 activated constraints 分别
+  Count → Prefix → Scatter。
+- Activated constraints 复用同一 candidate sort/dedupe 链，重复 pair 保留
+  consumer 已有 runtime；统计、oracle 与 certificate 独立收尾。
+- Predictive schedule 由已去重的 stable pair 分类结果发布，并保持每个 key
+  至多一个 entry；activation scatter 因而按唯一 persistent index 并行写回。

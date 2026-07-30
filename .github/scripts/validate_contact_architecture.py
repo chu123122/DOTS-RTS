@@ -132,6 +132,10 @@ retired_symbols = (
     "CrowdBodyStepState",
     "PrepareSubstepRepairTopology",
     "SortJobDefer",
+    "MergeRepairedContactViewJob",
+    "FinalizePreparedSubstepJob",
+    "MergeEscapedTimestepContactView(",
+    "ActivateScheduledPredictiveContactsForSubstep(",
 )
 for symbol in retired_symbols:
     if symbol in all_physics + all_gameplay:
@@ -226,11 +230,15 @@ for token in (
     require(solver_state, token, "solver state")
 
 # The expensive serial profiler entries are replaced by explicit staged chains.
-scheduler = read(PIPE / "Scheduling/SharedContactPipelineScheduler.cs")
+scheduler = (
+    read(PIPE / "Scheduling/SharedContactPipelineScheduler.cs") +
+    read(PIPE / "Scheduling/ContactViewPublicationScheduler.cs"))
 full_sweep = read(
     PIPE / "Stages/Certification/InitialContact/FullSweepBroadPhaseStageJobs.cs")
-repair = read(
-    PIPE / "Stages/Certification/SubstepRepair/SubstepRepairStageJobs.cs")
+repair = (
+    read(PIPE / "Stages/Certification/SubstepRepair/SubstepRepairStageJobs.cs") +
+    read(PIPE / "Stages/Certification/SubstepRepair/ContactViewPublicationStageJobs.cs") +
+    read(PIPE / "Stages/Certification/SubstepRepair/PredictiveContactActivationStageJobs.cs"))
 for token in (
     "CountBodyCellsJob : IJobParallelForDefer",
     "PrefixBodyCellsJob : IJob",
@@ -270,7 +278,16 @@ for token in (
     "PublishPersistentClassificationStateJob : IJob",
     "FinalizePersistentClassificationCertificateJob : IJob",
     "PublishSubstepRepairClassificationJob : IJob",
-    "MergeRepairedContactViewJob : IJob",
+    "MaterializeRepairContactCandidatesJob",
+    "SortContactViewCandidateBlocksJob",
+    "MergeContactViewCandidateBlocksJob",
+    "CountRepairContactPublicationBlocksJob",
+    "PrefixRepairContactPublicationJob",
+    "ScatterRepairContactPublicationBlocksJob",
+    "EvaluateScheduledContactsJob",
+    "CountPredictiveContactActivationBlocksJob",
+    "PrefixPredictiveContactActivationJob",
+    "ScatterPredictiveContactActivationBlocksJob",
     "ClearRepairedEnvelopeEscapeJob : IJobParallelForDefer",
     "PreparePersistentIncidentLookupJob : IJob",
     "ScatterPersistentIncidentLookupJob : IJobParallelForDefer",

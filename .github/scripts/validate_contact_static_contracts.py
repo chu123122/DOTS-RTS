@@ -115,8 +115,7 @@ repair_view = read(
     "Stages/Certification/SubstepRepair/"
     "TimestepContactRepairViewKernel.cs")
 prepare_repair_buffers = repair_kernel.split(
-    "internal static void PrepareSubstepRepairBuffers(", 1)[1].split(
-    "internal static void FinalizePreparedSubstep(", 1)[0]
+    "internal static void PrepareSubstepRepairBuffers(", 1)[1]
 for token in (
     "previousTimestepContactPairs.Clear();",
     "classificationBodyPairs.Clear();",
@@ -214,14 +213,71 @@ for field in (
 ):
     if field not in classification_prepare_schedule:
         fail(f"Classification publication prepare field unbound: {field}")
-for token in (
-    "while (previousIndex < previousTimestepContactPairs.Length &&",
-    "while (previousIndex < previousTimestepContactPairs.Length)",
-    "while (pairIndex < pairs.Length)",
-    "CopyTimestepRuntime(previousContact, ref newContact);",
+contact_view_jobs = read(
+    PIPE /
+    "Stages/Certification/SubstepRepair/"
+    "ContactViewPublicationStageJobs.cs")
+activation_jobs = read(
+    PIPE /
+    "Stages/Certification/SubstepRepair/"
+    "PredictiveContactActivationStageJobs.cs")
+activation_kernel = read(
+    PIPE /
+    "Stages/Certification/SubstepRepair/"
+    "PredictiveContactActivationKernel.cs")
+contact_view_scheduler = read(
+    PIPE / "Scheduling/ContactViewPublicationScheduler.cs")
+parallel_repair_source = (
+    dirty_incident_jobs + repair_view + contact_view_jobs +
+    activation_jobs + activation_kernel + contact_view_scheduler +
+    parallel_schedule + repair_kernel)
+for retired in (
+    "MergeRepairedContactViewJob",
+    "FinalizePreparedSubstepJob",
+    "MergeEscapedTimestepContactView(",
+    "ActivateScheduledPredictiveContactsForSubstep(",
+    "InsertConstraintSorted(",
 ):
-    if token not in repair_view:
-        fail(f"Repair sorted-stream merge contract missing: {token}")
+    if retired in parallel_repair_source:
+        fail(f"Serial repair/activation path returned: {retired}")
+for required in (
+    "MaterializeRepairContactCandidatesJob :",
+    "SortContactViewCandidateBlocksJob :",
+    "MergeContactViewCandidateBlocksJob :",
+    "CountRepairContactPublicationBlocksJob",
+    "PrefixRepairContactPublicationJob",
+    "ScatterRepairContactPublicationBlocksJob",
+    "EvaluateScheduledContactsJob : IJobParallelForDefer",
+    "CountPredictiveContactActivationBlocksJob",
+    "PrefixPredictiveContactActivationJob",
+    "ScatterPredictiveContactActivationBlocksJob",
+    "ScheduleRepairContactViewPublication(",
+    "SchedulePredictiveContactActivation(",
+):
+    if required not in parallel_repair_source:
+        fail(f"Parallel repair/activation stage missing: {required}")
+
+
+evaluate_activation = activation_jobs.split(
+    "internal struct EvaluateScheduledContactsJob", 1)[1].split(
+        "internal struct ", 1)[0]
+for token in (
+    "[ReadOnly]",
+    "public NativeArray<PersistentPredictiveContact> PersistentContacts;",
+):
+    if token not in evaluate_activation:
+        fail(f"Activation evaluation persistent input is not readonly: {token}")
+if re.search(r"PersistentContacts\[[^]]+\]\s*=", evaluate_activation):
+    fail("Activation evaluation writes authoritative persistent contacts")
+scatter_activation = activation_jobs.split(
+    "internal struct ScatterPredictiveContactActivationBlocksJob", 1)[1].split(
+        "internal struct ", 1)[0]
+for token in (
+    "record.HasPersistentUpdate != 0",
+    "PersistentContacts[record.PersistentContactIndex] =",
+):
+    if token not in scatter_activation:
+        fail(f"Activation persistent update scatter missing: {token}")
 
 persistent_classification_schedules = parallel_schedule.split(
     "new EvaluatePersistentPairClassificationsJob")[1:]
@@ -560,8 +616,7 @@ if full_sweep_jobs.count(
     fail("Full sweep does not emit each shared-cell pair from one canonical cell")
 
 prepare_repair = repair_kernel.split(
-    "internal static void PrepareSubstepRepairBuffers(", 1)[1].split(
-        "internal static void FinalizePreparedSubstep(", 1)[0]
+    "internal static void PrepareSubstepRepairBuffers(", 1)[1]
 for retired_call in (
     "CertificateDataFlow.PrepareCurrentBodyLookup(",
     "MapDirtyIncidentNeighborPairsToCurrentBodies(",
@@ -596,10 +651,7 @@ for retired_call in (
         fail(f"Serial initial classification work returned: {retired_call}")
 
 for source, stage in (
-    (repair_kernel.split(
-        "internal static void FinalizePreparedSubstep(", 1)[1].split(
-            "\n}\n}", 1)[0],
-     "FinalizePreparedSubstep"),
+    (activation_jobs, "PredictiveContactActivationStageJobs"),
     (wall_finalize, "FinalizeWallIteration"),
     (contact_finalize, "FinalizeContactIteration"),
 ):

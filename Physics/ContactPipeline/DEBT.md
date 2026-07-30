@@ -22,9 +22,9 @@
   Scatter`; persistent contact index construction is parallel.
 - The aggregate `CommitPersistentClassificationJob` and
   `CommitSubstepRepairJob` are deleted. Initial and repair paths publish state,
-  merge views, rebuild incident lookup and issue certificates in named Stage
-  jobs. Repair view merge is linear over two sorted streams rather than
-  binary-search-per-pair plus full sort/deduplicate.
+  rebuild compact views, rebuild incident lookup and issue certificates in named
+  Stage jobs. Repair and activation views use candidate materialization, staged
+  block sort/merge, then Count/Prefix/Scatter publication.
 - InitialContact, SubstepRepair, PersistentClassification, Certificate and
   IterationFinalize no longer call another concrete Stage DataFlow. Shared
   operations live in neutral, single-purpose Kernels.
@@ -73,3 +73,12 @@ still require stronger runtime evidence:
 - `ReciprocalVelocityObstacle` remains a compatibility enum name; the current
   implementation is not ORCA/RVO2 linear programming.
 - Public namespace renaming is excluded from this migration.
+
+## Completed: repair / activation serial P1（2026-07-30）
+
+- 删除 `MergeRepairedContactViewJob` 和
+  `TimestepContactRepairViewKernel.MergeEscapedTimestepContactView`。
+- 删除 `FinalizePreparedSubstepJob` 及宽字段转发。
+- repair publication 与 predictive activation 均改为显式并行阶段。
+- 仍需在 Unity Editor 中复验 Burst、Collections Safety、PlayMode 和代表性
+  Profiler 数据；静态结构完成不等同于运行性能结论。

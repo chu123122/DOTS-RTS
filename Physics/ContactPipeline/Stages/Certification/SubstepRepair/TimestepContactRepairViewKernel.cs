@@ -1,117 +1,169 @@
+using System.Collections.Generic;
 using Unity.Collections;
-using Unity.Entities;
-using Unity.Mathematics;
-using Unity.Profiling.LowLevel.Unsafe;
-using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
+internal struct ContactViewCandidate
+{
+    public ContactConstraint Contact;
+    public byte IsValid;
+    public byte IsPrevious;
+    public byte PreviousWasDirty;
+}
+
+internal struct ContactViewPublicationBlock
+{
+    public int OutputCount;
+    public int OutputOffset;
+    public int FallbackCount;
+}
+
+internal struct ContactViewCandidateComparer :
+    IComparer<ContactViewCandidate>
+{
+    public int Compare(ContactViewCandidate left, ContactViewCandidate right)
+    {
+        if (left.IsValid != right.IsValid)
+            return right.IsValid.CompareTo(left.IsValid);
+
+        int bodyA = left.Contact.BodyA.CompareTo(right.Contact.BodyA);
+        if (bodyA != 0)
+            return bodyA;
+        int bodyB = left.Contact.BodyB.CompareTo(right.Contact.BodyB);
+        if (bodyB != 0)
+            return bodyB;
+
+        return right.IsPrevious.CompareTo(left.IsPrevious);
+    }
+}
+
 internal static class TimestepContactRepairViewKernel
 {
-    internal static void MergeEscapedTimestepContactView(
-        ref PredictiveDiscContactStatistics statistics,
-        ref IncrementalContactPipelineStatistics incrementalStatistics,
-        ContactPipelineConfiguration configuration,
-        NativeArray<CrowdBodySnapshot> bodies,
-        NativeArray<CrowdMotionEvidence> motionEvidence,
-        NativeArray<CrowdSolverBodyState> stepStates,
-        NativeList<ContactConstraint> pairs,
-        NativeList<ContactConstraint> timestepContactPairs,
-        NativeList<ContactConstraint> previousTimestepContactPairs,
-        NativeList<BodyPair> softAvoidancePairs,
-        NativeArray<byte> dirtyFlagsByBody,
-        NativeList<PersistentPredictiveContact> persistentContacts
-#if RTS_CONTACT_DIAGNOSTICS
-        , NativeList<BodyPair> oracleContactPairs
-#endif
-    )
+    internal static bool IsGroupStart(
+        NativeArray<ContactViewCandidate> candidates,
+        int candidateIndex)
     {
-        timestepContactPairs.Clear();
-        int previousIndex = 0;
-        int pairIndex = 0;
-        while (previousIndex < previousTimestepContactPairs.Length &&
-               pairIndex < pairs.Length)
+        if (candidateIndex < 0 ||
+            candidateIndex >= candidates.Length ||
+            candidates[candidateIndex].IsValid == 0)
+            return false;
+        if (candidateIndex == 0)
+            return true;
+
+        ContactViewCandidate previous = candidates[candidateIndex - 1];
+        ContactViewCandidate current = candidates[candidateIndex];
+        return previous.IsValid == 0 ||
+               previous.Contact.BodyA != current.Contact.BodyA ||
+               previous.Contact.BodyB != current.Contact.BodyB;
+    }
+
+    internal static int FindGroupEnd(
+        NativeArray<ContactViewCandidate> candidates,
+        int groupStart)
+    {
+        ContactViewCandidate first = candidates[groupStart];
+        int groupEnd = groupStart + 1;
+        while (groupEnd < candidates.Length)
         {
-            ContactConstraint previousContact =
-                previousTimestepContactPairs[previousIndex];
-            ContactConstraint newContact = pairs[pairIndex];
-            int comparison = Compare(previousContact, newContact);
-            if (comparison < 0)
+            ContactViewCandidate candidate = candidates[groupEnd];
+            if (candidate.IsValid == 0 ||
+                candidate.Contact.BodyA != first.Contact.BodyA ||
+                candidate.Contact.BodyB != first.Contact.BodyB)
+                break;
+            groupEnd++;
+        }
+        return groupEnd;
+    }
+
+    internal static bool TrySelectRepairContact(
+        NativeArray<ContactViewCandidate> candidates,
+        int groupStart,
+        out ContactConstraint contact,
+        out byte wasFallback)
+    {
+        int groupEnd = FindGroupEnd(candidates, groupStart);
+        ContactViewCandidate previous = default;
+        ContactViewCandidate current = default;
+        bool hasPrevious = false;
+        bool hasCurrent = false;
+        for (int candidateIndex = groupStart;
+             candidateIndex < groupEnd;
+             candidateIndex++)
+        {
+            ContactViewCandidate candidate = candidates[candidateIndex];
+            if (candidate.IsPrevious != 0)
             {
-                if (!IsDirty(previousContact, dirtyFlagsByBody))
-                    timestepContactPairs.Add(previousContact);
-                previousIndex++;
+                if (!hasPrevious)
+                {
+                    previous = candidate;
+                    hasPrevious = true;
+                }
             }
-            else if (comparison > 0)
+            else if (!hasCurrent)
             {
-                AppendNewContact(
-                    newContact,
-                    ref statistics,
-                    timestepContactPairs);
-                pairIndex++;
+                current = candidate;
+                hasCurrent = true;
+            }
+        }
+
+        if (hasCurrent)
+        {
+            contact = current.Contact;
+            if (hasPrevious)
+            {
+                CopyTimestepRuntime(previous.Contact, ref contact);
+                wasFallback = 0;
             }
             else
             {
-                CopyTimestepRuntime(previousContact, ref newContact);
-                timestepContactPairs.Add(newContact);
-                previousIndex++;
-                pairIndex++;
+                contact.WasAddedByFallback = 1;
+                wasFallback = 1;
+            }
+            return true;
+        }
+
+        if (hasPrevious && previous.PreviousWasDirty == 0)
+        {
+            contact = previous.Contact;
+            wasFallback = 0;
+            return true;
+        }
+
+        contact = default;
+        wasFallback = 0;
+        return false;
+    }
+
+    internal static bool TrySelectActivationContact(
+        NativeArray<ContactViewCandidate> candidates,
+        int groupStart,
+        out ContactConstraint contact)
+    {
+        int groupEnd = FindGroupEnd(candidates, groupStart);
+        ContactViewCandidate current = default;
+        bool hasCurrent = false;
+        for (int candidateIndex = groupStart;
+             candidateIndex < groupEnd;
+             candidateIndex++)
+        {
+            ContactViewCandidate candidate = candidates[candidateIndex];
+            if (candidate.IsPrevious != 0)
+            {
+                contact = candidate.Contact;
+                return true;
+            }
+            if (!hasCurrent)
+            {
+                current = candidate;
+                hasCurrent = true;
             }
         }
-        while (previousIndex < previousTimestepContactPairs.Length)
-        {
-            ContactConstraint previousContact =
-                previousTimestepContactPairs[previousIndex++];
-            if (!IsDirty(previousContact, dirtyFlagsByBody))
-                timestepContactPairs.Add(previousContact);
-        }
-        while (pairIndex < pairs.Length)
-        {
-            AppendNewContact(
-                pairs[pairIndex++],
-                ref statistics,
-                timestepContactPairs);
-        }
 
-        PersistentContactMath.RefreshCurrentContactStateGauges(
-            persistentContacts,
-            ref incrementalStatistics,
-            timestepContactPairs.Length);
-        statistics.TimestepContactSetBuildCount++;
-        statistics.TimestepContactSetClassificationPassCount++;
-        statistics.TimestepContactSetUniquePairCount =
-            timestepContactPairs.Length;
-        statistics.TimestepContactSetDormantPairCount =
-            incrementalStatistics.CurrentDormantPairCount;
-        SoftAvoidanceOracleKernel.ValidateSoftAvoidancePairViewAgainstQuadraticOracle(
-            ref incrementalStatistics,
-            configuration,
-            bodies,
-            motionEvidence,
-            stepStates,
-            softAvoidancePairs);
-#if RTS_CONTACT_DIAGNOSTICS
-        ContactOracleKernel.ValidateIncrementalContactSetAgainstQuadraticOracle(
-            ref incrementalStatistics,
-            configuration,
-            bodies,
-            motionEvidence,
-            timestepContactPairs,
-            oracleContactPairs);
-#endif
+        contact = current.Contact;
+        return hasCurrent;
     }
 
-    private static int Compare(
-        ContactConstraint left,
-        ContactConstraint right)
-    {
-        int bodyA = left.BodyA.CompareTo(right.BodyA);
-        return bodyA != 0
-            ? bodyA
-            : left.BodyB.CompareTo(right.BodyB);
-    }
-
-    private static bool IsDirty(
+    internal static bool IsDirty(
         ContactConstraint contact,
         NativeArray<byte> dirtyFlagsByBody)
     {
@@ -123,17 +175,7 @@ internal static class TimestepContactRepairViewKernel
                    contact.BodyB);
     }
 
-    private static void AppendNewContact(
-        ContactConstraint contact,
-        ref PredictiveDiscContactStatistics statistics,
-        NativeList<ContactConstraint> destination)
-    {
-        contact.WasAddedByFallback = 1;
-        statistics.TimestepContactSetFallbackAddedPairCount++;
-        destination.Add(contact);
-    }
-
-    private static void CopyTimestepRuntime(
+    internal static void CopyTimestepRuntime(
         ContactConstraint previous,
         ref ContactConstraint current)
     {
@@ -148,6 +190,5 @@ internal static class TimestepContactRepairViewKernel
         current.WasAddedByFallback =
             previous.WasAddedByFallback;
     }
-
 }
 }

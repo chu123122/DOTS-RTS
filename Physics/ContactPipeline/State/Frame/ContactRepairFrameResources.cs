@@ -19,10 +19,17 @@ internal struct ContactRepairFrameResources
     public NativeList<DirtyContactScheduleBlock> ScheduleBlockOffsets;
     public NativeList<byte> PersistentIncidentPairWorkset;
     public NativeReference<int> PersistentIncidentRebuildPairCount;
+    public NativeList<ContactViewCandidate> ContactViewCandidates;
+    public NativeList<ContactViewCandidate> ContactViewSortScratch;
+    public NativeList<byte> ContactViewCandidateWorkset;
+    public NativeList<ContactViewPublicationBlock>
+        ContactViewPublicationBlocks;
+    public NativeList<byte> ContactViewBlockWorkset;
 
     public static ContactRepairFrameResources Create(int bodyCount)
     {
         int one = math.max(bodyCount, 1);
+        int contactCapacity = math.max(bodyCount * 8, 1);
         return new ContactRepairFrameResources
         {
             DirtyBodies =
@@ -37,7 +44,7 @@ internal struct ContactRepairFrameResources
                 NativeArrayOptions.ClearMemory),
             NeighborPairScratch =
                 new NativeList<PersistentNeighborPair>(
-                    math.max(bodyCount * 8, 1), Allocator.TempJob),
+                    contactCapacity, Allocator.TempJob),
             BodyRefreshResults = new NativeArray<DirtyBodyRefreshResult>(
                 bodyCount,
                 Allocator.TempJob,
@@ -54,7 +61,21 @@ internal struct ContactRepairFrameResources
             PersistentIncidentPairWorkset =
                 new NativeList<byte>(one, Allocator.TempJob),
             PersistentIncidentRebuildPairCount =
-                new NativeReference<int>(Allocator.TempJob)
+                new NativeReference<int>(Allocator.TempJob),
+            ContactViewCandidates =
+                new NativeList<ContactViewCandidate>(
+                    contactCapacity, Allocator.TempJob),
+            ContactViewSortScratch =
+                new NativeList<ContactViewCandidate>(
+                    contactCapacity, Allocator.TempJob),
+            ContactViewCandidateWorkset =
+                new NativeList<byte>(
+                    contactCapacity, Allocator.TempJob),
+            ContactViewPublicationBlocks =
+                new NativeList<ContactViewPublicationBlock>(
+                    one, Allocator.TempJob),
+            ContactViewBlockWorkset =
+                new NativeList<byte>(one, Allocator.TempJob)
         };
     }
 
@@ -80,6 +101,16 @@ internal struct ContactRepairFrameResources
             combined, PersistentIncidentPairWorkset.Dispose(finalReader));
         combined = JobHandle.CombineDependencies(
             combined, PersistentIncidentRebuildPairCount.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, ContactViewCandidates.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, ContactViewSortScratch.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, ContactViewCandidateWorkset.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, ContactViewPublicationBlocks.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, ContactViewBlockWorkset.Dispose(finalReader));
         return combined;
     }
 }
