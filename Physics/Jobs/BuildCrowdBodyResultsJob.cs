@@ -29,18 +29,22 @@ internal struct BuildCrowdBodyResultsJob : IJobParallelFor
             : float3.zero;
         quaternion resultRotation = body.Rotation;
 
-        bool isHardColliding =
-            math.lengthsq(step.ContactCorrection) > 0.0001f ||
-            math.lengthsq(step.WallCorrection) > 0.0001f;
-        if (navigation.IsSettled != 0 && math.lengthsq(resultVelocity) <= 0.005f)
-            resultVelocity = float3.zero;
-
-        bool shouldMove = math.lengthsq(resultVelocity) > 0.005f || isHardColliding;
-        if (body.IsInsideSimulationDomain != 0 && shouldMove)
+        if (body.IsInsideSimulationDomain != 0)
         {
+            // SolvedPosition is the authoritative result of the complete
+            // timestep. Per-substep correction fields may be zero in the final
+            // substep even when an earlier substep corrected the body, so they
+            // must not gate publication of the solved position.
             resultPosition = step.SolvedPosition;
             resultPosition.y = body.Position.y;
             resultVelocity.y = 0f;
+
+            if (navigation.IsSettled != 0 &&
+                math.lengthsq(resultVelocity) <= 0.005f)
+            {
+                resultVelocity = float3.zero;
+            }
+
             if (math.lengthsq(resultVelocity) > 0.01f)
             {
                 quaternion targetRotation = quaternion.LookRotationSafe(
