@@ -88,7 +88,7 @@ public abstract partial class BaseFlowMovementSystem
             captureMask,
             EntityManager,
             _incrementalDiagnosticsEntity,
-            _candidateStore.SweptProxies);
+            _physicsRuntime);
         CaptureSelectedEntityDetails(
             snapshot,
             completed.SelectedEntity,
@@ -529,10 +529,9 @@ public abstract partial class BaseFlowMovementSystem
         int maximumVisualizedPairs)
     {
 
-        if (_simulationDebuggerSelectedUnitValid.IsCreated &&
-            _simulationDebuggerSelectedUnitValid.Value != 0)
+        if (_physicsRuntime.TryReadSimulationDebuggerSelectedUnit(
+                out SimulationDebuggerUnitSample selectedUnit))
         {
-            SimulationDebuggerUnitSample selectedUnit = _simulationDebuggerSelectedUnit.Value;
             if (selected == Entity.Null || selectedUnit.Entity == selected)
             {
                 snapshot.SelectedUnit = selectedUnit;
@@ -543,9 +542,15 @@ public abstract partial class BaseFlowMovementSystem
         if ((snapshot.CapturedMask & SimulationDebuggerCaptureMask.SelectedPairs) != 0)
         {
             int limit = math.max(1, maximumVisualizedPairs);
-            int count = math.min(limit, _simulationDebuggerSelectedPairs.Length);
+            int count = math.min(
+                limit,
+                _physicsRuntime.SimulationDebuggerSelectedPairCount);
             for (int i = 0; i < count; i++)
-                snapshot.SelectedPairs.Add(_simulationDebuggerSelectedPairs[i]);
+            {
+                snapshot.SelectedPairs.Add(
+                    _physicsRuntime
+                        .ReadSimulationDebuggerSelectedPair(i));
+            }
         }
 
         if (snapshot.HasSelectedUnit || selected == Entity.Null)

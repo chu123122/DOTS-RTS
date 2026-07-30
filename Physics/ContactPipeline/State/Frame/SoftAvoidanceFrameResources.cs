@@ -26,9 +26,9 @@ internal struct SoftAvoidanceFrameResources
 
     public SoftAvoidanceJob CreateJob(
         ContactPipelineConfiguration configuration,
-        FlowFieldGrid grid,
+        CrowdObstacleSnapshot obstacles,
         CrowdStepBodyResources body,
-        InteractionCertificationFrameResources certification,
+        NarrowPhaseConstraintBatch constraints,
         ConstraintSolverFrameResources solver,
         ContactPipelineExecutionResources execution,
         ContactDiagnosticsFrameResources diagnostics)
@@ -37,13 +37,13 @@ internal struct SoftAvoidanceFrameResources
         {
             Configuration = configuration,
             RuntimeState = execution.PipelineRuntimeState,
-            Grid = grid.Grid,
-            GridOrigin = grid.GridOrigin,
-            GridDimensions = grid.GridDimensions,
-            CellRadius = grid.CellRadius,
+            Grid = obstacles.Cells,
+            GridOrigin = obstacles.Geometry.Origin,
+            GridDimensions = obstacles.Geometry.Dimensions,
+            CellRadius = obstacles.Geometry.CellRadius,
             Bodies = body.Bodies,
             StepStates = body.StepStates,
-            SoftAvoidancePairs = certification.SoftAvoidancePairs,
+            SoftAvoidancePairs = constraints.SoftInteractions,
             SoftIncidentOffsets = IncidentOffsets,
             SoftIncidentWriteCursors = IncidentWriteCursors,
             SoftIncidentPairIndices = IncidentPairIndices,

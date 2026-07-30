@@ -3,6 +3,32 @@ using Unity.Mathematics;
 namespace RTS.Unit.FlowField.Jobs
 {
 /// <summary>
+/// Gameplay Adapter 在 step 开始时冻结的纯 Crowd Physics 配置。
+/// 执行期间任何 UI 或 ECS 设置变化都不会影响当前 step。
+/// </summary>
+public struct CrowdPhysicsSettings
+{
+    public uint ObstacleVersion;
+    public int SubstepCount;
+    public int IterationCount;
+    public ContactPositionSolverMode ContactPositionSolver;
+    public float Compliance;
+    public float PredictiveSkin;
+    public float SoftAvoidanceResponseRate;
+    public float SoftAvoidanceShell;
+    public float SettledSoftAvoidanceMultiplier;
+    public SoftAvoidanceVelocitySolverMode SoftAvoidanceVelocitySolver;
+    public float RvoTimeHorizon;
+    public bool EnablePredictivePairGeneration;
+    public bool EnablePredictiveContacts;
+    public bool EnableDiagnostics;
+    public bool EnablePersistentContactCache;
+    public bool EnableTimestepContactSetCache;
+    public float GuardEnvelopeMargin;
+    public float TimestepContactMargin;
+}
+
+/// <summary>
 /// 单次接触管线调用的不可变配置快照。遗留名称在 BaseFlowMovementSystem 边界处翻译；
 /// 生产模块只消费这个同步快照。
 /// </summary>
@@ -11,6 +37,7 @@ public struct ContactPipelineConfiguration
     // 身份属于当前仿真步，而非持久缓存寿命。
     public ulong WorldId;
     public uint SimulationStepId;
+    public uint ObstacleVersion;
 
     public float DeltaTime;
     public int SubstepCount;
@@ -69,46 +96,48 @@ public struct ContactPipelineConfiguration
             math.asuint(SettledSoftAvoidanceMultiplier),
             math.asuint(RvoTimeHorizon),
             flags));
-        return math.hash(new uint3(first, second, third));
+        return math.hash(new uint4(first, second, third, ObstacleVersion));
     }
 
     public static ContactPipelineConfiguration Create(
         ulong worldId,
         uint simulationStepId,
         float deltaTime,
-        FlowFieldSettings flowSettings,
-        UnitContactSolverSettings solverSettings,
-        bool enablePersistentContactCache,
-        bool enableTimestepContactSetCache)
+        CrowdPhysicsSettings settings)
     {
         return new ContactPipelineConfiguration
         {
             WorldId = worldId,
             SimulationStepId = simulationStepId,
+            ObstacleVersion = settings.ObstacleVersion,
             DeltaTime = deltaTime,
-            SubstepCount = solverSettings.SubstepCount,
-            IterationCount = solverSettings.IterationCount,
-            ContactPositionSolver = solverSettings.ContactPositionSolver,
-            Compliance = solverSettings.Compliance,
-            PredictiveSkin = solverSettings.PredictiveSkin,
-            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
-            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
-            SettledSoftAvoidanceMultiplier = flowSettings.SettledSoftAvoidanceMultiplier,
-            SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver,
-            RvoTimeHorizon = flowSettings.RvoTimeHorizon,
-            EnablePredictivePairGeneration = solverSettings.EnablePredictivePairGeneration,
-            EnablePredictiveContacts = solverSettings.EnablePredictiveContacts,
+            SubstepCount = settings.SubstepCount,
+            IterationCount = settings.IterationCount,
+            ContactPositionSolver = settings.ContactPositionSolver,
+            Compliance = settings.Compliance,
+            PredictiveSkin = settings.PredictiveSkin,
+            SoftAvoidanceResponseRate = settings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = settings.SoftAvoidanceShell,
+            SettledSoftAvoidanceMultiplier =
+                settings.SettledSoftAvoidanceMultiplier,
+            SoftAvoidanceVelocitySolver =
+                settings.SoftAvoidanceVelocitySolver,
+            RvoTimeHorizon = settings.RvoTimeHorizon,
+            EnablePredictivePairGeneration =
+                settings.EnablePredictivePairGeneration,
+            EnablePredictiveContacts = settings.EnablePredictiveContacts,
             EnableDiagnostics =
 #if RTS_CONTACT_DIAGNOSTICS
-                solverSettings.EnableDiagnostics,
+                settings.EnableDiagnostics,
 #else
                 false,
 #endif
-            EnablePersistentContactCache = enablePersistentContactCache,
-            EnableTimestepContactSetCache = enableTimestepContactSetCache,
-            // 兼容性翻译：序列化的 FatAabb margin 现表示持久受守护 proxy 的包络余量。
-            GuardEnvelopeMargin = solverSettings.PersistentGuardEnvelopeMargin,
-            TimestepContactMargin = solverSettings.TimestepContactMargin
+            EnablePersistentContactCache =
+                settings.EnablePersistentContactCache,
+            EnableTimestepContactSetCache =
+                settings.EnableTimestepContactSetCache,
+            GuardEnvelopeMargin = settings.GuardEnvelopeMargin,
+            TimestepContactMargin = settings.TimestepContactMargin
         };
     }
 }

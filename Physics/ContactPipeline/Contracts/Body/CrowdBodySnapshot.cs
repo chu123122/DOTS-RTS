@@ -16,6 +16,28 @@ public struct CrowdBodySnapshot
     public float MaxAcceleration;
     public float InverseMass;
     public float Radius;
+    public uint ShapeVersion;
     public byte IsInsideSimulationDomain;
+}
+
+/// <summary>
+/// Unit/Navigation Adapter 提交给 Crowd Physics 的逐 body 不可变输入。
+/// 不暴露 FlowField cell、integration value、pair、cache 或 solver 状态。
+/// </summary>
+public struct CrowdPhysicsBodyInput
+{
+    public Entity StableId;
+    public float3 Position;
+    public quaternion Rotation;
+    public float3 Velocity;
+    public float3 PreferredVelocity;
+    public float3 SteeringVelocityError;
+    public float MoveSpeed;
+    public float MaxAcceleration;
+    public float InverseMass;
+    public float Radius;
+    public uint ShapeVersion;
+    public byte IsInsideSimulationDomain;
+    public byte IsSettled;
 }
 }

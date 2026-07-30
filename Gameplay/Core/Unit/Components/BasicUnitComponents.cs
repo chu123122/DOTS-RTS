@@ -71,6 +71,26 @@ namespace RTS.Unit.Components
         public float InverseMass;
     }
 
+    /// <summary>
+    /// Crowd Physics 独立形状。初始化/形状同步阶段写入，物理 step 只读。
+    /// </summary>
+    public struct CrowdDiscShape : IComponentData
+    {
+        public float Radius;
+        public uint Version;
+    }
+
+    /// <summary>
+    /// Unity Physics 中保留的单位 query proxy；不参与 Crowd locomotion 响应。
+    /// CrowdStepVersion 是 ECS Transform 的提交版本，ProxyVersion 是最近一次
+    /// BuildPhysicsWorld 已消费并发布的版本。
+    /// </summary>
+    public struct CrowdQueryProxy : IComponentData
+    {
+        public uint CrowdStepVersion;
+        public uint ProxyVersion;
+    }
+
    
     
    

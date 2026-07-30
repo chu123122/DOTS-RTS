@@ -2,7 +2,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.Physics;
 using Unity.Profiling;
 using Unity.Transforms;
 using UnityEngine;
@@ -21,18 +20,16 @@ namespace RTS.Unit.FlowField.Systems
 public abstract partial class BaseFlowMovementSystem : SystemBase
 {
     // RTS.Simulation.Update：主线程 OnUpdate 调度停留（不含 Worker job 执行）。
-    // RTS.Simulation.Total：含末尾 Dependency.Complete() 的 wall time——模拟管线
-    //   从调度到所有 job 跑完的真实耗时，用于基准/简历数据。强制 Complete 会减少
-    //   job 与其他系统（渲染）的重叠，所以这只适合 A/B 基准，不代表正常帧表现。
-    // TODO: 后续把 Total 的 Complete 用 #if RTS_CONTACT_DIAGNOSTICS 包起来，
-    //   诊断关时回到无 Complete 的正常重叠；当前先不包，直接测试。
+    // RTS.Simulation.Total：诊断构建含 Worker job 完整 wall time；
+    // Release 只覆盖调度，避免为观测强制同步正常物理管线。
     private static readonly ProfilerMarker SimulationUpdateMarker =
         new ProfilerMarker("RTS.Simulation.Update");
     private static readonly ProfilerMarker SimulationTotalMarker =
         new ProfilerMarker("RTS.Simulation.Total");
 
     private EntityQuery _movementQuery;
-    private InteractionCandidateStore _candidateStore;
+    private CrowdPhysicsRuntime _physicsRuntime;
+    private int _crossFrameCapacity;
     private uint _simulationStepId;
 
     protected override void OnCreate()
@@ -46,11 +43,13 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             ComponentType.ReadWrite<LocalTransform>(),
             ComponentType.ReadWrite<Velocity>(),
             ComponentType.ReadWrite<FlowArrivalState>(),
+            ComponentType.ReadWrite<CrowdQueryProxy>(),
             ComponentType.ReadOnly<UnitMoveSpeed>(),
             ComponentType.ReadOnly<UnitMovementSettings>(),
             ComponentType.ReadOnly<UnitContactBody>(),
+            ComponentType.ReadOnly<CrowdDiscShape>(),
             ComponentType.ReadOnly<UnitMoveDestination>());
-        _candidateStore = InteractionCandidateStore.Create();
+        _physicsRuntime = CrowdPhysicsRuntime.Create();
         CreatePersistentDiagnostics();
         ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
             World.Unmanaged.SequenceNumber);
@@ -61,7 +60,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     protected override void OnDestroy()
     {
         Dependency.Complete();
-        _candidateStore.Dispose();
+        _physicsRuntime.Dispose();
         DisposePersistentDiagnostics();
         ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
             World.Unmanaged.SequenceNumber);
@@ -84,7 +83,6 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
 
         PublishSimulationDebuggerSnapshot(worldId, gridComponent);
         ApplySimulationDebuggerRuntimeOverrides(
-            ref flowFieldSettings,
             ref contactSolverSettings);
         IncrementalContactPipelineExperimentRuntime.Apply(
             worldId,
@@ -109,24 +107,49 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
             SimulationDebuggerRuntime.MaximumVisualizedPairsFor(worldId);
         Entity selectedEntity = ResolveDiagnosticSelectedEntity(worldId);
 
-        if (!gridComponent.Grid.IsCreated || flowFieldRuntimeState.ActiveVersion == 0)
+        if (!gridComponent.Grid.IsCreated ||
+            flowFieldRuntimeState.ActiveVersion == 0)
+        {
+            SimulationUpdateMarker.End();
+            SimulationTotalMarker.End();
             return;
+        }
+
+        FlowFieldBakeSystem environmentPublisher =
+            World.GetExistingSystemManaged<FlowFieldBakeSystem>();
+        if (environmentPublisher == null ||
+            !environmentPublisher.TryGetPublishedObstacleSnapshot(
+                out CrowdObstacleSnapshot obstacleSnapshot))
+        {
+            SimulationUpdateMarker.End();
+            SimulationTotalMarker.End();
+            return;
+        }
 
         int unitCount = _movementQuery.CalculateEntityCount();
         if (unitCount == 0)
+        {
+            SimulationUpdateMarker.End();
+            SimulationTotalMarker.End();
             return;
+        }
 
         uint simulationStepId = NextSimulationStepId();
-        Dependency.Complete();
-        if (_candidateStore.RequiresCapacity(unitCount))
-            _candidateStore.EnsureCapacity(unitCount);
+        if (unitCount > _crossFrameCapacity)
+        {
+            // Native container resize 是显式结构变更边界；稳定容量帧不阻塞。
+            Dependency.Complete();
+            _physicsRuntime.EnsureCapacity(unitCount);
+            _crossFrameCapacity = unitCount;
+        }
 
+#if RTS_CONTACT_DIAGNOSTICS
         bool usesJacobiSolver =
             contactSolverSettings.ContactPositionSolver ==
             ContactPositionSolverMode.Jacobi;
+#endif
         SimulationDebuggerEffectiveSettings effectiveSettings =
             BuildEffectiveSettings(
-                flowFieldSettings,
                 contactSolverSettings,
                 AdaptiveFatAabbSettings.Default);
         CompletedSimulationStepMetadata completedStep = new CompletedSimulationStepMetadata
@@ -145,316 +168,207 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
                 effectiveSettings)
         };
 
-        ContactDiagnosticsFrameResources diagnostics =
-            CreateContactDiagnosticsFrameResources(
+        CrowdPhysicsDiagnosticsStep diagnostics = null;
+        CrowdPhysicsStep physicsStep = null;
+        JobHandle intentHandle = default;
+        JobHandle solveHandle = default;
+        JobHandle outputReadyHandle = default;
+        JobHandle statisticsHandle = default;
+        JobHandle incrementalHandle = default;
+        JobHandle applyHandle = default;
+        bool stepReleased = false;
+        bool diagnosticsReleased = false;
+        try
+        {
+            diagnostics = _physicsRuntime.CreateDiagnosticsStep(
                 unitCount,
-                contactSolverSettings);
-        CrowdStepBodyResources body = CrowdStepBodyResources.Create(unitCount);
-        InteractionCertificationFrameResources certificationResources =
-            InteractionCertificationFrameResources.Create(unitCount);
-        SoftAvoidanceFrameResources softResources =
-            SoftAvoidanceFrameResources.Create(unitCount);
-        ConstraintSolverFrameResources solverResources =
-            ConstraintSolverFrameResources.Create(unitCount);
-        ContactPipelineExecutionResources executionResources =
-            ContactPipelineExecutionResources.Create(unitCount);
+                contactSolverSettings.SubstepCount,
+                contactSolverSettings.IterationCount);
+            physicsStep = _physicsRuntime.CreateStep(unitCount);
 
-        ComponentLookup<PhysicsCollider> colliderLookup =
-            SystemAPI.GetComponentLookup<PhysicsCollider>(isReadOnly: true);
-        colliderLookup.Update(this);
-        JobHandle footprintHandle = new CalculateUnitCollisionFootprintJob
-        {
-            PhysicsColliderLookup = colliderLookup,
-            FallbackCellSize = gridComponent.CellRadius * 2f,
-            CollisionFootprints = body.CollisionFootprints
-        }.ScheduleParallel(_movementQuery, Dependency);
+            FlowGridGeometry gridGeometry = new FlowGridGeometry(
+                gridComponent.GridOrigin,
+                gridComponent.GridDimensions,
+                gridComponent.CellRadius);
+            intentHandle = new BuildCrowdMotionIntentJob
+            {
+                NavigationCells = gridComponent.Grid,
+                NavigationGrid = gridGeometry,
+                ActiveRequestVersion =
+                    flowFieldRuntimeState.ActiveRequestVersion,
+                StepInputs = physicsStep.InputBodies
+            }.ScheduleParallel(_movementQuery, Dependency);
 
-        FlowGridGeometry gridGeometry = new FlowGridGeometry(
-            gridComponent.GridOrigin,
-            gridComponent.GridDimensions,
-            gridComponent.CellRadius);
-        JobHandle intentHandle = new BuildCrowdMotionIntentJob
-        {
-            NavigationCells = gridComponent.Grid,
-            NavigationGrid = gridGeometry,
-            ActiveRequestVersion = flowFieldRuntimeState.ActiveRequestVersion,
-            CollisionFootprints = body.CollisionFootprints,
-            Bodies = body.Bodies,
-            NavigationStates = body.NavigationStates,
-            MotionIntents = body.MotionIntents
-        }.ScheduleParallel(_movementQuery, footprintHandle);
-
-        JobHandle initializeHandle = new InitializeCrowdStepStateJob
-        {
-            Bodies = body.Bodies,
-            MotionEvidence = body.MotionEvidence,
-            StepStates = body.StepStates
-        }.Schedule(unitCount, 64, intentHandle);
-
-        ContactPipelineConfiguration configuration =
-            ContactPipelineConfiguration.Create(
-                worldId,
-                simulationStepId,
-                SystemAPI.Time.DeltaTime,
-                flowFieldSettings,
-                contactSolverSettings,
-                effectivePersistentContactCache,
-                effectiveTimestepContactSetCache);
-        ContactPipelineLifecycleJob pipelineLifecycle =
-            _candidateStore.CreateLifecycleJob(
+            ContactPipelineConfiguration configuration =
+                ContactPipelineConfiguration.Create(
+                    worldId,
+                    simulationStepId,
+                    SystemAPI.Time.DeltaTime,
+                    new CrowdPhysicsSettings
+                    {
+                        ObstacleVersion = obstacleSnapshot.Version,
+                        SubstepCount = contactSolverSettings.SubstepCount,
+                        IterationCount =
+                            contactSolverSettings.IterationCount,
+                        ContactPositionSolver =
+                            contactSolverSettings.ContactPositionSolver,
+                        Compliance = contactSolverSettings.Compliance,
+                        PredictiveSkin =
+                            contactSolverSettings.PredictiveSkin,
+                        SoftAvoidanceResponseRate =
+                            contactSolverSettings
+                                .SoftAvoidanceResponseRate,
+                        SoftAvoidanceShell =
+                            contactSolverSettings.SoftAvoidanceShell,
+                        SettledSoftAvoidanceMultiplier =
+                            contactSolverSettings
+                                .SettledSoftAvoidanceMultiplier,
+                        SoftAvoidanceVelocitySolver =
+                            contactSolverSettings
+                                .SoftAvoidanceVelocitySolver,
+                        RvoTimeHorizon =
+                            contactSolverSettings.RvoTimeHorizon,
+                        EnablePredictivePairGeneration =
+                            contactSolverSettings
+                                .EnablePredictivePairGeneration,
+                        EnablePredictiveContacts =
+                            contactSolverSettings.EnablePredictiveContacts,
+                        EnableDiagnostics =
+                            contactSolverSettings.EnableDiagnostics,
+                        EnablePersistentContactCache =
+                            effectivePersistentContactCache,
+                        EnableTimestepContactSetCache =
+                            effectiveTimestepContactSetCache,
+                        // 兼容性翻译：旧 FatAabb margin 表示受守护 proxy 余量。
+                        GuardEnvelopeMargin =
+                            contactSolverSettings
+                                .PersistentGuardEnvelopeMargin,
+                        TimestepContactMargin =
+                            contactSolverSettings.TimestepContactMargin
+                    });
+            CrowdPhysicsScheduleHandles physicsHandles =
+                _physicsRuntime.ScheduleStep(
+                physicsStep,
                 configuration,
-                executionResources,
-                solverResources,
+                obstacleSnapshot,
                 diagnostics,
-                _simulationDebuggerSelectedPairs);
-        CertificationEnvironmentResources certificationEnvironment = new CertificationEnvironmentResources
-        {
-            Configuration = configuration,
-            GridOrigin = gridComponent.GridOrigin,
-            GridDimensions = gridComponent.GridDimensions,
-            CellRadius = gridComponent.CellRadius,
-            Grid = gridComponent.Grid
-        };
-        CertificationBodyResources certificationBody = new CertificationBodyResources
-        {
-            Bodies = body.Bodies,
-            NavigationStates = body.NavigationStates,
-            MotionIntents = body.MotionIntents,
-            MotionEvidence = body.MotionEvidence,
-            StepStates = body.StepStates
-        };
-        CertificationViewResources certificationViews = new CertificationViewResources
-        {
-            SweptCellEntries = certificationResources.SweptCellEntries,
-            BodyCellCounts = certificationResources.BodyCellCounts,
-            BodyCellOffsets = certificationResources.BodyCellOffsets,
-            CellPairCounts = certificationResources.CellPairCounts,
-            CellPairOffsets = certificationResources.CellPairOffsets,
-            FullSweepPrepared = certificationResources.FullSweepPrepared,
-            Pairs = certificationResources.CollisionPairs,
-            TimestepContactPairs = certificationResources.TimestepContactPairs,
-            PreviousTimestepContactPairs = certificationResources.PreviousTimestepContactPairs,
-            TimestepInteractionPairs = certificationResources.TimestepInteractionPairs,
-            SoftAvoidancePairs = certificationResources.SoftAvoidancePairs,
-            ClassificationBodyPairs = certificationResources.ClassificationBodyPairs,
-            CurrentBodyIndexByEntity = certificationResources.CurrentBodyIndexByEntity
-        };
-        PersistentCertificationResources certificationPersistent =
-            new PersistentCertificationResources
-            {
-                CurrentIncrementalProxies = certificationResources.CurrentIncrementalProxies,
-                PersistentSweptProxies = _candidateStore.SweptProxies,
-                PersistentProxyIndexByBody = _candidateStore.ProxyIndexByBody,
-                PersistentNeighborPairs = _candidateStore.NeighborPairs,
-                PersistentPredictiveContacts = _candidateStore.PredictiveContacts,
-                PersistentContactIndex = _candidateStore.PredictiveContactIndex,
-                PersistentActiveContactKeys = _candidateStore.ActiveContactKeys,
-                PersistentSoftAvoidancePairKeys = _candidateStore.SoftAvoidancePairKeys,
-                PersistentDormantContactSchedule = _candidateStore.DormantContactSchedule,
-                PredictiveContactScratch = certificationResources.PredictiveContactScratch,
-                IncrementalDirtyBodies = certificationResources.IncrementalDirtyBodies,
-                IncrementalDirtyFlagsByBody = certificationResources.IncrementalDirtyFlagsByBody,
-                IncrementalNeighborPairScratch = certificationResources.IncrementalNeighborPairScratch,
-                PredictiveContactSchedule = certificationResources.PredictiveContactSchedule,
-                PredictiveContactScheduleScratch = certificationResources.PredictiveContactScheduleScratch,
-                PredictiveContactScheduleCursor = certificationResources.PredictiveContactScheduleCursor,
-                IncrementalCacheState = _candidateStore.CacheState,
-                InteractionCertificate = certificationResources.InteractionCertificate,
-                InteractionCertificateViolations = certificationResources.InteractionViolations,
-                PersistentClassificationResults = certificationResources.PersistentClassificationResults,
-                PersistentClassificationState = certificationResources.PersistentClassificationState,
-                PersistentSpatialMembership = _candidateStore.SpatialMembership,
-                PersistentSpatialMembershipEpoch = _candidateStore.SpatialMembershipEpoch,
-                PersistentSpatialVisitStampByProxy = certificationResources.PersistentSpatialVisitStampByProxy,
-                PersistentSpatialVisitStamp = certificationResources.PersistentSpatialVisitStamp,
-                PersistentIncidentPairLookup = _candidateStore.IncidentPairLookup,
-                PersistentIncidentLookupEpoch = _candidateStore.IncidentLookupEpoch,
-                DirtyBodyRefreshResults =
-                    certificationResources.DirtyBodyRefreshResults,
-                DirtyBodyRefreshSummary =
-                    certificationResources.DirtyBodyRefreshSummary,
-                DirtyContactScheduleBlockCounts =
-                    certificationResources.DirtyContactScheduleBlockCounts,
-                DirtyContactScheduleBlockOffsets =
-                    certificationResources.DirtyContactScheduleBlockOffsets
-            };
-        CertificationSolverResources certificationSolver = new CertificationSolverResources
-        {
-            CorrectedBodyFlags = solverResources.CorrectedBodyFlags,
-            CorrectedBodyIndices = solverResources.CorrectedBodyIndices,
-            ParallelBodyStatistics = solverResources.ParallelBodyResults,
-            EnvelopeEscapeFlags = solverResources.EnvelopeEscapeFlags,
-            DirtyBodyBlockOffsets = solverResources.DirtyBodyBlockOffsets,
-            ActiveIncidentIndexState = solverResources.ActiveIncidentIndexState,
-            ActiveIncidentOffsets = solverResources.ActiveIncidentOffsets,
-            ActiveIncidentWriteCursors = solverResources.ActiveIncidentWriteCursors,
-            ActiveIncidentPairIndices = solverResources.ActiveIncidentPairIndices,
-            JacobiPairCorrections = solverResources.JacobiPairCorrections
-        };
-        CertificationDiagnosticsResources certificationDiagnostics =
-            new CertificationDiagnosticsResources
-            {
-#if RTS_CONTACT_DIAGNOSTICS
-                IterationState = executionResources.SolverIterationState,
-                BlockStatistics = executionResources.JacobiBlockStatistics,
-                DiagnosticSelectedEntity = selectedEntity,
-                PersistentClassificationTelemetry =
-                    certificationResources.PersistentClassificationTelemetry,
-                IncrementalOracleContactPairs = diagnostics.IncrementalOracleContactPairs,
-                IncrementalStatistics = diagnostics.IncrementalStatistics,
-                Statistics = diagnostics.ContactStatistics,
-                IterationDiagnostics = diagnostics.Iterations,
-                PairDiagnostics = diagnostics.Pairs,
-                HeatSamples = diagnostics.HeatSamples,
-                ParallelSimulationDebuggerPairCandidates =
-                    diagnostics.ParallelPairCandidates
-#endif
-            };
-        SoftAvoidanceJob softAvoidance = softResources.CreateJob(
-            configuration,
-            gridComponent,
-            body,
-            certificationResources,
-            solverResources,
-            executionResources,
-            diagnostics);
-        ConstraintSolverJob constraintSolver = solverResources.CreateJob(
-            configuration,
-            gridComponent,
-            body,
-            certificationResources,
-            executionResources,
-            diagnostics,
-            selectedEntity,
-            captureMask,
-            maximumVisualizedPairs,
-            _simulationDebuggerSelectedPairs,
-            _simulationDebuggerSelectedUnit,
-            _simulationDebuggerSelectedUnitValid);
-        CrowdContactPipelineScheduler solver = new CrowdContactPipelineScheduler
-        {
-            Configuration = configuration,
-            Lifecycle = pipelineLifecycle,
-            CertificationEnvironment = certificationEnvironment,
-            CertificationBody = certificationBody,
-            CertificationViews = certificationViews,
-            CertificationPersistent = certificationPersistent,
-            CertificationSolver = certificationSolver,
-            CertificationDiagnostics = certificationDiagnostics,
-            SoftAvoidance = softAvoidance,
-            ConstraintSolver = constraintSolver
-        };
-
-#if RTS_CONTACT_DIAGNOSTICS
-        JobHandle solveHandle = solver.ScheduleParallelStages(
-            executionResources.PipelineRuntimeState,
-            executionResources.SolverIterationState,
-            executionResources.JacobiBlockStatistics,
-            initializeHandle);
-#else
-        JobHandle solveHandle = solver.ScheduleParallelStages(
-            executionResources.PipelineRuntimeState,
-            initializeHandle);
-#endif
-
-        ContactDiagnosticsPublishHandles diagnosticsPublish =
-            ScheduleContactDiagnosticsPublication(
-                diagnostics,
-                diagnostics.ContactStatistics,
-                diagnostics.IncrementalStatistics,
-                completedStep,
-                unitCount,
+                selectedEntity,
+                captureMask,
+                maximumVisualizedPairs,
                 SystemAPI.Time.DeltaTime,
-                flowFieldSettings.SoftAvoidanceShell,
-                contactSolverSettings,
-                effectiveTimestepContactSetCache,
-                effectivePersistentContactCache,
+                intentHandle);
+            solveHandle = physicsHandles.Solve;
+            outputReadyHandle = physicsHandles.OutputReady;
+
+            // Register the environment reader before scheduling optional
+            // publication/writeback. If any later operation fails, the catch
+            // completes solveHandle before the snapshot can be reused.
+            environmentPublisher.RegisterPublishedEnvironmentReader(
                 solveHandle);
 
-        World.GetExistingSystemManaged<FlowFieldBakeSystem>()
-            ?.RegisterActiveGridReader(solveHandle);
+            statisticsHandle =
+                diagnostics.ScheduleStatisticsPublication(solveHandle);
+            IncrementalContactPipelineConfiguration
+                diagnosticsConfiguration =
+                    IncrementalContactPipelineExperimentRuntime
+                        .CaptureConfiguration(
+                            completedStep.WorldId,
+                            unitCount,
+                            SystemAPI.Time.DeltaTime,
+                            contactSolverSettings.SoftAvoidanceShell,
+                            contactSolverSettings,
+                            effectiveTimestepContactSetCache,
+                            effectivePersistentContactCache);
+            incrementalHandle =
+                diagnostics.ScheduleIncrementalPublication(
+                    completedStep,
+                    diagnosticsConfiguration,
+                    _incrementalDiagnosticsEntity,
+                    GetComponentLookup<
+                        IncrementalContactPipelineSnapshot>(false),
+                    solveHandle);
 
-        JobHandle resultHandle = new BuildCrowdBodyResultsJob
-        {
-            DeltaTime = SystemAPI.Time.DeltaTime,
-            Bodies = body.Bodies,
-            NavigationStates = body.NavigationStates,
-            StepStates = body.StepStates,
-            Results = body.Results
-        }.Schedule(unitCount, 64, solveHandle);
-
-        JobHandle applyHandle = new ApplyFlowMovementJob
-        {
-            Results = body.Results
-        }.ScheduleParallel(_movementQuery, resultHandle);
-
-        // DIAG (incident index desync probe): GatherAndApplyParallelJacobiBodiesJob
-        // stamps CorrectedBodyFlags when offsets/indices/pairs run out of sync.
-        // 2 = offsets end > IncidentPairIndices.Length (offsets built for more pairs)
-        // 3 = stored pairIndex >= Pairs.Length (index built against larger pair view)
-        // 4 = stored pairIndex >= Corrections.Length (corrections view too short)
-        // Complete the solver jobs and tally per-mode here so the desync surfaces
-        // as a Debug.LogError instead of a silent Burst abort. Remove once the root
-        // cause (deferred incident-index timing) is fixed.
-        if (usesJacobiSolver)
-        {
-            solveHandle.Complete();
-            int flag2 = 0, flag3 = 0, flag4 = 0;
-            NativeArray<byte> flags = solverResources.CorrectedBodyFlags;
-            for (int i = 0; i < flags.Length; i++)
+            applyHandle = new ApplyFlowMovementJob
             {
-                byte f = flags[i];
-                if (f == 2) flag2++;
-                else if (f == 3) flag3++;
-                else if (f == 4) flag4++;
-            }
-            int desyncCount = flag2 + flag3 + flag4;
-            if (desyncCount > 0)
+                Results = physicsStep.OutputBodies,
+                CrowdStepVersion = simulationStepId
+            }.ScheduleParallel(_movementQuery, outputReadyHandle);
+
+            // DIAG (incident index desync probe):
+            // GatherAndApplyParallelJacobiBodiesJob stamps CorrectedBodyFlags
+            // when offsets/indices/pairs run out of sync.
+#if RTS_CONTACT_DIAGNOSTICS
+            if (usesJacobiSolver)
             {
-                ActiveIncidentIndexState incidentState = solverResources.ActiveIncidentIndexState.Value;
-                Debug.LogError(
-                    "[IncidentIndexDesync] " + desyncCount + "/" + flags.Length +
-                    " bodies out-of-range: offsetsEnd>list=" + flag2 +
-                    " pairIndex>=Pairs=" + flag3 +
-                    " pairIndex>=Corrections=" + flag4 +
-                    " | Ensure.PairCount=" + incidentState.PairCount +
-                    " Ensure.BodyCount=" + incidentState.BodyCount +
-                    " Ensure.IsValid=" + incidentState.IsValid +
-                    " | TimestepContactPairs.Length=" + certificationResources.TimestepContactPairs.Length +
-                    " JacobiPairCorrections.Length=" + solverResources.JacobiPairCorrections.Length +
-                    " ActiveIncidentPairIndices.Length=" + solverResources.ActiveIncidentPairIndices.Length +
-                    " Bodies.Length=" + unitCount);
+                solveHandle.Complete();
+                if (physicsStep.TryGetIncidentIndexDesync(out var desync))
+                {
+                    Debug.LogError(
+                        "[IncidentIndexDesync] " +
+                        desync.TotalOutOfRange + "/" + desync.BodyCount +
+                        " bodies out-of-range: offsetsEnd>list=" +
+                        desync.OffsetsOutOfRange +
+                        " pairIndex>=Pairs=" +
+                        desync.PairIndexOutOfRange +
+                        " pairIndex>=Corrections=" +
+                        desync.CorrectionIndexOutOfRange +
+                        " | Ensure.PairCount=" +
+                        desync.ExpectedPairCount +
+                        " Ensure.BodyCount=" +
+                        desync.ExpectedBodyCount +
+                        " Ensure.IsValid=" + desync.IndexIsValid +
+                        " | TimestepContactPairs.Length=" +
+                        desync.ContactPairCount +
+                        " JacobiPairCorrections.Length=" +
+                        desync.CorrectionCount +
+                        " ActiveIncidentPairIndices.Length=" +
+                        desync.IncidentPairIndexCount +
+                        " Bodies.Length=" + unitCount);
+                }
             }
+#endif
+
+            JobHandle runtimeDispose =
+                physicsStep.Dispose(applyHandle, solveHandle);
+            stepReleased = true;
+            JobHandle diagnosticsDispose = diagnostics.Dispose(
+                solveHandle,
+                statisticsHandle,
+                incrementalHandle);
+            diagnosticsReleased = true;
+            Dependency = JobHandle.CombineDependencies(
+                runtimeDispose,
+                diagnosticsDispose);
         }
-
-        JobHandle runtimeDispose = body.Dispose(applyHandle);
-        runtimeDispose = JobHandle.CombineDependencies(
-            runtimeDispose,
-            certificationResources.Dispose(solveHandle));
-        runtimeDispose = JobHandle.CombineDependencies(
-            runtimeDispose,
-            softResources.Dispose(solveHandle));
-        runtimeDispose = JobHandle.CombineDependencies(
-            runtimeDispose,
-            solverResources.Dispose(solveHandle));
-        runtimeDispose = JobHandle.CombineDependencies(
-            runtimeDispose,
-            executionResources.Dispose(solveHandle));
-        JobHandle diagnosticsDispose = DisposeContactDiagnosticsFrameResources(
-            diagnostics,
-            solveHandle,
-            diagnosticsPublish.Statistics,
-            diagnosticsPublish.Incremental);
-        Dependency = JobHandle.CombineDependencies(
-            runtimeDispose,
-            diagnosticsDispose);
+        catch
+        {
+            JobHandle scheduledReaders = JobHandle.CombineDependencies(
+                JobHandle.CombineDependencies(
+                    intentHandle,
+                    solveHandle,
+                    outputReadyHandle),
+                JobHandle.CombineDependencies(
+                    statisticsHandle,
+                    incrementalHandle,
+                    applyHandle));
+            scheduledReaders.Complete();
+            if (physicsStep != null && !stepReleased)
+                physicsStep.Dispose(default, default).Complete();
+            if (diagnostics != null && !diagnosticsReleased)
+                diagnostics.Dispose(default, default, default).Complete();
+            _physicsRuntime.Reset();
+            SimulationUpdateMarker.End();
+            SimulationTotalMarker.End();
+            throw;
+        }
 
         // 主线程调度部分到此结束——RTS.Simulation.Update 不含 Worker job 执行。
         SimulationUpdateMarker.End();
 
-        // TODO: 后续用 #if RTS_CONTACT_DIAGNOSTICS 包裹这个 Complete，诊断关时移除，
-        //   让正常帧恢复 job 与其他系统（渲染）的重叠。当前先不包，直接量 wall time。
+#if RTS_CONTACT_DIAGNOSTICS
+        // 诊断构建测量完整管线 wall time；Release 让 Dependency 正常跨系统重叠。
         Dependency.Complete();
+#endif
         SimulationTotalMarker.End();
     }
 
@@ -469,7 +383,7 @@ public abstract partial class BaseFlowMovementSystem : SystemBase
     private void ResetPersistentContactCaches()
     {
         Dependency.Complete();
-        _candidateStore.Reset();
+        _physicsRuntime.Reset();
     }
 }
 }

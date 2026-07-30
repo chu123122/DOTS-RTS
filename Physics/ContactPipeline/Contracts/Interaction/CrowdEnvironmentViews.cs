@@ -1,6 +1,5 @@
 using Unity.Collections;
 using Unity.Mathematics;
-using RTS.Unit.FlowField;
 
 namespace RTS.Unit.FlowField.Jobs
 {
@@ -25,10 +24,25 @@ public readonly struct FlowGridGeometry
         cell.y >= 0 && cell.y < Dimensions.y;
 
     public int FlatIndex(int2 cell) =>
-        FlowFieldUtils.GetFlatIndex(cell, Dimensions);
+        FlatIndex(cell, Dimensions);
 
-    public int2 WorldToCell(float3 position) =>
-        FlowFieldUtils.WorldToCell(position, Origin, CellRadius);
+    public static int FlatIndex(int2 cell, int2 dimensions) =>
+        cell.y * dimensions.x + cell.x;
+
+    public int2 WorldToCell(float3 position)
+        => WorldToCell(position, Origin, CellRadius);
+
+    public static int2 WorldToCell(
+        float3 position,
+        float3 origin,
+        float cellRadius)
+    {
+        float cellSize = cellRadius * 2f;
+        float3 local = position - origin;
+        return new int2(
+            (int)(local.x / cellSize),
+            (int)(local.z / cellSize));
+    }
 
     public float3 CellCenter(int2 cell, float y) =>
         Origin + new float3(
@@ -38,43 +52,44 @@ public readonly struct FlowGridGeometry
 }
 
 /// <summary>
-/// 共享 FlowField 存储之上的导航语义。导航代码应使用该 API 而非解读碰撞策略。
+/// 与 NavigationField 分离的 Crowd 碰撞占据单元。
 /// </summary>
-public static class FlowNavigationView
+public struct CrowdObstacleCell
 {
-    public static bool TryRead(
-        NativeArray<FlowFieldCell> cells,
-        FlowGridGeometry geometry,
-        int2 cell,
-        out FlowFieldCell value)
-    {
-        if (!cells.IsCreated || !geometry.Contains(cell))
-        {
-            value = default;
-            return false;
-        }
-
-        value = cells[geometry.FlatIndex(cell)];
-        return true;
-    }
-
-    public static bool IsReachable(FlowFieldCell cell) =>
-        cell.Cost != 0 && cell.IntegrationValue != ushort.MaxValue;
+    public byte IsBlocked;
 }
 
 /// <summary>
-/// 同一后端 cells 之上的碰撞环境语义。软墙/硬墙阶段依赖 IsBlocked/CellCenter，而非导航代价。
-/// 未来障碍后端可在不影响导航意图生成的前提下替换此实现。
+/// step 开始时发布的只读障碍快照；版本参与跨帧缓存失效。
+/// NativeArray 只在调度门面使用，具体 Job 仍接收直接容器字段。
 /// </summary>
+public readonly struct CrowdObstacleSnapshot
+{
+    [ReadOnly] public readonly NativeArray<CrowdObstacleCell> Cells;
+    public readonly FlowGridGeometry Geometry;
+    public readonly uint Version;
+
+    public CrowdObstacleSnapshot(
+        NativeArray<CrowdObstacleCell> cells,
+        FlowGridGeometry geometry,
+        uint version)
+    {
+        Cells = cells;
+        Geometry = geometry;
+        Version = version;
+    }
+}
+
+/// <summary>只解释碰撞占据，不再读取 FlowField cost/integration 语义。</summary>
 public static class GridObstacleView
 {
     public static bool IsBlocked(
-        NativeArray<FlowFieldCell> cells,
+        NativeArray<CrowdObstacleCell> cells,
         FlowGridGeometry geometry,
         int2 cell)
     {
         return cells.IsCreated && geometry.Contains(cell) &&
-               cells[geometry.FlatIndex(cell)].Cost == 0;
+               cells[geometry.FlatIndex(cell)].IsBlocked != 0;
     }
 
     public static float3 CellCenter(

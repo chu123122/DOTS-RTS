@@ -59,4 +59,44 @@ public struct GenerateCostFieldJob : IJobParallelFor
         }
     }
 }
+
+/// <summary>
+/// 在 Unity Physics world 的明确读取点发布 Crowd 障碍语义。
+/// 本 Job 不读取 FlowFieldCell，Navigation cost 与 Physics obstacle 是两个独立产品。
+/// </summary>
+[BurstCompile]
+public struct GenerateCrowdObstacleFieldJob : IJobParallelFor
+{
+    [ReadOnly] public CollisionWorld CollisionWorld;
+    public NativeArray<CrowdObstacleCell> ObstacleCells;
+    public float3 GridOrigin;
+    public int2 GridDimensions;
+    public float CellRadius;
+    public CollisionFilter ObstacleFilter;
+
+    public void Execute(int index)
+    {
+        int2 cell = FlowFieldUtils.GetCellPosFromIndex(
+            index,
+            GridDimensions);
+        float cellSize = CellRadius * 2f;
+        float3 worldPosition = GridOrigin + new float3(
+            cell.x * cellSize + CellRadius,
+            1f,
+            cell.y * cellSize + CellRadius);
+        PointDistanceInput input = new PointDistanceInput
+        {
+            Position = worldPosition,
+            MaxDistance = CellRadius,
+            Filter = ObstacleFilter
+        };
+        ObstacleCells[index] = new CrowdObstacleCell
+        {
+            IsBlocked = (byte)(
+                CollisionWorld.CalculateDistance(input, out DistanceHit _)
+                    ? 1
+                    : 0)
+        };
+    }
+}
 }

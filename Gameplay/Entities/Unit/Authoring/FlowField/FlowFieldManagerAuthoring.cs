@@ -103,16 +103,7 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
             {
                 GridDimensions = authoring.gridSize,
                 CellRadius = authoring.cellRadius,
-                GridOrigin = authoring.gridOrigin,
-                SoftAvoidanceResponseRate = math.max(
-                    0f,
-                    authoring.softAvoidanceResponseRate),
-                SoftAvoidanceShell = math.max(0f, authoring.softAvoidanceShell),
-                SettledSoftAvoidanceMultiplier = math.max(
-                    0f,
-                    authoring.settledSoftAvoidanceMultiplier),
-                SoftAvoidanceVelocitySolver = authoring.softAvoidanceVelocitySolver,
-                RvoTimeHorizon = math.max(0.01f, authoring.rvoTimeHorizon)
+                GridOrigin = authoring.gridOrigin
             });
             AddComponent(entity, new FlowFieldGlobalTarget { TargetPosition = float3.zero });
             AddComponent(entity, new MoveOrder());
@@ -125,6 +116,16 @@ public class FlowFieldManagerAuthoring : MonoBehaviour
                 ContactPositionSolver = authoring.contactPositionSolver,
                 Compliance = math.max(0f, authoring.contactCompliance),
                 PredictiveSkin = math.max(0f, authoring.predictiveContactSkin),
+                SoftAvoidanceResponseRate = math.max(
+                    0f,
+                    authoring.softAvoidanceResponseRate),
+                SoftAvoidanceShell = math.max(0f, authoring.softAvoidanceShell),
+                SettledSoftAvoidanceMultiplier = math.max(
+                    0f,
+                    authoring.settledSoftAvoidanceMultiplier),
+                SoftAvoidanceVelocitySolver =
+                    authoring.softAvoidanceVelocitySolver,
+                RvoTimeHorizon = math.max(0.01f, authoring.rvoTimeHorizon),
                 EnablePredictivePairGeneration = authoring.enablePredictivePairGeneration,
                 EnablePredictiveContacts = authoring.enablePredictiveContacts,
                 EnableDiagnostics = authoring.enableContactDiagnostics,

@@ -14,8 +14,6 @@ public struct CrowdMotionEvidence
     public float2 ContactEnvelopeMax;
     public float2 InteractionEnvelopeMin;
     public float2 InteractionEnvelopeMax;
-    public float3 ContactCorrection;
-    public float3 WallCorrection;
     public uint MotionVersion;
     public byte EnvelopeEscaped;
 }

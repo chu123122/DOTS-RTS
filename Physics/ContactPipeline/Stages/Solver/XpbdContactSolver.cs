@@ -29,9 +29,9 @@ internal static class XpbdContactConstraintMath
     internal static ContactConstraintEvaluation Evaluate(
         ref ContactConstraint pair,
         CrowdBodySnapshot bodyA,
-        CrowdBodyStepState stepA,
+        CrowdSolverBodyState stepA,
         CrowdBodySnapshot bodyB,
-        CrowdBodyStepState stepB,
+        CrowdSolverBodyState stepB,
         float alpha,
         int substepIndex)
     {
@@ -47,7 +47,9 @@ internal static class XpbdContactConstraintMath
 
         if (pair.ContactMode == ContactConstraintMode.Predictive)
         {
-            normal = pair.PredictiveNormal;
+            normal = pair.PredictiveNormalOriented != 0
+                ? pair.Runtime.OrientedPredictiveNormal
+                : pair.PredictiveNormal;
             if (pair.PredictiveNormalOriented == 0)
             {
                 if (math.dot(currentDelta, normal) < 0f)
@@ -57,8 +59,8 @@ internal static class XpbdContactConstraintMath
                     ContactPipelineMath.DeterministicFallbackNormal(
                         pair.BodyA,
                         pair.BodyB));
-                pair.PredictiveNormal = normal;
-                pair.PredictiveNormalOriented = 1;
+                pair.Runtime.OrientedPredictiveNormal = normal;
+                pair.Runtime.PredictiveNormalOriented = 1;
             }
             constraintValue = math.dot(currentDelta, normal) - radiusSum;
         }
@@ -132,10 +134,8 @@ public partial struct ConstraintSolverJob
             ContactConstraint pair = TimestepContactPairs[pairIndex];
             CrowdBodySnapshot bodyA = Bodies[pair.BodyA];
             CrowdBodySnapshot bodyB = Bodies[pair.BodyB];
-            CrowdMotionEvidence evidenceA = MotionEvidence[pair.BodyA];
-            CrowdMotionEvidence evidenceB = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState stepA = StepStates[pair.BodyA];
-            CrowdBodyStepState stepB = StepStates[pair.BodyB];
+            CrowdSolverBodyState stepA = StepStates[pair.BodyA];
+            CrowdSolverBodyState stepB = StepStates[pair.BodyB];
 
             ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
                 ref pair,
@@ -179,11 +179,9 @@ public partial struct ConstraintSolverJob
                                  (bodyA.InverseMass * evaluation.AppliedLambda);
             float3 correctionB = -evaluation.Normal *
                                  (bodyB.InverseMass * evaluation.AppliedLambda);
-            ApplyContactCorrection(bodyA, ref evidenceA, ref stepA, correctionA);
-            ApplyContactCorrection(bodyB, ref evidenceB, ref stepB, correctionB);
-            MotionEvidence[pair.BodyA] = evidenceA;
+            ApplyContactCorrection(bodyA, ref stepA, correctionA);
+            ApplyContactCorrection(bodyB, ref stepB, correctionB);
             StepStates[pair.BodyA] = stepA;
-            MotionEvidence[pair.BodyB] = evidenceB;
             StepStates[pair.BodyB] = stepB;
 
             if (trackCorrectedBodies)
@@ -210,13 +208,12 @@ public partial struct ConstraintSolverJob
 
     private static void ApplyContactCorrection(
         CrowdBodySnapshot body,
-        ref CrowdMotionEvidence evidence,
-        ref CrowdBodyStepState step,
+        ref CrowdSolverBodyState step,
         float3 correction)
     {
         step.SolvedPosition += correction;
         step.ContactCorrection += correction;
-        evidence.ContactCorrection += correction;
+        step.TimestepContactCorrection += correction;
         step.SolvedPosition.y = body.Position.y;
     }
 }

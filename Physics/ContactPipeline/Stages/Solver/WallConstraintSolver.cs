@@ -24,10 +24,7 @@ public partial struct ConstraintSolverJob
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0) || stateSnapshot.InverseMass <= 0f)
                 continue;
 
@@ -63,7 +60,7 @@ public partial struct ConstraintSolverJob
                     stateStep.SolvedPosition += correction;
                     stateStep.SolvedPosition.y = stateSnapshot.Position.y;
                     stateStep.WallCorrection += correction;
-                    stateEvidence.WallCorrection += correction;
+                    stateStep.TimestepWallCorrection += correction;
 
                     float correctionLength = math.length(correction);
                     totalPositionCorrection += correctionLength;
@@ -75,10 +72,6 @@ public partial struct ConstraintSolverJob
                 }
             }
 
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
         }
     }

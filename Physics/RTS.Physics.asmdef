@@ -2,7 +2,6 @@
     "name": "RTS.Physics",
     "rootNamespace": "",
     "references": [
-        "RTS.Gameplay.Core",
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Entities",

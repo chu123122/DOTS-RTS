@@ -1,71 +1,75 @@
 # Known contact-pipeline debt
 
-## Completed architecture migration
+## Completed structural migration
 
-- Runtime code moved from the historical `Jobs/ContactPipeline` tree to explicit
-  Contracts, State, Kernels, Scheduling, Stages and Observability owners.
-- Flat persistent/frame resource owners moved under `State/Persistent` and
-  `State/Frame`; Unity `.meta` GUIDs were preserved for moved assets.
-- Body and persistent interaction contracts were split from aggregate source files.
-- The four stage ABIs were split into independent job files.
-- GS and Jacobi share one lifecycle and parallel stage graph. Only XPBD contact
-  projection branches into ordered GS and parallel Jacobi backends.
-- Every `InteractionCertificationAlgorithms`, `SoftAvoidanceJob` and
-  `ConstraintSolverJob` fragment now lives below its owning stage.
-- `ActiveConstraintIncidentIndex` was split into a shared kernel plus certification
-  and solver adapters.
-- Parallel executable jobs were extracted from the scheduler partial into
-  `Scheduling/Parallel/Jobs`; scheduler files now contain construction/order only.
-- Runtime observation contracts are data-only and isolated from presentation,
-  recording and control. Solver capture fragments are compile-gated.
-- Spatial debugger readback is a standalone observer with explicit EntityManager,
-  diagnostics entity and proxy-view inputs; it no longer reaches through a system
-  partial to candidate storage.
-- Certificate flags are derived from committed structure, mapping, configuration,
-  topology and classification evidence. Both solver backends fail closed
-  before SoftAvoidance and Solver when the certificate scope/view counts mismatch.
-- Diagnostics-on and diagnostics-off script compilation are both permanent
-  validation configurations.
-- Interaction certification gameplay-critical helper logic extracted into
-  pure static kernel classes under `Kernels/` (PersistentProxyBuilder,
-  PersistentContactMath, PersistentStoreLookup, IncrementalDirtyBodyStore,
-  PersistentCacheReusability, PredictiveContactScheduler,
-  DirtyIncidentPairMapper). The certifier is no longer one operation-switched
-  God Job: explicit stage Jobs carry role-specific resource slices, while the
-  partial algorithm facade is not scheduled.
-- Diagnostics field declarations and telemetry load/store helpers for
-  ConstraintSolverJob, InteractionCertificationAlgorithms and SoftAvoidanceJob moved
-  into sibling `*.Diagnostics.cs` partials so the struct bodies stay free of
-  `#if RTS_CONTACT_DIAGNOSTICS` field-block noise.
+- `InteractionCertificationAlgorithms`, `CertificationStageKernel`, all
+  `Certification*Resources`, forwarding properties and the old Algorithms files
+  are deleted.
+- Scheduler composition uses the real owners directly:
+  obstacle snapshot, body state, broad-phase candidates, narrow-phase constraints,
+  persistent cache, solver state, execution state and diagnostics.
+- Persistent predictive contacts have one authoritative
+  `NativeList<PersistentPredictiveContact>` plus a derived
+  `StableEntityPairKey -> list index` lookup.
+- Dirty-body refresh is `IJobParallelForDefer -> Reduce`.
+- Dirty contact/schedule is `Count -> Prefix -> Scatter`.
+- Full sweep is body-cell `Count/Prefix/Scatter`, cell-pair
+  `Count/Prefix/Scatter`, staged parallel block sort/merge, then deduplicate.
+  No `SortJobDefer` remains.
+- Substep repair preparation only sizes buffers. Interaction-pair and previous
+  contact-pair copies are separate `IJobParallelForDefer` jobs.
+- Classification publication is `Prepare -> Materialize -> Count -> Prefix ->
+  Scatter`; persistent contact index construction is parallel.
+- The aggregate `CommitPersistentClassificationJob` and
+  `CommitSubstepRepairJob` are deleted. Initial and repair paths publish state,
+  merge views, rebuild incident lookup and issue certificates in named Stage
+  jobs. Repair view merge is linear over two sorted streams rather than
+  binary-search-per-pair plus full sort/deduplicate.
+- InitialContact, SubstepRepair, PersistentClassification, Certificate and
+  IterationFinalize no longer call another concrete Stage DataFlow. Shared
+  operations live in neutral, single-purpose Kernels.
+- The old `CrowdBodyStepState` name and avoidance blackboard are deleted.
+  `CrowdSolverBodyState`, `CrowdAvoidanceState` and
+  `CrowdMotionEvidence` have distinct responsibilities.
+- GS and Jacobi share prediction, certification, repair, soft avoidance, wall,
+  iteration-finalize and reconstruction stages. Only XPBD contact projection
+  branches into ordered GS and parallel Jacobi.
+- `InternalsVisibleTo("RTS.Gameplay")` is deleted. Gameplay uses
+  `CrowdPhysicsRuntime`, `CrowdPhysicsStep` and
+  `CrowdPhysicsDiagnosticsStep`; it cannot own `CrossFrameCache`,
+  `TimestepCache`, frame resources or executable solver Jobs.
+- Runtime code is compiled in `RTS.Physics`; game rules and ECS adapters in
+  `RTS.Gameplay`; NetCode in `RTS.Network`; UI/Input remain the terminal default
+  assembly because they depend on default-assembly `QFramework` and generated
+  `PlayerAction` sources.
 
-## Remaining runtime evidence, not structural migration
+## Remaining runtime evidence
 
-The following require Unity runtime execution and are not proven by source layout or
-batch script compilation:
+The latest source has completed a fresh Unity Editor import, Entities/Jobs/Burst
+IL post-processing and the built-in local gameplay validation. The following
+still require stronger runtime evidence:
 
-- GS/Jacobi trajectory and pair-set differential tests;
-- full-sweep versus persistent incremental oracle runs;
-- Burst Inspector confirmation for all newly relocated jobs;
-- Collections Safety under early return, repair and fallback paths;
-- TempJob disposal coverage for exceptions/domain reload;
+- focused Collections Safety coverage for staged block merge, deferred repair
+  copies and exception/disposal paths;
+- representative GS/Jacobi trajectory and pair-set differential captures beyond
+  the small built-in equivalence scenario;
+- representative full-sweep versus persistent reuse/repair oracle captures;
 - deterministic replay hashes and multi-World isolation;
-- performance/allocation benchmarks before and after the migration.
+- representative 5k-unit Profiler captures. In particular, source-level removal
+  of `SortJobDefer` and serial `PrepareSubstepRepair` does not by itself prove a
+  frame-time improvement.
 
-## Deliberate exclusions
+## Deliberate boundaries
 
+- `RTS.Physics.Editor` retains friend access for editor-only validators. Runtime
+  Gameplay has no friend access.
+- UI/Input/scene composition remains in default `Assembly-CSharp`. Adding
+  `RTS.UI.asmdef` before moving or wrapping `Assets/Qframework/QFramework.cs`
+  and `Assets/Resources/PlayerAction.cs` would not compile.
+- Certification may read completed solver state when processing an explicit
+  repair request, but does not mutate solver state. This is a scheduler-ordered
+  feedback transition, not a shared multi-writer blackboard.
 - Contact islands and sleeping require a separate island/wake design.
 - `ReciprocalVelocityObstacle` remains a compatibility enum name; the current
   implementation is not ORCA/RVO2 linear programming.
-- Public namespace renaming is excluded to avoid mixing an API migration with the
-  physical ownership migration.
-- The certifier's orchestration methods (`BuildTimestepPredictiveSchedule` shell,
-  `ClassifyOrReusePersistentNeighborPairs`, `ClassifyPersistentNeighborPair`,
-  `FullRebuildPersistentNeighborTopology`, `ClassifyAndPatchDirtyIncidentContacts`,
-  `IncrementallyRepairPersistentNeighborTopology`,
-  `TryIncrementallyRepairEscapedContactSet`, `TryReusePersistentContactViews`)
-  stay in the `InteractionCertificationAlgorithms` partial. Each coordinates 8-15
-  NativeContainers plus sibling instance methods; moving them into a kernel
-  would require passing that field set as parameters, making the data flow
-  harder to read than the current `this.`-scoped access. The extracted kernels
-  cover the pure-algorithm and lookup surface; these orchestrators are the
-  remaining body by design.
+- Public namespace renaming is excluded from this migration.

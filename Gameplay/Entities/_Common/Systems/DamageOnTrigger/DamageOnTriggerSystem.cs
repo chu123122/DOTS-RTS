@@ -5,6 +5,7 @@ using Unity.Entities;
 using Unity.Physics;
 using Unity.Physics.Systems;
 using UnityEngine;
+using RTS.Unit.Components;
 
 namespace TMG.NFE_Tutorial 
 {
@@ -28,6 +29,8 @@ namespace TMG.NFE_Tutorial
                 DamageOnTriggerLookup = SystemAPI.GetComponentLookup<DamageOnTrigger>(true),
                 AlreadyDamagedLookup = SystemAPI.GetBufferLookup<AlreadyDamagedEntity>(true),
                 DamageBufferLookup = SystemAPI.GetBufferLookup<DamageBufferElement>(true),
+                QueryProxyLookup =
+                    SystemAPI.GetComponentLookup<CrowdQueryProxy>(true),
                 ECB = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged),
             };
 
@@ -41,6 +44,7 @@ namespace TMG.NFE_Tutorial
         [ReadOnly] public ComponentLookup<DamageOnTrigger> DamageOnTriggerLookup;
         [ReadOnly] public BufferLookup<AlreadyDamagedEntity> AlreadyDamagedLookup;
         [ReadOnly] public BufferLookup<DamageBufferElement> DamageBufferLookup;
+        [ReadOnly] public ComponentLookup<CrowdQueryProxy> QueryProxyLookup;
         public EntityCommandBuffer ECB;
         
         public void Execute(TriggerEvent triggerEvent) 
@@ -77,9 +81,28 @@ namespace TMG.NFE_Tutorial
             }
 
             var damageOnTrigger = DamageOnTriggerLookup[damageDealingEntity];
-            ECB.AppendToBuffer(damageReceivingEntity, new DamageBufferElement { Value = damageOnTrigger.Value });
+            uint queryProxyVersion =
+                QueryProxyLookup.HasComponent(damageReceivingEntity)
+                    ? QueryProxyLookup[damageReceivingEntity].ProxyVersion
+                    : 0u;
+            ECB.AppendToBuffer(
+                damageReceivingEntity,
+                CreateDamageElement(
+                    damageOnTrigger.Value,
+                    queryProxyVersion));
            
             
+        }
+
+        public static DamageBufferElement CreateDamageElement(
+            int damage,
+            uint queryProxyVersion)
+        {
+            return new DamageBufferElement
+            {
+                Value = damage,
+                QueryProxyVersion = queryProxyVersion
+            };
         }
     }
 }

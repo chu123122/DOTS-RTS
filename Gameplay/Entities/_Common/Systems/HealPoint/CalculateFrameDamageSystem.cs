@@ -1,5 +1,6 @@
 using Unity.Entities;
 using Unity.NetCode;
+using RTS.Unit.Components;
 
 namespace Entities._Common
 {
@@ -13,9 +14,14 @@ namespace Entities._Common
 
         public void OnUpdate(ref SystemState state)
         {
-            foreach (var (damageBuffer,damageThisTickBuffer) in 
+            ComponentLookup<CrowdQueryProxy> queryProxyLookup =
+                SystemAPI.GetComponentLookup<CrowdQueryProxy>(true);
+            foreach (var (damageBuffer,
+                         damageThisTickBuffer,
+                         entity) in
                      SystemAPI.Query<DynamicBuffer<DamageBufferElement>,
-                         DynamicBuffer<DamageThisTick>>())
+                         DynamicBuffer<DamageThisTick>>()
+                         .WithEntityAccess())
             {
                 if (damageBuffer.IsEmpty)
                 {
@@ -24,9 +30,18 @@ namespace Entities._Common
                 else
                 {
                     var totalDamage = 0;
+                    bool hasQueryProxy =
+                        queryProxyLookup.HasComponent(entity);
+                    uint currentProxyVersion = hasQueryProxy
+                        ? queryProxyLookup[entity].ProxyVersion
+                        : 0u;
                     foreach (var damage in damageBuffer)
                     {
-                        totalDamage += damage.Value;
+                        if (IsDamageVersionCurrent(
+                                damage,
+                                hasQueryProxy,
+                                currentProxyVersion))
+                            totalDamage += damage.Value;
                     }
 
                     damageThisTickBuffer.Clear();
@@ -34,6 +49,17 @@ namespace Entities._Common
                     damageBuffer.Clear();
                 }
             }
+        }
+
+        public static bool IsDamageVersionCurrent(
+            DamageBufferElement damage,
+            bool hasQueryProxy,
+            uint currentProxyVersion)
+        {
+            return hasQueryProxy
+                ? damage.QueryProxyVersion != 0 &&
+                  damage.QueryProxyVersion == currentProxyVersion
+                : damage.QueryProxyVersion == 0;
         }
     }
 }

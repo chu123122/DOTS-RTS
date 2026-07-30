@@ -22,12 +22,12 @@ public partial struct SoftAvoidanceJob : IJob
     public SoftAvoidanceOperation Operation;
     public ContactPipelineConfiguration Configuration;
     public NativeReference<ContactPipelineExecutionState> RuntimeState;
-    [ReadOnly] public NativeArray<FlowFieldCell> Grid;
+    [ReadOnly] public NativeArray<CrowdObstacleCell> Grid;
     public float3 GridOrigin;
     public int2 GridDimensions;
     public float CellRadius;
-    public NativeArray<CrowdBodySnapshot> Bodies;
-    public NativeArray<CrowdBodyStepState> StepStates;
+    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+    public NativeArray<CrowdSolverBodyState> StepStates;
     public NativeList<BodyPair> SoftAvoidancePairs;
     public NativeArray<int> SoftIncidentOffsets;
     public NativeArray<int> SoftIncidentWriteCursors;

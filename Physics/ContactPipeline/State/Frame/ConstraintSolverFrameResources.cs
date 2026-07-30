@@ -19,6 +19,8 @@ internal struct ConstraintSolverFrameResources
     public NativeArray<ParallelBodyStageResult> ParallelBodyResults;
     public NativeArray<int> DirtyBodyBlockOffsets;
     public NativeReference<ActiveIncidentIndexState> ActiveIncidentIndexState;
+    public NativeList<byte> ActiveIncidentBodyWorkset;
+    public NativeList<byte> ActiveIncidentPairWorkset;
 
     public static ConstraintSolverFrameResources Create(int unitCount)
     {
@@ -34,15 +36,21 @@ internal struct ConstraintSolverFrameResources
             EnvelopeEscapeFlags = new NativeArray<byte>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             ParallelBodyResults = new NativeArray<ParallelBodyStageResult>(unitCount, Allocator.TempJob, NativeArrayOptions.ClearMemory),
             DirtyBodyBlockOffsets = new NativeArray<int>(one, Allocator.TempJob, NativeArrayOptions.ClearMemory),
-            ActiveIncidentIndexState = new NativeReference<ActiveIncidentIndexState>(Allocator.TempJob)
+            ActiveIncidentIndexState =
+                new NativeReference<ActiveIncidentIndexState>(
+                    Allocator.TempJob),
+            ActiveIncidentBodyWorkset =
+                new NativeList<byte>(one, Allocator.TempJob),
+            ActiveIncidentPairWorkset =
+                new NativeList<byte>(one, Allocator.TempJob)
         };
     }
 
     public ConstraintSolverJob CreateJob(
         ContactPipelineConfiguration configuration,
-        FlowFieldGrid grid,
+        CrowdObstacleSnapshot obstacles,
         CrowdStepBodyResources body,
-        InteractionCertificationFrameResources certification,
+        NarrowPhaseConstraintBatch constraints,
         ContactPipelineExecutionResources execution,
         ContactDiagnosticsFrameResources diagnostics,
         Entity diagnosticSelectedEntity,
@@ -56,16 +64,15 @@ internal struct ConstraintSolverFrameResources
         {
             Configuration = configuration,
             RuntimeState = execution.PipelineRuntimeState,
-            Grid = grid.Grid,
-            GridOrigin = grid.GridOrigin,
-            GridDimensions = grid.GridDimensions,
-            CellRadius = grid.CellRadius,
+            Grid = obstacles.Cells,
+            GridOrigin = obstacles.Geometry.Origin,
+            GridDimensions = obstacles.Geometry.Dimensions,
+            CellRadius = obstacles.Geometry.CellRadius,
             Bodies = body.Bodies,
-            NavigationStates = body.NavigationStates,
-            MotionIntents = body.MotionIntents,
             MotionEvidence = body.MotionEvidence,
+            AvoidanceStates = body.AvoidanceStates,
             StepStates = body.StepStates,
-            TimestepContactPairs = certification.TimestepContactPairs,
+            TimestepContactPairs = constraints.HardContacts,
             CorrectedBodyFlags = CorrectedBodyFlags,
             CorrectedBodyIndices = CorrectedBodyIndices,
             ActiveIncidentOffsets = ActiveIncidentOffsets,
@@ -116,6 +123,12 @@ internal struct ConstraintSolverFrameResources
             combined = JobHandle.CombineDependencies(combined, DirtyBodyBlockOffsets.Dispose(finalReader));
         if (ActiveIncidentIndexState.IsCreated)
             combined = JobHandle.CombineDependencies(combined, ActiveIncidentIndexState.Dispose(finalReader));
+        if (ActiveIncidentBodyWorkset.IsCreated)
+            combined = JobHandle.CombineDependencies(
+                combined, ActiveIncidentBodyWorkset.Dispose(finalReader));
+        if (ActiveIncidentPairWorkset.IsCreated)
+            combined = JobHandle.CombineDependencies(
+                combined, ActiveIncidentPairWorkset.Dispose(finalReader));
         return combined;
     }
 }

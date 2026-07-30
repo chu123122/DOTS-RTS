@@ -9,22 +9,102 @@ predictive disc contacts and XPBD position projection.
 ```text
 ECS authoritative body state
         ↓
-Navigation intent
+CrowdPhysicsStepInput
         ↓
-Preliminary motion evidence
+BroadPhaseCandidateBatch
         ↓
-Candidate persistent interaction state
+NarrowPhaseConstraintBatch
         ↓
-Interaction correctness certifier
+CrowdMotionSolver
+  SoftAvoidance → Integrate → XPBD → Velocity reconstruction
         ↓
-Certified compact consumer views
-        ↓
-Soft velocity correction + motion integration
-        ↓
-Wall / XPBD constraint projection
-        ↓
-Velocity reconstruction and ECS writeback
+CrowdPhysicsStepOutput → ECS writeback
 ```
+
+The runtime remains in one ECS World. `CrowdPhysicsSystemGroup` provides a
+separate scheduling phase; no second ECS World or second Unity `PhysicsWorld`
+is created.
+
+## Deletion-first convergence contract
+
+The current migration is completed by removing structures that violate the
+target data flow before introducing replacement abstractions. Compatibility
+facades, forwarding properties and duplicate writable representations are not
+retained merely to keep old call sites compiling.
+
+The target dependency graph is:
+
+```text
+Gameplay adapter
+    ↓ immutable CrowdPhysicsStepInput
+Physics composition API
+    ↓
+BroadPhase stage
+    ↓ immutable candidate view
+NarrowPhase stages
+    ├─ InitialContact OR PersistentClassification
+    ├─ SubstepRepair (only when requested by explicit violation evidence)
+    └─ Certificate
+    ↓ immutable certified constraint views
+Solver stages
+    ├─ shared pre-solve stages
+    ├─ XPBD backend branch: GS IJob OR Jacobi IJobParallelFor
+    └─ shared IterationFinalize / reconstruction
+    ↓ immutable CrowdPhysicsStepOutput
+Gameplay writeback
+```
+
+`IterationFinalize` may publish a repair request back to the scheduler. That is
+a new scheduling decision, not permission for Solver code to mutate
+NarrowPhase or persistent storage. Stage implementation namespaces do not call
+one another: each stage may depend only on Contracts and neutral stateless
+Kernels. The scheduler owns all stage ordering.
+
+The following structures are forbidden:
+
+1. two writable containers holding complete copies of the same authoritative
+   record;
+2. a resource or context struct that grants a Job unrelated stage capabilities;
+3. a shared body-state blackboard written by Navigation, NarrowPhase, Solver and
+   reconstruction;
+4. calls from one concrete Stage data-flow type into another concrete Stage;
+5. a cross-stage helper file that accumulates unrelated classification, repair,
+   scheduling, certificate and diagnostics algorithms;
+6. assembly-wide access to Physics internals when a narrow runtime lease or
+   observation contract is sufficient.
+
+Persistent predictive contacts therefore use exactly one authoritative value
+store:
+
+```text
+NativeList<PersistentPredictiveContact>     authoritative records
+NativeParallelHashMap<StableEntityPairKey, int> derived key → list-index lookup
+```
+
+The index never stores `PersistentPredictiveContact`. Any list replacement or
+compaction rebuilds the derived index before publication; every point update
+writes only the list entry addressed by the index.
+
+Specific Jobs carry their exact `NativeArray`/`NativeList` fields. Managed
+composition code may use short-lived construction helpers, but
+`Certification*Resources`, cache owners or other aggregate capability bags
+must not be embedded in scheduled Jobs.
+
+Deletion order and completion checks:
+
+| Order | Delete first | Minimal replacement | Completion check |
+|---|---|---|---|
+| 1 | duplicate persistent contact values | authoritative list + key/index map | no hashmap stores `PersistentPredictiveContact`; all mutations target the list |
+| 2 | aggregate Certification bags in Jobs | exact Job fields | static scan finds no resource-bag Job field |
+| 3 | Stage-to-Stage calls and giant helper | neutral single-purpose Kernels | Stage dependency graph is acyclic |
+| 4 | shared `StepState/Evidence` write blackboard | NarrowPhase evidence + Solver runtime products | each field has one owning stage |
+| 5 | residual serial repair/classification algorithms | Defer Count/Prefix/Scatter plus explicit publication/finalize jobs | no aggregate commit re-evaluates, copies or sorts whole candidate sets |
+| 6 | Gameplay friend access and exposed Physics resource owners | `CrowdPhysicsRuntime` + timestep/diagnostics leases | no Gameplay IVT; Gameplay cannot name cache/stage owners |
+
+No row is considered complete from source layout alone. It requires ordinary
+and Diagnostics compilation plus the relevant static contract; Unity
+Editor/Burst/Collections Safety/Play Mode and Profiler evidence remain separate
+runtime acceptance levels.
 
 ## Candidate → certifier → certified product
 
@@ -35,9 +115,6 @@ inputs:
 PersistentSweptProxies
 PersistentNeighborPairs
 PersistentPredictiveContacts
-PersistentActiveContactKeys
-PersistentSoftAvoidancePairKeys
-PersistentDormantContactSchedule
 IncrementalContactCacheState
 ```
 
@@ -95,16 +172,24 @@ stage may report an `InteractionCertificateViolation`, but it cannot edit
 persistent candidate state. The certifier remains the sole accept/repair/rebuild
 owner and reissues a certificate after recovery.
 
-The shared `CommitTimestepContactViews` function is the certification commit
-boundary for both solver backends. `ValidateConsumerViews` is the single
-scheduling gate.
+`PrepareClassificationPublication → Materialize → Count → Prefix → Scatter`
+is the shared compact-view publication boundary. Initial classification and
+substep repair then use separate, bounded state/oracle/certificate jobs.
+`ValidateConsumerViews` is the single scheduling gate for both solver backends.
 
 ## Layer ownership
 
-- **ECS adapter / composition root** captures same-step configuration and identity,
-  schedules stages and wires `JobHandle` dependencies. World-lifetime candidate
-  storage and each frame-lifetime resource family are separate owners; each owner
-  constructs only the stage job whose capability it represents.
+- **Gameplay adapter** translates FlowField/arrival/collider authoring data into
+  `CrowdPhysicsBodyInput`, `CrowdObstacleSnapshot` and frozen
+  `CrowdPhysicsSettings`. It invokes only `ScheduleStep`.
+- **BroadPhase** owns proxy bounds, candidate generation and its `CrossFrameCache`
+  partition. It does not classify contacts or own lambda.
+- **NarrowPhase** owns exact interaction classification, cache proof/repair and
+  production of soft/hard constraint views. Certification is an internal proof
+  mechanism, not a fourth public layer.
+- **CrowdMotionSolver** consumes the narrow-phase product in fixed order:
+  SoftAvoidance, integration, wall/XPBD projection and velocity reconstruction.
+  XPBD mutates only `ContactConstraintRuntime`.
 - **Navigation** reads `FlowNavigationView` and produces preferred velocity and
   steering intent. It does not interpret contact or wall policy.
 - **Motion prediction** produces trajectory/envelope evidence and substep positions.
@@ -122,8 +207,9 @@ scheduling gate.
   wall, repair and velocity-reconstruction stages. Only XPBD contact projection
   branches: Gauss–Seidel uses one ordered `IJob`; Jacobi evaluates pairs and
   gathers body corrections in parallel through a frame-local CSR index.
-- **Environment** is exposed through `GridObstacleView`. Navigation and collision
-  may currently share the same cell storage, but they no longer share semantics.
+- **Environment** is exposed through a versioned `CrowdObstacleSnapshot`.
+  Navigation `FlowFieldCell` storage is translated at the adapter boundary and
+  is never read by the contact pipeline.
 - **Diagnostics** observes completed immutable publication. Oracle results cannot
   invalidate or rebuild gameplay state.
 - **Control plane** supplies next-step debugger/experiment commands at the
@@ -138,23 +224,23 @@ Body data is stored as independent timestep products rather than a shared frame
 blackboard:
 
 ```text
-CrowdBodySnapshot
-CrowdNavigationState
-CrowdMotionIntent
-CrowdMotionEvidence
-CrowdBodyStepState
-CrowdBodyResult
+CrowdPhysicsStepInput       Unit/Navigation -> Physics
+BroadPhaseCandidateBatch   BroadPhase -> NarrowPhase
+NarrowPhaseConstraintBatch NarrowPhase -> CrowdMotionSolver
+CrowdPhysicsStepOutput      Solver -> Unit writeback
 ```
 
-Pair discovery and constraint solving also use different physical products:
+The implementation may use SoA arrays internally. Those arrays are hidden inside
+one of two lifetime owners:
 
 ```text
-BodyPair             endpoint-only interaction/soft/oracle relationship
-ContactConstraint    solver definition, lambda, activation and timestep history
+CrossFrameCache  World lifetime; guarded Broad/Narrow reusable state
+TimestepCache   one physics timestep; may span substeps
 ```
 
-There is no forwarding pair wrapper. Converting a certified `BodyPair` view into
-solver constraints is an explicit assembly operation at the classification boundary.
+`ContactConstraintDefinition` contains immutable endpoints/mode/normal.
+`ContactConstraintRuntime` contains lambda, normal orientation and activation
+history. The combined record lives only in `TimestepCache`.
 
 ## Environment views
 
@@ -231,28 +317,49 @@ but never writes `IncrementalCacheState`, `IsValid`, topology or certified views
 
 ## Composition root
 
-`BaseFlowMovementSystem` is intentionally retained as the World composition root.
-It knows stage order, resource lifetime, configuration snapshots and JobHandle
-edges. It must not know pair classification, guard proof, repair policy, XPBD
-lambda math, CSR construction or heatmap aggregation.
+`BaseFlowMovementSystem` is the Gameplay adapter, not the physics composition
+root. It collects navigation input and an immutable obstacle snapshot, then
+uses the public `CrowdPhysicsRuntime`. Gameplay can create a
+`CrowdPhysicsStep`, write only `InputBodies`, schedule it, read only
+`OutputBodies`, publish through a `CrowdPhysicsDiagnosticsStep`, and release
+both leases. It cannot name or access `CrossFrameCache`, `TimestepCache`,
+frame-resource owners, certification Jobs or Solver arrays.
 
 `CrowdContactPipelineScheduler` is managed scheduling composition only; it is not
 a scheduled job and carries no algorithm implementation. `ScheduleParallelStages`
 is the only runtime pipeline entry. Executable parallel jobs live under
 `Scheduling/Parallel/Jobs`. Certification coordination is split into explicit
-stage Jobs with focused resource slices; `InteractionCertificationAlgorithms`
-is not scheduled. `SoftAvoidanceJob` and `ConstraintSolverJob` retain their
-serial coordination boundaries, so Collections Safety sees the NativeContainer
-capabilities of each scheduled unit.
-There is no aggregate composition adapter. `InteractionCandidateStore`,
-`CrowdStepBodyResources`, `InteractionCertificationFrameResources`,
-`SoftAvoidanceFrameResources`, `ConstraintSolverFrameResources` and
-`ContactPipelineExecutionResources` create and dispose their own lifetime-specific
-containers and bind only their focused job. A stage job may dispatch several
-operations through an enum, but Unity Collections Safety validates every direct
-`NativeContainer` field when that job is scheduled. Frame owners therefore
-construct the complete stage capability set for both solver backends;
-leaving an inactive-mode field as `default` is not a valid optimization.
+stage Jobs with exact container fields. A concrete Stage may call its own
+single-purpose DataFlow, but may not call another concrete Stage DataFlow;
+shared operations live in neutral Kernels. No aggregate certification kernel or
+Certification resource bag is constructed. `SoftAvoidanceJob` and
+`ConstraintSolverJob` retain focused stage boundaries, so Collections Safety
+sees the NativeContainer capabilities of each scheduled unit.
+`CrowdPhysicsPipelineComposition` is the single managed composition adapter.
+It is internal to `RTS.Physics`; only `CrowdPhysicsRuntime.ScheduleStep` reaches
+it. The runtime owns the World-lifetime `CrossFrameCache`; each
+`CrowdPhysicsStep` owns one `TimestepCache`. Specific Jobs carry direct
+`NativeArray`/`NativeList` fields so Unity Collections Safety sees the real
+access graph; product/cache wrappers are never embedded as Job fields.
+
+The one-timestep owner is split by write responsibility rather than by historical
+Certification naming:
+
+```text
+BroadPhaseFrameResources          candidate discovery worksets
+ContactProductFrameResources      certified soft/hard consumer products
+ContactClassificationFrameResources classification results/publication blocks
+ContactRepairFrameResources       dirty/repair/incident rebuild worksets
+ContactCertificateFrameResources  certificate, schedule and contact scratch
+```
+
+Initial classification finalization is
+`PublishPersistentClassificationState → ValidatePersistentClassificationOracles
+→ FinalizePersistentClassificationCertificate`. Repair finalization is
+`PublishSubstepRepairClassification → MergeRepairedContactView
+→ ClearRepairedEnvelopeEscape → Prepare/Scatter/FinalizePersistentIncidentLookup
+→ FinalizeSubstepRepairCertificate`. The two former aggregate commit jobs are
+retired symbols.
 
 ## Execution topology
 
@@ -281,12 +388,16 @@ return.
 migration:
 
 - explicit body/certificate/pair-lifetime contracts must exist;
+- Gameplay friend access and all internal resource-owner leaks must remain deleted;
+- `CrowdPhysicsRuntime` must remain the only Gameplay scheduling boundary;
 - scheduled step identity cannot be derived from cache generation;
 - compact views must be signed at their common commit boundary;
 - the retired all-capability solver type and environment-access partial cannot return;
 - aggregate composition/resource bags, flat resource owners and the historical
   `Jobs/ContactPipeline` root cannot return;
 - the scheduling composition cannot become another `IJob`;
+- staged broad-phase sorting may not return to `SortJobDefer`;
+- substep-repair bulk copies must remain deferred parallel jobs;
 - SoftAvoidance, Motion and Wall stages cannot reach persistent candidate fields;
 - environment stages cannot interpret navigation cost directly;
 - Oracle cannot control gameplay cache.

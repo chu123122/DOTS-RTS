@@ -18,11 +18,11 @@ internal static class ParallelContactStageJobs
 [BurstCompile]
 internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         [NativeDisableParallelForRestriction]
         public NativeArray<PersistentSweptProxy> PersistentProxies;
         [ReadOnly] public NativeArray<int> PersistentProxyIndexByBody;
@@ -47,11 +47,11 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
             CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 if (DetectPersistentDirty != 0)
-                    DirtyFlagsByBody[bodyIndex] = (byte)CertificationStageKernel.ClassifyAndUpdatePersistentProxyForBody(
+                    DirtyFlagsByBody[bodyIndex] = (byte)PersistentProxyBuilder.ClassifyAndUpdateForBody(
                         bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                         PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
@@ -92,17 +92,65 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 out stateEvidence.InteractionEnvelopeMax);
             if (FromSolvedPosition == 0)
                 stateEvidence.EnvelopeEscaped = 0;
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
             MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
             if (DetectPersistentDirty != 0)
-                DirtyFlagsByBody[bodyIndex] = (byte)CertificationStageKernel.ClassifyAndUpdatePersistentProxyForBody(
+                DirtyFlagsByBody[bodyIndex] = (byte)PersistentProxyBuilder.ClassifyAndUpdateForBody(
                     bodyIndex, stateSnapshot, stateEvidence, stateStep,
                         PersistentProxies, PersistentProxyIndexByBody,
                     PersistentCacheState.Value, GuardMargin, SoftAvoidanceShell,
                     SoftAvoidanceResponseRate, SoftSolverMode, RvoTimeHorizon);
+        }
+    }
+
+    [BurstCompile]
+    internal struct PrepareSubstepContactPredictionBodiesJob :
+        IJobParallelForDefer
+    {
+        [ReadOnly] public NativeArray<byte> Workset;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        public NativeArray<CrowdSolverBodyState> StepStates;
+        public float PredictiveSkin;
+        public float TimestepContactMargin;
+        public float SoftAvoidanceShell;
+        public float RvoTimeHorizon;
+        public SoftAvoidanceVelocitySolverMode SoftSolverMode;
+
+        public void Execute(int bodyIndex)
+        {
+            CrowdBodySnapshot body = Bodies[bodyIndex];
+            if (body.IsInsideSimulationDomain == 0)
+                return;
+
+            CrowdMotionEvidence evidence = MotionEvidence[bodyIndex];
+            CrowdSolverBodyState step = StepStates[bodyIndex];
+            float extent =
+                math.max(0f, body.Radius) +
+                math.max(0f, PredictiveSkin) +
+                math.max(0f, TimestepContactMargin);
+            float3 start = step.SubstepStartPosition;
+            float3 end = step.SolvedPosition;
+            evidence.TrajectoryStart = start;
+            evidence.BaselineEnd = end;
+            evidence.ContactEnvelopeMin =
+                math.min(start.xz, end.xz) - extent;
+            evidence.ContactEnvelopeMax =
+                math.max(start.xz, end.xz) + extent;
+            PersistentContactMath.CalculateIncrementalTightSweptBounds(
+                body,
+                evidence,
+                step,
+                PredictiveSkin,
+                TimestepContactMargin,
+                SoftAvoidanceShell,
+                RvoTimeHorizon,
+                SoftSolverMode,
+                out evidence.InteractionEnvelopeMin,
+                out evidence.InteractionEnvelopeMax);
+            evidence.EnvelopeEscaped = 0;
+            MotionEvidence[bodyIndex] = evidence;
+            StepStates[bodyIndex] = step;
         }
     }
 
@@ -167,11 +215,10 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct PrepareBaseVelocityBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         public float SubstepDeltaTime;
         public float3 GridOrigin;
         public float CellRadius;
@@ -181,8 +228,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
             CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 return;
             stateStep.BaseVelocity = ContactPipelineMath.CalculateBaseVelocity(
@@ -193,10 +239,6 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 SubstepDeltaTime,
                 GridOrigin,
                 CellRadius);
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
         }
     }
@@ -208,7 +250,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
         public NativeArray<byte> EscapeFlags;
         public byte Enabled;
         public float PredictiveSkin;
@@ -229,7 +271,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
             CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 EscapeFlags[bodyIndex] = 0;
@@ -314,16 +356,13 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         public NativeArray<IncrementalDirtyBody> DirtyBodies;
         [NativeDisableParallelForRestriction]
         public NativeArray<byte> DirtyFlagsByBody;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdBodyStepState> StepStates;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         [NativeDisableParallelForRestriction]
         public NativeArray<ParallelBodyStageResult> BodyStatistics;
         public int BodyCount;
@@ -348,16 +387,10 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 };
                 DirtyFlagsByBody[bodyIndex] = (byte)flags;
 
-                CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-                CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-                CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
                 CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-                CrowdBodyStepState stateStep = StepStates[bodyIndex];
+                CrowdSolverBodyState stateStep = StepStates[bodyIndex];
                 int newlyEscaped = stateEvidence.EnvelopeEscaped == 0 ? 1 : 0;
                 stateEvidence.EnvelopeEscaped = 1;
-                Bodies[bodyIndex] = stateSnapshot;
-                NavigationStates[bodyIndex] = stateNavigation;
-                MotionIntents[bodyIndex] = stateIntent;
                 MotionEvidence[bodyIndex] = stateEvidence;
                 StepStates[bodyIndex] = stateStep;
 
@@ -373,16 +406,13 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct PrepareRepairPredictionBodiesJob : IJobParallelForDefer
     {
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [NativeDisableParallelForRestriction]
         public NativeArray<CrowdMotionEvidence> MotionEvidence;
         [NativeDisableParallelForRestriction]
-        public NativeArray<CrowdBodyStepState> StepStates;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         [ReadOnly] public NativeArray<IncrementalDirtyBody> DirtyBodies;
         public float Duration;
         public float Skin;
@@ -405,9 +435,8 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 return;
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 return;
 
@@ -439,9 +468,6 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 RvoTimeHorizon,
                 out stateEvidence.InteractionEnvelopeMin,
                 out stateEvidence.InteractionEnvelopeMax);
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
             MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
         }
@@ -456,12 +482,10 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct InitializeSoftAvoidanceBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<FlowFieldCell> Grid;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
+        public NativeArray<CrowdAvoidanceState> AvoidanceStates;
+        [ReadOnly] public NativeArray<CrowdObstacleCell> Grid;
         public float3 GridOrigin;
         public int2 GridDimensions;
         public float CellRadius;
@@ -470,24 +494,15 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         public void Execute(int bodyIndex)
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
-            stateStep.SoftAvoidanceVelocity = float3.zero;
-            stateStep.WallAvoidanceVelocity = float3.zero;
-            stateStep.SoftAvoidanceNeighborCount = 0;
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
+            CrowdAvoidanceState avoidance = default;
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
-                Bodies[bodyIndex] = stateSnapshot;
-                NavigationStates[bodyIndex] = stateNavigation;
-                MotionIntents[bodyIndex] = stateIntent;
-                MotionEvidence[bodyIndex] = stateEvidence;
-                StepStates[bodyIndex] = stateStep;
+                AvoidanceStates[bodyIndex] = avoidance;
                 return;
             }
 
-            int2 currentCell = FlowFieldUtils.WorldToCell(
+            int2 currentCell = FlowGridGeometry.WorldToCell(
                 stateStep.SolvedPosition,
                 GridOrigin,
                 CellRadius);
@@ -504,18 +519,14 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                     float3 wallPosition = GridObstacleView.CellCenter(
                         obstacleGeometry, checkCell, stateStep.SolvedPosition.y);
                     float wallRadius = CellRadius + math.max(0f, stateSnapshot.Radius) + math.max(0f, SoftShell);
-                    stateStep.WallAvoidanceVelocity += SoftAvoidanceMath.CalculateWallVelocity(
+                    avoidance.WallVelocity += SoftAvoidanceMath.CalculateWallVelocity(
                         stateStep.SolvedPosition,
                         wallPosition,
                         stateSnapshot.MoveSpeed,
                         wallRadius);
                 }
             }
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
-            StepStates[bodyIndex] = stateStep;
+            AvoidanceStates[bodyIndex] = avoidance;
         }
     }
 
@@ -523,10 +534,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     internal struct EvaluateSoftAvoidancePairsJob : IJobParallelForDefer
     {
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
-        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
-        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
         [ReadOnly] public NativeArray<BodyPair> Pairs;
         public NativeArray<SoftAvoidancePairContribution> Contributions;
         public SoftAvoidanceVelocitySolverMode SolverMode;
@@ -538,15 +546,9 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         {
             BodyPair pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
-            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
-            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             SoftAvoidancePairContribution result = default;
 
             float3 delta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
@@ -605,11 +607,11 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct GatherSoftAvoidanceBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
+        public NativeArray<CrowdAvoidanceState> AvoidanceStates;
         [ReadOnly] public NativeArray<BodyPair> Pairs;
         [ReadOnly] public NativeArray<SoftAvoidancePairContribution> Contributions;
         [ReadOnly] public NativeArray<int> IncidentOffsets;
@@ -628,9 +630,9 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
+            CrowdAvoidanceState avoidance = AvoidanceStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 EscapeFlags[bodyIndex] = 0;
@@ -660,16 +662,20 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
 
             if (count > 0 && SoftSolverMode == SoftAvoidanceVelocitySolverMode.SurfaceVelocityBuffer)
                 sum /= count;
-            stateStep.SoftAvoidanceVelocity = sum + stateStep.WallAvoidanceVelocity;
-            stateStep.SoftAvoidanceNeighborCount = count;
+            avoidance.SoftVelocity = sum + avoidance.WallVelocity;
+            avoidance.NeighborCount = count;
             float maxSpeed = math.max(0f, stateSnapshot.MoveSpeed);
-            if (math.lengthsq(stateStep.SoftAvoidanceVelocity) > maxSpeed * maxSpeed)
-                stateStep.SoftAvoidanceVelocity = math.normalizesafe(stateStep.SoftAvoidanceVelocity) * maxSpeed;
+            if (math.lengthsq(avoidance.SoftVelocity) >
+                maxSpeed * maxSpeed)
+            {
+                avoidance.SoftVelocity =
+                    math.normalizesafe(avoidance.SoftVelocity) * maxSpeed;
+            }
 
             byte escaped = 0;
             if (ClampToEnvelope != 0)
             {
-                float3 requested = stateStep.SoftAvoidanceVelocity;
+                float3 requested = avoidance.SoftVelocity;
                 if (!ContactPipelineMath.SoftOutputInsideEnvelope(
                         stateSnapshot,
                         stateNavigation,
@@ -718,16 +724,12 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                                 upper = middle;
                         }
                     }
-                    stateStep.SoftAvoidanceVelocity = requested * lower;
+                    avoidance.SoftVelocity = requested * lower;
                     escaped = 1;
                 }
             }
             EscapeFlags[bodyIndex] = escaped;
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
-            StepStates[bodyIndex] = stateStep;
+            AvoidanceStates[bodyIndex] = avoidance;
         }
     }
 
@@ -757,11 +759,11 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct PredictUnconstrainedBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
+        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
+        [ReadOnly] public NativeArray<CrowdAvoidanceState> AvoidanceStates;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         public float SoftAvoidanceResponseRate;
         public float SettledMultiplier;
         public float SubstepDeltaTime;
@@ -770,9 +772,8 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
+            CrowdAvoidanceState avoidance = AvoidanceStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
                 return;
             stateStep.SubstepStartPosition = stateStep.SolvedPosition;
@@ -784,7 +785,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 response *= math.max(0f, SettledMultiplier);
             float3 velocity = SoftAvoidanceMath.ApplyVelocityBuffer(
                 stateStep.BaseVelocity,
-                stateStep.SoftAvoidanceVelocity,
+                avoidance.SoftVelocity,
                 response,
                 SubstepDeltaTime,
                 stateSnapshot.MoveSpeed);
@@ -797,10 +798,6 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             stateStep.UnconstrainedPosition = stateStep.SolvedPosition;
             stateStep.VelocityBeforeContact = velocity;
             stateStep.IntegratedVelocity = velocity;
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
         }
     }
@@ -812,7 +809,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
         [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
         [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
         public NativeArray<byte> EscapeFlags;
         public float PredictiveSkin;
 
@@ -822,7 +819,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
             CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
             CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 EscapeFlags[bodyIndex] = 0;
@@ -931,12 +928,9 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct SolveWallConstraintBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
-        [ReadOnly] public NativeArray<FlowFieldCell> Grid;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        public NativeArray<CrowdSolverBodyState> StepStates;
+        [ReadOnly] public NativeArray<CrowdObstacleCell> Grid;
         public float3 GridOrigin;
         public int2 GridDimensions;
         public float CellRadius;
@@ -946,16 +940,13 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
         public void Execute(int bodyIndex)
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             float total = 0f;
             float maximum = 0f;
             int corrected = 0;
             if (Grid.IsCreated && (stateSnapshot.IsInsideSimulationDomain != 0) && stateSnapshot.InverseMass > 0f)
             {
-                int2 currentCell = FlowFieldUtils.WorldToCell(
+                int2 currentCell = FlowGridGeometry.WorldToCell(
                     stateStep.SolvedPosition,
                     GridOrigin,
                     CellRadius);
@@ -986,7 +977,7 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                         stateStep.SolvedPosition += correction;
                         stateStep.SolvedPosition.y = stateSnapshot.Position.y;
                         stateStep.WallCorrection += correction;
-                        stateEvidence.WallCorrection += correction;
+                        stateStep.TimestepWallCorrection += correction;
                         float length = math.length(correction);
                         total += length;
                         maximum = math.max(maximum, length);
@@ -994,10 +985,6 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                     }
                 }
             }
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
             CorrectedBodyFlags[bodyIndex] = (byte)corrected;
             BodyStatistics[bodyIndex] = new ParallelBodyStageResult
@@ -1090,21 +1077,15 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
     [BurstCompile]
     internal struct ReconstructVelocityBodiesJob : IJobParallelFor
     {
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         public NativeArray<ParallelBodyStageResult> BodyStatistics;
         public float SubstepDeltaTime;
 
         public void Execute(int bodyIndex)
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             {
                 BodyStatistics[bodyIndex] = default;
@@ -1122,10 +1103,6 @@ internal struct PrepareTimestepPredictionBodiesJob : IJobParallelFor
                 TertiaryTotal = math.length(stateStep.IntegratedVelocity),
                 Count = 1
             };
-            Bodies[bodyIndex] = stateSnapshot;
-            NavigationStates[bodyIndex] = stateNavigation;
-            MotionIntents[bodyIndex] = stateIntent;
-            MotionEvidence[bodyIndex] = stateEvidence;
             StepStates[bodyIndex] = stateStep;
         }
     }

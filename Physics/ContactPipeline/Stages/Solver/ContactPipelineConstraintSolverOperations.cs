@@ -109,7 +109,8 @@ public partial struct ConstraintSolverJob
         // Escape repair can rebuild/reclassify pairs between solver rounds.
         // Those costs belong to Broad/Narrow/Activation, not to both buckets.
         long nestedCandidateNanoseconds =
-            AccountedCandidateNanoseconds(incremental) -
+            ContactPipelineDiagnosticsMath.AccountedCandidateNanoseconds(
+                incremental) -
             runtime.IterationAccountedStartNanoseconds;
         statistics.IterationNanoseconds += math.max(
             0L,
@@ -150,19 +151,6 @@ public partial struct ConstraintSolverJob
         }
         StoreContactStatistics(statistics);
     }
-#endif
-
-#if RTS_CONTACT_DIAGNOSTICS
-    private static long AccountedCandidateNanoseconds(
-        IncrementalContactPipelineStatistics statistics) =>
-        statistics.ProxyValidationNanoseconds +
-        statistics.FullSweepSourceNanoseconds +
-        statistics.PersistentPairMappingNanoseconds +
-        statistics.LocalBroadPhaseNanoseconds +
-        statistics.PairDiffNanoseconds +
-        statistics.FallbackNanoseconds +
-        statistics.SweptClassificationNanoseconds +
-        statistics.ContactActivationNanoseconds;
 #endif
 
 }

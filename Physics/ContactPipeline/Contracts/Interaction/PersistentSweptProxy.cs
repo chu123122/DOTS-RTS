@@ -26,6 +26,7 @@ public struct PersistentSweptProxy
     public float2 TrajectoryEnd;
     public float2 AvoidanceHorizonEnd;
     public float Radius;
+    public uint ShapeVersion;
     public uint MotionVersion;
     public byte IsValid;
 }

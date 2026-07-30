@@ -6,7 +6,7 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Systems
 {
 
-public struct ContactDiagnosticsFrameResources
+internal struct ContactDiagnosticsFrameResources
 {
 #if RTS_CONTACT_DIAGNOSTICS
     public NativeList<BodyPair> IncrementalOracleContactPairs;

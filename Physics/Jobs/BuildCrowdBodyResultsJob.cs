@@ -9,19 +9,19 @@ namespace RTS.Unit.FlowField.Jobs
 /// 在写回 ECS 前，把最终求解结果从可变子步状态中分离出来。
 /// </summary>
 [BurstCompile]
-public struct BuildCrowdBodyResultsJob : IJobParallelFor
+internal struct BuildCrowdBodyResultsJob : IJobParallelFor
 {
     public float DeltaTime;
     [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
     [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
-    [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
     public NativeArray<CrowdBodyResult> Results;
 
     public void Execute(int index)
     {
         CrowdBodySnapshot body = Bodies[index];
         CrowdNavigationState navigation = NavigationStates[index];
-        CrowdBodyStepState step = StepStates[index];
+        CrowdSolverBodyState step = StepStates[index];
 
         float3 resultPosition = body.Position;
         float3 resultVelocity = body.IsInsideSimulationDomain != 0

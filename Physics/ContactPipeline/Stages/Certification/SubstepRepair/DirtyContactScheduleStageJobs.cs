@@ -45,12 +45,19 @@ internal struct PrepareDirtyContactScheduleBlocksJob : IJob
 {
     [ReadOnly] public NativeList<PersistentPredictiveContact> Contacts;
     [ReadOnly] public NativeList<PredictiveContactScheduleEntry> Schedule;
+    [ReadOnly] public NativeList<IncrementalDirtyBody> DirtyBodies;
     public NativeList<DirtyContactScheduleBlock> BlockCounts;
     public NativeList<DirtyContactScheduleBlock> BlockOffsets;
     public int BlockSize;
 
     public void Execute()
     {
+        if (DirtyBodies.Length == 0)
+        {
+            BlockCounts.Clear();
+            BlockOffsets.Clear();
+            return;
+        }
         int itemCount = math.max(Contacts.Length, Schedule.Length);
         int blockCount = (itemCount + BlockSize - 1) / BlockSize;
         BlockCounts.ResizeUninitialized(blockCount);
@@ -69,16 +76,10 @@ internal struct CountDirtyContactScheduleJob : IJobParallelForDefer
     public NativeArray<DirtyContactScheduleBlock> BlockCounts;
     [ReadOnly] public NativeReference<int> ScheduleCursor;
     public int BlockSize;
-    public byte Enabled;
 
     public void Execute(int blockIndex)
     {
         DirtyContactScheduleBlock count = default;
-        if (Enabled == 0)
-        {
-            BlockCounts[blockIndex] = count;
-            return;
-        }
         int begin = blockIndex * BlockSize;
         int end = begin + BlockSize;
         for (int contactIndex = begin;
@@ -145,6 +146,7 @@ internal struct ScatterDirtyContactScheduleJob : IJobParallelForDefer
     [ReadOnly] public NativeParallelHashMap<Unity.Entities.Entity, int>
         CurrentBodyIndexByEntity;
     [ReadOnly] public NativeArray<byte> DirtyFlagsByBody;
+    [ReadOnly] public NativeArray<DirtyContactScheduleBlock> BlockCounts;
     [ReadOnly] public NativeArray<DirtyContactScheduleBlock> BlockOffsets;
     [NativeDisableParallelForRestriction]
     public NativeArray<PersistentPredictiveContact> ContactScratch;
@@ -195,28 +197,36 @@ internal struct CommitDirtyContactScheduleJob : IJob
 {
     [ReadOnly] public NativeList<PersistentPredictiveContact> ContactScratch;
     [ReadOnly] public NativeList<PredictiveContactScheduleEntry> ScheduleScratch;
-    public NativeHashMap<StableEntityPairKey, PersistentPredictiveContact>
-        ContactIndex;
+    [ReadOnly] public NativeList<IncrementalDirtyBody> DirtyBodies;
+    public NativeList<PersistentPredictiveContact> Contacts;
+    public NativeParallelHashMap<StableEntityPairKey, int> ContactIndex;
     public NativeList<PredictiveContactScheduleEntry> Schedule;
     public NativeReference<int> ScheduleCursor;
 
     public void Execute()
     {
+        if (DirtyBodies.Length == 0)
+            return;
+        Contacts.Clear();
+        Contacts.AddRange(ContactScratch.AsArray());
         if (ContactIndex.IsCreated)
-        {
             ContactIndex.Clear();
-            for (int contactIndex = 0;
-                 contactIndex < ContactScratch.Length;
-                 contactIndex++)
-            {
-                PersistentPredictiveContact contact =
-                    ContactScratch[contactIndex];
-                ContactIndex[contact.Key] = contact;
-            }
-        }
         Schedule.Clear();
         Schedule.AddRange(ScheduleScratch.AsArray());
         ScheduleCursor.Value = 0;
+    }
+}
+
+[BurstCompile]
+internal struct BuildDirtyContactIndexJob : IJobParallelForDefer
+{
+    [ReadOnly] public NativeArray<PersistentPredictiveContact> Contacts;
+    public NativeParallelHashMap<StableEntityPairKey, int>.ParallelWriter
+        ContactIndex;
+
+    public void Execute(int contactIndex)
+    {
+        ContactIndex.TryAdd(Contacts[contactIndex].Key, contactIndex);
     }
 }
 }

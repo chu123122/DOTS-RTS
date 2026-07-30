@@ -37,7 +37,8 @@ public struct ContactPipelineTimingJob : IJob
         {
             runtime.StageStartTimestamp = now;
             runtime.StageAccountedStartNanoseconds =
-                AccountedCandidateNanoseconds(IncrementalStatistics.Value);
+                ContactPipelineDiagnosticsMath.AccountedCandidateNanoseconds(
+                    IncrementalStatistics.Value);
             RuntimeState.Value = runtime;
             return;
         }
@@ -52,7 +53,8 @@ public struct ContactPipelineTimingJob : IJob
         else
         {
             long nestedCandidateNanoseconds =
-                AccountedCandidateNanoseconds(IncrementalStatistics.Value) -
+                ContactPipelineDiagnosticsMath.AccountedCandidateNanoseconds(
+                    IncrementalStatistics.Value) -
                 runtime.StageAccountedStartNanoseconds;
             statistics.ValidationRepairNanoseconds += math.max(
                 0L,
@@ -61,16 +63,6 @@ public struct ContactPipelineTimingJob : IJob
         Statistics.Value = statistics;
     }
 
-    private static long AccountedCandidateNanoseconds(
-        IncrementalContactPipelineStatistics statistics) =>
-        statistics.ProxyValidationNanoseconds +
-        statistics.FullSweepSourceNanoseconds +
-        statistics.PersistentPairMappingNanoseconds +
-        statistics.LocalBroadPhaseNanoseconds +
-        statistics.PairDiffNanoseconds +
-        statistics.FallbackNanoseconds +
-        statistics.SweptClassificationNanoseconds +
-        statistics.ContactActivationNanoseconds;
 }
 #endif
 
@@ -88,6 +80,7 @@ public struct ContactPipelineLifecycleJob : IJob
     public NativeList<int> PersistentProxyIndexByBody;
     public NativeList<PersistentNeighborPair> PersistentNeighborPairs;
     public NativeList<PersistentPredictiveContact> PersistentPredictiveContacts;
+    public NativeParallelHashMap<StableEntityPairKey, int> PersistentContactIndex;
     public NativeParallelMultiHashMap<int, int> PersistentSpatialMembership;
     public NativeReference<uint> PersistentSpatialMembershipEpoch;
     public NativeParallelMultiHashMap<Entity, int> PersistentIncidentPairLookup;
@@ -135,6 +128,7 @@ public struct ContactPipelineLifecycleJob : IJob
             PersistentProxyIndexByBody.Clear();
             PersistentNeighborPairs.Clear();
             PersistentPredictiveContacts.Clear();
+            PersistentContactIndex.Clear();
             PersistentSpatialMembership.Clear();
             PersistentSpatialMembershipEpoch.Value = 0;
             PersistentIncidentPairLookup.Clear();

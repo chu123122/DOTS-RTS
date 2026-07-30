@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using Unity.Entities;
 using UnityEngine;
-using RTS.Unit.Components;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Jobs;
 
@@ -57,7 +56,6 @@ public sealed class ContactDiagnosticCaptureSession
     public void AddSample(
         double simulationTime,
         UnitContactSolverSettings settings,
-        FlowFieldSettings flowSettings,
         PredictiveDiscContactStatistics statistics,
         ShadowNeighborCacheStatistics shadow,
         DynamicBuffer<ContactIterationDiagnostic> iterations)
@@ -88,10 +86,11 @@ public sealed class ContactDiagnosticCaptureSession
             Iterations = settings.IterationCount,
             PredictiveGenerationEnabled = settings.EnablePredictivePairGeneration,
             SideExchangeConstraintEnabled = settings.EnablePredictiveContacts,
-            SoftAvoidanceVelocitySolver = flowSettings.SoftAvoidanceVelocitySolver.ToString(),
-            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
-            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
-            RvoTimeHorizon = flowSettings.RvoTimeHorizon,
+            SoftAvoidanceVelocitySolver =
+                settings.SoftAvoidanceVelocitySolver.ToString(),
+            SoftAvoidanceResponseRate = settings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = settings.SoftAvoidanceShell,
+            RvoTimeHorizon = settings.RvoTimeHorizon,
             TimestepContactMargin = settings.TimestepContactMargin,
             TimestepContactSetBuilds = statistics.TimestepContactSetBuildCount,
             TimestepContactSetClassificationPasses = statistics.TimestepContactSetClassificationPassCount,

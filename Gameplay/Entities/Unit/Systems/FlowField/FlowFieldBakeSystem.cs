@@ -7,6 +7,7 @@ using RTS.Unit.Components;
 using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 using RTS.Unit.FlowField.Jobs;
+using RTS.Gameplay.Physics;
 
 namespace RTS.Unit.FlowField.Systems
 {
@@ -23,8 +24,13 @@ namespace RTS.Unit.FlowField.Systems
     public partial class FlowFieldBakeSystem : SystemBase
     {
         private JobHandle _bakeHandle;
-        private JobHandle _activeGridReaders;
+        private JobHandle _activeEnvironmentReaders;
         private JobHandle _pendingReuseHandle;
+        private JobHandle _pendingObstacleReuseHandle;
+        private NativeArray<CrowdObstacleCell> _activeObstacleCells;
+        private NativeArray<CrowdObstacleCell> _pendingObstacleCells;
+        private FlowGridGeometry _obstacleGeometry;
+        private uint _obstacleVersion;
         private bool _isBaking;
         private bool _scheduledCostDirty;
         private bool _waitingForPhysicsWorldRefresh;
@@ -38,19 +44,37 @@ namespace RTS.Unit.FlowField.Systems
         }
 
         /// <summary>
-        /// 移动系统将所有读取 ActiveGrid 的 Job 注册回来。
-        /// 缓冲交换后，旧 ActiveGrid 只有在这些读取完成后才会被重新写入。
+        /// 移动系统将读取已发布 Navigation/Obstacle field 的 Job 注册回来。
+        /// 缓冲交换后，旧 active field 只有在这些读取完成后才会被重新写入。
         /// </summary>
-        public void RegisterActiveGridReader(JobHandle readerHandle)
+        public void RegisterPublishedEnvironmentReader(JobHandle readerHandle)
         {
-            if (_activeGridReaders.IsCompleted)
+            if (_activeEnvironmentReaders.IsCompleted)
             {
-                _activeGridReaders.Complete();
-                _activeGridReaders = readerHandle;
+                _activeEnvironmentReaders.Complete();
+                _activeEnvironmentReaders = readerHandle;
                 return;
             }
 
-            _activeGridReaders = JobHandle.CombineDependencies(_activeGridReaders, readerHandle);
+            _activeEnvironmentReaders = JobHandle.CombineDependencies(
+                _activeEnvironmentReaders,
+                readerHandle);
+        }
+
+        public bool TryGetPublishedObstacleSnapshot(
+            out CrowdObstacleSnapshot snapshot)
+        {
+            if (!_activeObstacleCells.IsCreated || _obstacleVersion == 0)
+            {
+                snapshot = default;
+                return false;
+            }
+
+            snapshot = new CrowdObstacleSnapshot(
+                _activeObstacleCells,
+                _obstacleGeometry,
+                _obstacleVersion);
+            return true;
         }
 
         protected override void OnUpdate()
@@ -119,20 +143,40 @@ namespace RTS.Unit.FlowField.Systems
 
         private void EnsureRuntimeGrid(Entity managerEntity)
         {
-            if (EntityManager.HasComponent<FlowFieldGrid>(managerEntity)) return;
-
             FlowFieldSettings settings = EntityManager.GetComponentData<FlowFieldSettings>(managerEntity);
             int totalCells = settings.GridDimensions.x * settings.GridDimensions.y;
-            var runtimeGrid = new FlowFieldGrid
+            if (!EntityManager.HasComponent<FlowFieldGrid>(managerEntity))
             {
-                GridDimensions = settings.GridDimensions,
-                CellRadius = settings.CellRadius,
-                GridOrigin = settings.GridOrigin,
-                Grid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent),
-                PendingGrid = new NativeArray<FlowFieldCell>(totalCells, Allocator.Persistent)
-            };
+                var runtimeGrid = new FlowFieldGrid
+                {
+                    GridDimensions = settings.GridDimensions,
+                    CellRadius = settings.CellRadius,
+                    GridOrigin = settings.GridOrigin,
+                    Grid = new NativeArray<FlowFieldCell>(
+                        totalCells,
+                        Allocator.Persistent),
+                    PendingGrid = new NativeArray<FlowFieldCell>(
+                        totalCells,
+                        Allocator.Persistent)
+                };
+                EntityManager.AddComponentData(managerEntity, runtimeGrid);
+            }
 
-            EntityManager.AddComponentData(managerEntity, runtimeGrid);
+            if (!_activeObstacleCells.IsCreated)
+            {
+                _activeObstacleCells = new NativeArray<CrowdObstacleCell>(
+                    totalCells,
+                    Allocator.Persistent,
+                    NativeArrayOptions.ClearMemory);
+                _pendingObstacleCells = new NativeArray<CrowdObstacleCell>(
+                    totalCells,
+                    Allocator.Persistent,
+                    NativeArrayOptions.ClearMemory);
+                _obstacleGeometry = new FlowGridGeometry(
+                    settings.GridOrigin,
+                    settings.GridDimensions,
+                    settings.CellRadius);
+            }
         }
 
         private void ScheduleBake(Entity managerEntity)
@@ -152,14 +196,11 @@ namespace RTS.Unit.FlowField.Systems
             JobHandle prepareHandle = prepareJob.Schedule(grid.PendingGrid.Length, 64, prepareDependency);
 
             JobHandle costHandle = prepareHandle;
+            JobHandle obstacleHandle = default;
             if (costState.IsDirty)
             {
-                CollisionFilter filter = new CollisionFilter
-                {
-                    BelongsTo = ~0u,
-                    CollidesWith = 1u << 2,
-                    GroupIndex = 0
-                };
+                CollisionFilter filter =
+                    CrowdQueryCollisionFilters.ObstacleOverlap;
 
                 var costJob = new GenerateCostFieldJob
                 {
@@ -171,6 +212,24 @@ namespace RTS.Unit.FlowField.Systems
                     ObstacleFilter = filter
                 };
                 costHandle = costJob.Schedule(grid.PendingGrid.Length, 64, prepareHandle);
+
+                var obstacleJob = new GenerateCrowdObstacleFieldJob
+                {
+                    CollisionWorld = SystemAPI
+                        .GetSingleton<PhysicsWorldSingleton>()
+                        .CollisionWorld,
+                    ObstacleCells = _pendingObstacleCells,
+                    GridOrigin = grid.GridOrigin,
+                    GridDimensions = grid.GridDimensions,
+                    CellRadius = grid.CellRadius,
+                    ObstacleFilter = filter
+                };
+                obstacleHandle = obstacleJob.Schedule(
+                    _pendingObstacleCells.Length,
+                    64,
+                    JobHandle.CombineDependencies(
+                        Dependency,
+                        _pendingObstacleReuseHandle));
             }
 
             var queue = new NativeQueue<int2>(Allocator.TempJob);
@@ -190,7 +249,12 @@ namespace RTS.Unit.FlowField.Systems
             };
             JobHandle vectorHandle = vectorJob.Schedule(grid.PendingGrid.Length, 64, integrationHandle);
 
-            _bakeHandle = queue.Dispose(vectorHandle);
+            JobHandle navigationBakeHandle = queue.Dispose(vectorHandle);
+            _bakeHandle = costState.IsDirty
+                ? JobHandle.CombineDependencies(
+                    navigationBakeHandle,
+                    obstacleHandle)
+                : navigationBakeHandle;
             _scheduledRequestVersion = request.RequestVersion;
             _scheduledCostDirty = costState.IsDirty;
             _isBaking = true;
@@ -218,8 +282,10 @@ namespace RTS.Unit.FlowField.Systems
             EntityManager.SetComponentData(managerEntity, grid);
 
             // 旧 ActiveGrid 现在成为 PendingGrid，下一次写入必须等待旧读者完成。
-            _pendingReuseHandle = JobHandle.CombineDependencies(_pendingReuseHandle, _activeGridReaders);
-            _activeGridReaders = default;
+            JobHandle activeReaders = _activeEnvironmentReaders;
+            _pendingReuseHandle = JobHandle.CombineDependencies(
+                _pendingReuseHandle,
+                activeReaders);
 
             FlowFieldRuntimeState runtimeState =
                 EntityManager.GetComponentData<FlowFieldRuntimeState>(managerEntity);
@@ -233,7 +299,15 @@ namespace RTS.Unit.FlowField.Systems
                 costState.IsDirty = false;
                 costState.CostVersion++;
                 EntityManager.SetComponentData(managerEntity, costState);
+
+                (_activeObstacleCells, _pendingObstacleCells) =
+                    (_pendingObstacleCells, _activeObstacleCells);
+                _pendingObstacleReuseHandle = JobHandle.CombineDependencies(
+                    _pendingObstacleReuseHandle,
+                    activeReaders);
+                _obstacleVersion = costState.CostVersion;
             }
+            _activeEnvironmentReaders = default;
 
             EntityManager.SetComponentEnabled<RecalculateFlowFieldTag>(managerEntity, false);
         }
@@ -241,14 +315,19 @@ namespace RTS.Unit.FlowField.Systems
         protected override void OnDestroy()
         {
             _bakeHandle.Complete();
-            _activeGridReaders.Complete();
+            _activeEnvironmentReaders.Complete();
             _pendingReuseHandle.Complete();
+            _pendingObstacleReuseHandle.Complete();
 
             foreach (RefRW<FlowFieldGrid> grid in SystemAPI.Query<RefRW<FlowFieldGrid>>())
             {
                 if (grid.ValueRW.Grid.IsCreated) grid.ValueRW.Grid.Dispose();
                 if (grid.ValueRW.PendingGrid.IsCreated) grid.ValueRW.PendingGrid.Dispose();
             }
+            if (_activeObstacleCells.IsCreated)
+                _activeObstacleCells.Dispose();
+            if (_pendingObstacleCells.IsCreated)
+                _pendingObstacleCells.Dispose();
         }
     }
 }

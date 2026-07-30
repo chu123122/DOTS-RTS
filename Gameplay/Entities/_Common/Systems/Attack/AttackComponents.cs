@@ -10,6 +10,7 @@ public struct AttackDistance : IComponentData
 public struct AttackEntity : IComponentData
 {
     public Entity Entity;
+    public uint QueryProxyVersion;
 }
 
 [GhostComponent]

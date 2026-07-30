@@ -8,4 +8,5 @@ public struct TrackDistance : IComponentData
 public struct TrackEntity : IComponentData
 {
     public Entity Entity;
+    public uint QueryProxyVersion;
 }

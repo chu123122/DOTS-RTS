@@ -13,28 +13,91 @@ public enum ContactConstraintMode : byte
 }
 
 /// <summary>
-/// 求解器拥有的帧级接触记录。字段为直接存储，而非兼容转发属性。交互发现使用 BodyPair。
+/// NarrowPhase 产出的不可变约束定义。
 /// </summary>
-public struct ContactConstraint
+public struct ContactConstraintDefinition
 {
-    // 定义部分：求解器消费前装填。
     public int BodyA;
     public int BodyB;
     public float3 PredictiveNormal;
     public ContactConstraintMode ContactMode;
-    public byte PredictiveNormalOriented;
     public byte IsDormant;
+}
 
-    // 可变求解器状态。
+/// <summary>
+/// TimestepCache/Solver 独占的可变约束状态；不得进入 BroadPhase 或跨帧缓存。
+/// </summary>
+public struct ContactConstraintRuntime
+{
     public float Lambda;
+    public float3 OrientedPredictiveNormal;
+    public byte PredictiveNormalOriented;
     public byte WasActivated;
-
-    // timestep 利用/来源状态。
     public byte WasActivatedThisTimestep;
     public byte WasCorrectedThisTimestep;
     public byte WasAddedByFallback;
     public int FirstActivatedSubstep;
     public int ActivatedSubstepCount;
+}
+
+/// <summary>
+/// NarrowPhase 定义与 Solver runtime 的显式组合记录。定义只能通过
+/// Definition 字段在 NarrowPhase 装配；Solver 只能更新 Runtime。
+/// </summary>
+public struct ContactConstraint
+{
+    public ContactConstraintDefinition Definition;
+    public ContactConstraintRuntime Runtime;
+
+    public readonly int BodyA => Definition.BodyA;
+    public readonly int BodyB => Definition.BodyB;
+    public readonly float3 PredictiveNormal => Definition.PredictiveNormal;
+    public readonly ContactConstraintMode ContactMode => Definition.ContactMode;
+    public readonly byte PredictiveNormalOriented =>
+        Runtime.PredictiveNormalOriented;
+    public readonly byte IsDormant => Definition.IsDormant;
+
+    public float Lambda
+    {
+        readonly get => Runtime.Lambda;
+        set => Runtime.Lambda = value;
+    }
+
+    public byte WasActivated
+    {
+        readonly get => Runtime.WasActivated;
+        set => Runtime.WasActivated = value;
+    }
+
+    public byte WasActivatedThisTimestep
+    {
+        readonly get => Runtime.WasActivatedThisTimestep;
+        set => Runtime.WasActivatedThisTimestep = value;
+    }
+
+    public byte WasCorrectedThisTimestep
+    {
+        readonly get => Runtime.WasCorrectedThisTimestep;
+        set => Runtime.WasCorrectedThisTimestep = value;
+    }
+
+    public byte WasAddedByFallback
+    {
+        readonly get => Runtime.WasAddedByFallback;
+        set => Runtime.WasAddedByFallback = value;
+    }
+
+    public int FirstActivatedSubstep
+    {
+        readonly get => Runtime.FirstActivatedSubstep;
+        set => Runtime.FirstActivatedSubstep = value;
+    }
+
+    public int ActivatedSubstepCount
+    {
+        readonly get => Runtime.ActivatedSubstepCount;
+        set => Runtime.ActivatedSubstepCount = value;
+    }
 }
 
 public struct ContactConstraintComparer : IComparer<ContactConstraint>

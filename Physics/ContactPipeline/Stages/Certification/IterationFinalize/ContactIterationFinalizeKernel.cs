@@ -4,41 +4,59 @@ using Unity.Profiling.LowLevel.Unsafe;
 using RTS.Unit.FlowField.Diagnostics;
 namespace RTS.Unit.FlowField.Jobs
 {
-internal partial struct CertificationStageKernel
+internal static partial class IterationFinalizeDataFlow
 {
-    private void FinalizeContactIteration(
+    internal static void FinalizeContactIteration(
         int substepIndex,
         int iterationIndex,
-        NativeReference<ContactPipelineExecutionState> runtimeState
+        NativeReference<ContactPipelineExecutionState> runtimeState,
 #if RTS_CONTACT_DIAGNOSTICS
-        , NativeReference<ContactSolverIterationTelemetry> iterationState,
-        NativeList<JacobiBlockTelemetry> blockStatistics
+        NativeReference<ContactSolverIterationTelemetry> iterationState,
+        NativeList<JacobiBlockTelemetry> blockStatistics,
+        NativeReference<IncrementalContactPipelineStatistics>
+            incrementalStatisticsState,
+        NativeReference<PredictiveDiscContactStatistics> statisticsState,
+        NativeList<ContactIterationDiagnostic> iterationDiagnostics,
 #endif
-        )
+        ContactPipelineConfiguration configuration,
+        NativeArray<CrowdBodySnapshot> bodies,
+        NativeArray<CrowdMotionEvidence> motionEvidence,
+        NativeArray<CrowdSolverBodyState> stepStates,
+        NativeList<ContactConstraint> timestepContactPairs,
+        NativeArray<byte> dirtyFlagsByBody,
+        NativeList<IncrementalDirtyBody> dirtyBodies,
+        NativeReference<InteractionCertificate> interactionCertificate,
+        NativeList<InteractionCertificateViolation> certificateViolations,
+        NativeArray<byte> correctedBodyFlags,
+        NativeList<int> correctedBodyIndices)
     {
         ContactPipelineExecutionState runtime = runtimeState.Value;
         if (runtime.IsValid == 0)
             return;
 
-        PredictiveDiscContactStatistics statistics = LoadContactStatistics();
-        IncrementalContactPipelineStatistics incrementalStatistics = LoadIncrementalStatistics();
 #if RTS_CONTACT_DIAGNOSTICS
+        PredictiveDiscContactStatistics statistics = statisticsState.Value;
+        IncrementalContactPipelineStatistics incrementalStatistics =
+            incrementalStatisticsState.Value;
         ContactSolverIterationTelemetry iteration = iterationState.Value;
+#else
+        PredictiveDiscContactStatistics statistics = default;
+        IncrementalContactPipelineStatistics incrementalStatistics = default;
 #endif
         // Parallel bodies only set disjoint flags. Rebuild the corrected-body
         // list in body-index order so envelope repair stays deterministic.
-        CorrectedBodyIndices.Clear();
-        for (int bodyIndex = 0; bodyIndex < CorrectedBodyFlags.Length; bodyIndex++)
+        correctedBodyIndices.Clear();
+        for (int bodyIndex = 0; bodyIndex < correctedBodyFlags.Length; bodyIndex++)
         {
-            if (CorrectedBodyFlags[bodyIndex] != 0)
-                CorrectedBodyIndices.Add(bodyIndex);
+            if (correctedBodyFlags[bodyIndex] != 0)
+                correctedBodyIndices.Add(bodyIndex);
         }
 #if RTS_CONTACT_DIAGNOSTICS
         float totalPositionCorrection =
             iteration.TotalContactPositionCorrection;
         float maxPositionCorrection =
             iteration.MaxContactPositionCorrection;
-        if (Configuration.ContactPositionSolver == ContactPositionSolverMode.Jacobi)
+        if (configuration.ContactPositionSolver == ContactPositionSolverMode.Jacobi)
         {
             int newlyActivated = 0;
             int newlyCorrected = 0;
@@ -57,7 +75,7 @@ internal partial struct CertificationStageKernel
                 newlyActivated;
             incrementalStatistics.UniqueCorrectedPairCount += newlyCorrected;
             incrementalStatistics.ActiveConstraintEvaluationCount +=
-                TimestepContactPairs.Length;
+                timestepContactPairs.Length;
             statistics.TotalContactPositionCorrection +=
                 totalPositionCorrection;
             statistics.MaxContactPositionCorrection = math.max(
@@ -71,9 +89,13 @@ internal partial struct CertificationStageKernel
             statistics.MaxWallPositionCorrection,
             iteration.MaxWallPositionCorrection);
 
-        if (Configuration.EnableDiagnostics)
+        if (configuration.EnableDiagnostics)
         {
-            RecordIterationDiagnostic(
+            ContactIterationDiagnostics.Record(
+                bodies,
+                stepStates,
+                timestepContactPairs,
+                iterationDiagnostics,
                 substepIndex,
                 iterationIndex,
                 iteration.MaxViolationBeforeSolve,
@@ -85,38 +107,32 @@ internal partial struct CertificationStageKernel
         }
 #endif
 
-        if (!ValidateSolverCorrectionContactEnvelope(
+        if (!ContactEnvelopeValidationKernel.ValidateSolverCorrections(
                 substepIndex,
+                configuration.PredictiveSkin,
+                bodies,
+                motionEvidence,
+                stepStates,
+                dirtyFlagsByBody,
+                dirtyBodies,
+                interactionCertificate,
+                certificateViolations,
+                correctedBodyIndices,
                 ref statistics,
                 ref incrementalStatistics))
         {
-            int substepCount = math.max(1, Configuration.SubstepCount);
-            float substepDeltaTime = Configuration.DeltaTime / substepCount;
-            RepairOrRebuildContactViewForRemainingTime(
-                substepIndex,
-                substepCount,
-                substepDeltaTime,
-                Configuration.EnableTimestepContactSetCache,
-                ref statistics,
-                ref incrementalStatistics);
-
-            if (iterationIndex == math.max(1, Configuration.IterationCount) - 1)
+            if (iterationIndex == math.max(1, configuration.IterationCount) - 1)
             {
-                ResetTimestepContactSetForSubstep();
+                ContactConstraintStateKernel.ResetForSubstep(
+                    timestepContactPairs);
                 runtime.RecoveryRequired = 1;
             }
         }
 
-        // Unconditionally rebuild the incident index against the current
-        // TimestepContactPairs. The repair path above (or an upstream escaped-view
-        // rebuild) can change the pair count; the fingerprint fast-path in Ensure
-        // can otherwise leave a stale index that the next iteration's
-        // GatherAndApply indexes out of range. Match FinalizeWallIteration.
-        ActiveIncidentIndexState.Value = default;
-        EnsureActiveConstraintIncidentIndex();
-
-        StoreContactStatistics(statistics);
-        StoreIncrementalStatistics(incrementalStatistics);
+#if RTS_CONTACT_DIAGNOSTICS
+        statisticsState.Value = statistics;
+        incrementalStatisticsState.Value = incrementalStatistics;
+#endif
         runtimeState.Value = runtime;
     }
 }

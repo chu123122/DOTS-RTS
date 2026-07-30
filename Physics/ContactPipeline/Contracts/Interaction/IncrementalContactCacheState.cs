@@ -12,7 +12,8 @@ public enum IncrementalBodyDirtyFlags : byte
     Motion = 1 << 0,
     Topology = 1 << 1,
     EntitySet = 1 << 2,
-    CorrectedEscape = 1 << 3
+    CorrectedEscape = 1 << 3,
+    Shape = 1 << 4
 }
 
 public struct IncrementalDirtyBody
@@ -36,6 +37,7 @@ public struct IncrementalContactCacheState
     public uint Timestep;
     public uint TopologyEpoch;
     public uint ClassificationEpoch;
+    public uint ObstacleVersion;
     public int BodyCount;
     public int NeighborPairCount;
     public int DormantContactCount;

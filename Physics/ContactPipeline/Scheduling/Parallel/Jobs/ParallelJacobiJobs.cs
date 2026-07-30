@@ -26,9 +26,9 @@ internal struct JacobiPairSolveResult
         float alpha,
         ContactConstraint pair,
         CrowdBodySnapshot bodyA,
-        CrowdBodyStepState stepA,
+        CrowdSolverBodyState stepA,
         CrowdBodySnapshot bodyB,
-        CrowdBodyStepState stepB)
+        CrowdSolverBodyState stepB)
     {
         ContactConstraintEvaluation evaluation = XpbdContactConstraintMath.Evaluate(
             ref pair,
@@ -87,10 +87,7 @@ internal struct JacobiPairSolveResult
         public byte RecoveryOnly;
         [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
-        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
-        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
         // 并行 job 的按索引写目标必须是 deferred NativeArray（或
         // [NativeDisableParallelForRestriction]）。NativeList 不是原子写容器，
@@ -111,15 +108,9 @@ internal struct JacobiPairSolveResult
 
             ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
-            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
-            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             JacobiPairSolveResult result = EvaluateJacobiPair(
                 SubstepIndex,
                 Alpha,
@@ -144,10 +135,7 @@ internal struct JacobiPairSolveResult
         public byte RecoveryOnly;
         [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
         [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-        [ReadOnly] public NativeArray<CrowdNavigationState> NavigationStates;
-        [ReadOnly] public NativeArray<CrowdMotionIntent> MotionIntents;
-        [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
         public NativeArray<ContactConstraint> Pairs;
         public NativeArray<JacobiPairCorrection> Corrections;
         public NativeArray<ParallelSimulationDebuggerPairCapture>
@@ -165,15 +153,9 @@ internal struct JacobiPairSolveResult
 
             ContactConstraint pair = Pairs[pairIndex];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
-            CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
-            CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             JacobiPairSolveResult result = EvaluateJacobiPair(
                 SubstepIndex,
                 Alpha,
@@ -244,11 +226,8 @@ internal struct JacobiPairSolveResult
     {
         public byte RecoveryOnly;
         [ReadOnly] public NativeReference<ContactPipelineExecutionState> RuntimeState;
-        public NativeArray<CrowdBodySnapshot> Bodies;
-        public NativeArray<CrowdNavigationState> NavigationStates;
-        public NativeArray<CrowdMotionIntent> MotionIntents;
-        public NativeArray<CrowdMotionEvidence> MotionEvidence;
-        public NativeArray<CrowdBodyStepState> StepStates;
+        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+        public NativeArray<CrowdSolverBodyState> StepStates;
         // These three views must be deferred-job arrays, not bare NativeList
         // fields: a prior job on the dependency chain (FinalizeWall's repair /
         // RebuildEscapedTimestepContactView) can resize TimestepContactPairs and
@@ -326,19 +305,12 @@ internal struct JacobiPairSolveResult
                 return;
 
             CrowdBodySnapshot bodySnapshot = Bodies[bodyIndex];
-            CrowdNavigationState bodyNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent bodyIntent = MotionIntents[bodyIndex];
-            CrowdMotionEvidence bodyEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState bodyStep = StepStates[bodyIndex];
+            CrowdSolverBodyState bodyStep = StepStates[bodyIndex];
             float3 correction = correctionSum / correctionCount;
             bodyStep.SolvedPosition += correction;
             bodyStep.ContactCorrection += correction;
-            bodyEvidence.ContactCorrection += correction;
+            bodyStep.TimestepContactCorrection += correction;
             bodyStep.SolvedPosition.y = bodySnapshot.Position.y;
-            Bodies[bodyIndex] = bodySnapshot;
-            NavigationStates[bodyIndex] = bodyNavigation;
-            MotionIntents[bodyIndex] = bodyIntent;
-            MotionEvidence[bodyIndex] = bodyEvidence;
             StepStates[bodyIndex] = bodyStep;
             CorrectedBodyFlags[bodyIndex] = 1;
         }

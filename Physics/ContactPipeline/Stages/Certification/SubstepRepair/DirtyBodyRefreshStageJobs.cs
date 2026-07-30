@@ -24,7 +24,7 @@ internal struct RefreshDirtyBodiesJob : IJobParallelForDefer
 {
     [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
     [ReadOnly] public NativeArray<CrowdMotionEvidence> MotionEvidence;
-    [ReadOnly] public NativeArray<CrowdBodyStepState> StepStates;
+    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
     [NativeDisableParallelForRestriction]
     public NativeArray<IncrementalDirtyBody> DirtyBodies;
     [NativeDisableParallelForRestriction]
@@ -35,6 +35,7 @@ internal struct RefreshDirtyBodiesJob : IJobParallelForDefer
     [ReadOnly] public NativeReference<IncrementalContactCacheState> CacheState;
     public NativeArray<DirtyBodyRefreshResult> Results;
 
+    public uint ObstacleVersion;
     public float GuardMargin;
     public float PredictiveSkin;
     public float TimestepContactMargin;
@@ -58,6 +59,7 @@ internal struct RefreshDirtyBodiesJob : IJobParallelForDefer
                 PersistentProxyIndexByBody.Length,
                 new PersistentCacheReusability.ConfigurationFingerprint
                 {
+                    ObstacleVersion = ObstacleVersion,
                     GuardMargin = GuardMargin,
                     PredictiveSkin = PredictiveSkin,
                     TimestepContactMargin = TimestepContactMargin,
@@ -85,7 +87,7 @@ internal struct RefreshDirtyBodiesJob : IJobParallelForDefer
         }
 
         IncrementalBodyDirtyFlags refreshed =
-            CertificationStageKernel.ClassifyAndUpdatePersistentProxyForBody(
+            PersistentProxyBuilder.ClassifyAndUpdateForBody(
                 bodyIndex,
                 Bodies[bodyIndex],
                 MotionEvidence[bodyIndex],

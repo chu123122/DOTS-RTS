@@ -84,17 +84,12 @@ Assets/Scripts
 ## 引用方向
 
 ```text
-RTS.Shared
-    ↓
-RTS.Gameplay.Core
-    ↓
-RTS.Physics
-    ↓
-RTS.Gameplay
-    ↓
-RTS.Network
-    ↓
-Assembly-CSharp (UI/Input/Composition)
+RTS.Shared ───────────┐
+RTS.Gameplay.Core ────┼→ RTS.Gameplay ─→ RTS.Network
+RTS.Physics ──────────┘       │              │
+       └──────────────────────┴──────────────┘
+                              ↓
+              Assembly-CSharp (UI/Input/Composition)
 ```
 
 规则：
@@ -105,6 +100,12 @@ Assembly-CSharp (UI/Input/Composition)
 4. `RTS.Network` 负责 RPC、客户端/服务器初始化和 NetCode 专用系统。
 5. UI、输入和场景组合只允许位于依赖链末端。
 
+Physics 的公开运行边界只有 `CrowdPhysicsRuntime` 及其 timestep/diagnostics
+lease。`RTS.Gameplay` 没有 friend assembly 权限，不能命名
+`CrossFrameCache`、`TimestepCache`、阶段资源或 Solver Job。Gameplay 写入
+`CrowdPhysicsStep.InputBodies`，Physics 发布
+`CrowdPhysicsStep.OutputBodies`。
+
 ## UI 为什么保留在 Assembly-CSharp
 
 当前 UI 直接依赖以下位于本 Git 根目录之外的源码：
@@ -113,3 +114,8 @@ Assembly-CSharp (UI/Input/Composition)
 - `Assets/Resources/PlayerAction.cs`
 
 Unity 自定义 asmdef 不能引用默认 `Assembly-CSharp`。为了避免复制第三方源码或修改未纳入当前仓库的资源，UI 暂时作为默认程序集的唯一业务组合层。它仍与 `RTS.Gameplay`、`RTS.Physics`、`RTS.Network` 形成真实编译隔离。
+
+因此，“UI 与 Gameplay 分开”的当前成功判据是：Gameplay 已进入
+`RTS.Gameplay.asmdef`，UI 只位于依赖链末端的默认程序集，Physics/Gameplay/
+Network 均不能反向引用 UI。只有先迁移或包装上述两个外部依赖，才允许新增
+`RTS.UI.asmdef`。

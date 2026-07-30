@@ -1,7 +1,5 @@
 using Unity.Mathematics;
-using RTS.Unit.Components;
 using RTS.Unit.FlowField;
-using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {

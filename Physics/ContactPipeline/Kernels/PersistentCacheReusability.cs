@@ -15,6 +15,7 @@ internal static class PersistentCacheReusability
     /// </summary>
     internal struct ConfigurationFingerprint
     {
+        public uint ObstacleVersion;
         public float GuardMargin;
         public float PredictiveSkin;
         public float TimestepContactMargin;
@@ -41,6 +42,7 @@ internal static class PersistentCacheReusability
                state.BodyCount == bodyCount &&
                persistentProxyCount == bodyCount &&
                proxyIndexByBodyCount == bodyCount &&
+               state.ObstacleVersion == config.ObstacleVersion &&
                state.GuardMargin == math.max(0f, config.GuardMargin) &&
                state.PredictiveSkin == math.max(0f, config.PredictiveSkin) &&
                state.TimestepContactMargin == math.max(0f, config.TimestepContactMargin) &&
@@ -52,5 +54,36 @@ internal static class PersistentCacheReusability
                state.PredictiveContactsEnabled == (byte)(config.PredictiveContactsEnabled ? 1 : 0) &&
                state.SoftAvoidanceVelocitySolver == (byte)config.SoftAvoidanceVelocitySolver;
     }
+
+    internal static bool IsStructurallyReusable(
+        IncrementalContactCacheState state,
+        int bodyCount,
+        int persistentProxyCount,
+        int proxyIndexByBodyCount,
+        ContactPipelineConfiguration configuration) =>
+        IsStructurallyReusable(
+            state,
+            bodyCount,
+            persistentProxyCount,
+            proxyIndexByBodyCount,
+            new ConfigurationFingerprint
+            {
+                ObstacleVersion = configuration.ObstacleVersion,
+                GuardMargin = configuration.GuardEnvelopeMargin,
+                PredictiveSkin = configuration.PredictiveSkin,
+                TimestepContactMargin =
+                    configuration.TimestepContactMargin,
+                SoftAvoidanceShell = configuration.SoftAvoidanceShell,
+                SoftAvoidanceResponseRate =
+                    configuration.SoftAvoidanceResponseRate,
+                RvoTimeHorizon = configuration.RvoTimeHorizon,
+                SubstepCount = configuration.SubstepCount,
+                PredictivePairGenerationEnabled =
+                    configuration.EnablePredictivePairGeneration,
+                PredictiveContactsEnabled =
+                    configuration.EnablePredictiveContacts,
+                SoftAvoidanceVelocitySolver =
+                    configuration.SoftAvoidanceVelocitySolver
+            });
 }
 }

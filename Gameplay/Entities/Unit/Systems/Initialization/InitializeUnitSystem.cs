@@ -58,6 +58,28 @@ namespace RTS.Unit.Systems.Initialization
 
                 if (readyToInitialize)
                 {
+                    if (!SystemAPI.HasComponent<CrowdDiscShape>(entity))
+                    {
+                        PhysicsCollider collider =
+                            SystemAPI.HasComponent<PhysicsCollider>(entity)
+                                ? SystemAPI.GetComponent<PhysicsCollider>(entity)
+                                : default;
+                        CrowdShapeSourceState source =
+                            CrowdShapeAdapter.CaptureSource(
+                                collider,
+                                localTransform.ValueRO);
+                        ecb.AddComponent(entity, new CrowdDiscShape
+                        {
+                            Radius = CrowdShapeAdapter.CalculateRadius(
+                                collider,
+                                localTransform.ValueRO),
+                            Version = 1
+                        });
+                        ecb.AddComponent(entity, source);
+                    }
+                    if (!SystemAPI.HasComponent<CrowdQueryProxy>(entity))
+                        ecb.AddComponent<CrowdQueryProxy>(entity);
+
                     // 核心修复：解决物理报错
                     if (isLocalReplay)
                     {

@@ -20,11 +20,17 @@ internal static class PersistentContactMath
         PersistentPredictiveContact contact) =>
         new ContactConstraint
         {
-            BodyA = math.min(firstBodyIndex, secondBodyIndex),
-            BodyB = math.max(firstBodyIndex, secondBodyIndex),
-            PredictiveNormal = contact.StableNormal,
-            ContactMode = contact.ContactMode,
-            FirstActivatedSubstep = -1
+            Definition = new ContactConstraintDefinition
+            {
+                BodyA = math.min(firstBodyIndex, secondBodyIndex),
+                BodyB = math.max(firstBodyIndex, secondBodyIndex),
+                PredictiveNormal = contact.StableNormal,
+                ContactMode = contact.ContactMode
+            },
+            Runtime = new ContactConstraintRuntime
+            {
+                FirstActivatedSubstep = -1
+            }
         };
 
     /// <summary>
@@ -178,7 +184,7 @@ internal static class PersistentContactMath
     internal static void CalculateIncrementalTightSweptBounds(
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
-        CrowdBodyStepState stateStep,
+        CrowdSolverBodyState stateStep,
         float predictiveSkin,
         float timestepContactMargin,
         float softAvoidanceShell,
@@ -206,7 +212,7 @@ internal static class PersistentContactMath
     internal static void CalculateIncrementalValidationBounds(
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
-        CrowdBodyStepState stateStep,
+        CrowdSolverBodyState stateStep,
         float predictiveSkin,
         float timestepContactMargin,
         float softAvoidanceShell,
@@ -228,7 +234,7 @@ internal static class PersistentContactMath
 
     private static void CalculateNeighborPathBounds(
         CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         SoftAvoidanceVelocitySolverMode softSolverMode,
         float softAvoidanceShell,
         float rvoTimeHorizon,
@@ -254,6 +260,30 @@ internal static class PersistentContactMath
                             step.BaseVelocity.xz * math.max(0f, rvoTimeHorizon);
         pathMin = math.min(pathMin, horizonEnd);
         pathMax = math.max(pathMax, horizonEnd);
+    }
+}
+
+internal static class ContactClassificationEpoch
+{
+    internal static uint Calculate(ContactPipelineConfiguration configuration)
+    {
+        uint flags = 0u;
+        if (configuration.EnablePredictivePairGeneration)
+            flags |= 1u;
+        if (configuration.EnablePredictiveContacts)
+            flags |= 2u;
+        flags |= (uint)math.max(1, configuration.SubstepCount) << 8;
+        flags |= (uint)configuration.SoftAvoidanceVelocitySolver << 24;
+
+        uint first = math.hash(new uint4(
+            math.asuint(math.max(0f, configuration.PredictiveSkin)),
+            math.asuint(math.max(0f, configuration.TimestepContactMargin)),
+            math.asuint(math.max(0f, configuration.SoftAvoidanceShell)),
+            math.asuint(math.max(0f, configuration.SoftAvoidanceResponseRate))));
+        uint second = math.hash(new uint2(
+            math.asuint(math.max(0f, configuration.RvoTimeHorizon)),
+            flags));
+        return math.hash(new uint2(first, second));
     }
 }
 }

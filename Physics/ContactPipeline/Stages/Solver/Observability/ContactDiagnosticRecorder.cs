@@ -23,15 +23,11 @@ public partial struct ConstraintSolverJob
         {
             ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
             CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
             CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
 
             if (pair.WasActivated != 0)
             {
@@ -75,15 +71,11 @@ public partial struct ConstraintSolverJob
         {
             ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
             CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
             CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
             float3 currentDelta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
             currentDelta.y = 0;
@@ -148,15 +140,11 @@ public partial struct ConstraintSolverJob
         {
             ContactConstraint pair = TimestepContactPairs[i];
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
             CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
             CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             float radiusSum = bodyASnapshot.Radius + bodyBSnapshot.Radius;
             float3 currentDelta = bodyAStep.SolvedPosition - bodyBStep.SolvedPosition;
             currentDelta.y = 0;
@@ -197,10 +185,8 @@ public partial struct ConstraintSolverJob
         }
 
         CrowdBodySnapshot selectedSnapshot = Bodies[selectedBodyIndex];
-        CrowdNavigationState selectedNavigation = NavigationStates[selectedBodyIndex];
-        CrowdMotionIntent selectedIntent = MotionIntents[selectedBodyIndex];
         CrowdMotionEvidence selectedEvidence = MotionEvidence[selectedBodyIndex];
-        CrowdBodyStepState selectedStep = StepStates[selectedBodyIndex];
+        CrowdSolverBodyState selectedStep = StepStates[selectedBodyIndex];
         var selectedDiagnostic = new SelectedBodyContactDiagnostic
         {
             IsValid = 1,
@@ -219,8 +205,10 @@ public partial struct ConstraintSolverJob
             TimestepEnvelopeMin = selectedEvidence.ContactEnvelopeMin,
             TimestepEnvelopeMax = selectedEvidence.ContactEnvelopeMax,
             TimestepEscaped = selectedEvidence.EnvelopeEscaped,
-            TimestepContactCorrection = selectedEvidence.ContactCorrection,
-            TimestepWallCorrection = selectedEvidence.WallCorrection
+            TimestepContactCorrection =
+                selectedStep.TimestepContactCorrection,
+            TimestepWallCorrection =
+                selectedStep.TimestepWallCorrection
         };
 
         selectedDiagnostic.ShadowReferenceAvailable = 1;
@@ -237,15 +225,11 @@ public partial struct ConstraintSolverJob
                 continue;
 
             CrowdBodySnapshot bodyASnapshot = Bodies[pair.BodyA];
-            CrowdNavigationState bodyANavigation = NavigationStates[pair.BodyA];
-            CrowdMotionIntent bodyAIntent = MotionIntents[pair.BodyA];
             CrowdMotionEvidence bodyAEvidence = MotionEvidence[pair.BodyA];
-            CrowdBodyStepState bodyAStep = StepStates[pair.BodyA];
+            CrowdSolverBodyState bodyAStep = StepStates[pair.BodyA];
             CrowdBodySnapshot bodyBSnapshot = Bodies[pair.BodyB];
-            CrowdNavigationState bodyBNavigation = NavigationStates[pair.BodyB];
-            CrowdMotionIntent bodyBIntent = MotionIntents[pair.BodyB];
             CrowdMotionEvidence bodyBEvidence = MotionEvidence[pair.BodyB];
-            CrowdBodyStepState bodyBStep = StepStates[pair.BodyB];
+            CrowdSolverBodyState bodyBStep = StepStates[pair.BodyB];
             float3 r0 = bodyBEvidence.TrajectoryStart - bodyAEvidence.TrajectoryStart;
             float3 relativeDisplacement =
                 (bodyBEvidence.BaselineEnd - bodyBEvidence.TrajectoryStart) -
@@ -304,15 +288,11 @@ public partial struct ConstraintSolverJob
 
         int otherBodyIndex = pair.BodyA == selectedBodyIndex ? pair.BodyB : pair.BodyA;
         CrowdBodySnapshot selectedSnapshot = Bodies[selectedBodyIndex];
-        CrowdNavigationState selectedNavigation = NavigationStates[selectedBodyIndex];
-        CrowdMotionIntent selectedIntent = MotionIntents[selectedBodyIndex];
         CrowdMotionEvidence selectedEvidence = MotionEvidence[selectedBodyIndex];
-        CrowdBodyStepState selectedStep = StepStates[selectedBodyIndex];
+        CrowdSolverBodyState selectedStep = StepStates[selectedBodyIndex];
         CrowdBodySnapshot otherSnapshot = Bodies[otherBodyIndex];
-        CrowdNavigationState otherNavigation = NavigationStates[otherBodyIndex];
-        CrowdMotionIntent otherIntent = MotionIntents[otherBodyIndex];
         CrowdMotionEvidence otherEvidence = MotionEvidence[otherBodyIndex];
-        CrowdBodyStepState otherStep = StepStates[otherBodyIndex];
+        CrowdSolverBodyState otherStep = StepStates[otherBodyIndex];
         float3 selectedClosest = math.lerp(
             selectedEvidence.TrajectoryStart,
             selectedEvidence.BaselineEnd,

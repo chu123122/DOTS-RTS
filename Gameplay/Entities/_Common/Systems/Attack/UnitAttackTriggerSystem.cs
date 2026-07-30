@@ -3,15 +3,14 @@ using Unity.Collections;
 using Unity.Entities;
 using RTS.Unit.Components;
 using Unity.Mathematics;
-using Unity.NetCode;
 using Unity.Physics;
 using Unity.Transforms;
-using 通用;
+using RTS.Gameplay.Physics;
 
 namespace Entities.Unit.System
 {
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [UpdateInGroup(typeof(CrowdQuerySystemGroup))]
     public partial struct UnitAttackTriggerSystem:ISystem
     {
         private CollisionFilter _collisionFilter;
@@ -20,72 +19,103 @@ namespace Entities.Unit.System
         {
             state.RequireForUpdate<PhysicsWorldSingleton>();
 
-            _collisionFilter = new CollisionFilter
-            {
-                BelongsTo = ~0u,
-                CollidesWith = 1 << 1,
-                GroupIndex = 0
-            };
+            _collisionFilter = CrowdQueryCollisionFilters.UnitOverlap;
         }
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var  physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
             var  collisionWorld = physicsWorld.CollisionWorld;
+            ComponentLookup<CrowdQueryProxy> queryProxyLookup =
+                SystemAPI.GetComponentLookup<CrowdQueryProxy>(true);
             
             var ecb = new EntityCommandBuffer(Allocator.Temp);
-            foreach (var (localTransform,
-                         attackDistance,
+            foreach (var (attackDistance,
+                         sourceProxy,
                          entity) in 
-                     SystemAPI.Query<RefRO<LocalTransform>,
-                             RefRO<AttackDistance>>().
+                     SystemAPI.Query<RefRO<AttackDistance>,
+                             RefRO<CrowdQueryProxy>>().
                          WithEntityAccess().WithAll<IsUserUnitTag>())
             {
-                float3 sphereCenter = localTransform.ValueRO.Position;
+                CrowdQueryProxy sourceQueryProxy = sourceProxy.ValueRO;
+                uint queryProxyVersion =
+                    sourceQueryProxy.CrowdStepVersion ==
+                    sourceQueryProxy.ProxyVersion
+                        ? sourceQueryProxy.ProxyVersion
+                        : 0u;
+                int sourceBodyIndex =
+                    physicsWorld.GetRigidBodyIndex(entity);
+                bool hasPublishedSourceBody =
+                    queryProxyVersion != 0 &&
+                    (uint)sourceBodyIndex <
+                    (uint)physicsWorld.NumBodies;
+                float3 sphereCenter = hasPublishedSourceBody
+                    ? physicsWorld.Bodies[sourceBodyIndex].WorldFromBody.pos
+                    : float3.zero;
                 NativeList<DistanceHit> hits = new NativeList<DistanceHit>(Allocator.Temp);
 
-                bool haveAttackTarget = collisionWorld.OverlapSphere(
+                if (hasPublishedSourceBody)
+                {
+                    collisionWorld.OverlapSphere(
+                        sphereCenter,
+                        attackDistance.ValueRO.Distance,
+                        ref hits,
+                        _collisionFilter);
+                }
+                PublishClosestTarget(
+                    physicsWorld,
+                    hits,
+                    entity,
                     sphereCenter,
-                    attackDistance.ValueRO.Distance,
-                    ref hits,
-                    _collisionFilter
-                );
-                CheckSphere(haveAttackTarget, hits, entity, state.EntityManager,ecb);
+                    queryProxyVersion,
+                    queryProxyLookup,
+                    ecb);
                 hits.Dispose();
             }
             ecb.Playback(state.EntityManager);
             ecb.Dispose();
         }
         
-        private void CheckSphere(bool isInSphere, NativeList<DistanceHit> hits, Entity entity,
-            EntityManager entityManager,EntityCommandBuffer ecb)
+        private static void PublishClosestTarget(
+            PhysicsWorld physicsWorld,
+            NativeList<DistanceHit> hits,
+            Entity sourceEntity,
+            float3 sourcePosition,
+            uint queryProxyVersion,
+            ComponentLookup<CrowdQueryProxy> queryProxyLookup,
+            EntityCommandBuffer ecb)
         {
-            
-            if (isInSphere && hits.Length > 1)
+            float closestDistanceSq = float.MaxValue;
+            Entity closest = Entity.Null;
+            foreach (DistanceHit hit in hits)
             {
-                float minDistance = 1000f;
-                foreach (var hit in hits)
-                {
-                    var  physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
-                    Entity entityInPhy = physicsWorld.Bodies[hit.RigidBodyIndex].Entity;
-                    if (entity.Equals(entityInPhy)) continue;
-                    float distance = math.distance(entityManager.GetComponentData<LocalTransform>(entityInPhy).Position,
-                        entityManager.GetComponentData<LocalTransform>(entity).Position);
-                    if (minDistance > distance)
-                    {
-                        //Debug.LogWarning($"{entityManager.World} 的单位攻击范围里检测到敌对单位");
-                        minDistance = distance;
-                        ecb.SetComponent(entity, new AttackEntity() { Entity = entityInPhy });
-                       // Debug.Log($"单位{entity}最近的<color=red>攻击</color>单位是：{entityInPhy}");
-                    }
-                }
+                Entity entityInPhysics =
+                    physicsWorld.Bodies[hit.RigidBodyIndex].Entity;
+                if (sourceEntity == entityInPhysics ||
+                    !queryProxyLookup.HasComponent(entityInPhysics))
+                    continue;
+
+                CrowdQueryProxy targetProxy =
+                    queryProxyLookup[entityInPhysics];
+                if (targetProxy.ProxyVersion != queryProxyVersion)
+                    continue;
+
+                float3 targetPosition =
+                    physicsWorld.Bodies[hit.RigidBodyIndex].WorldFromBody.pos;
+                float distanceSq =
+                    math.distancesq(sourcePosition, targetPosition);
+                if (distanceSq >= closestDistanceSq)
+                    continue;
+
+                closestDistanceSq = distanceSq;
+                closest = entityInPhysics;
             }
-            else
+
+            ecb.SetComponent(sourceEntity, new AttackEntity
             {
-                ecb.SetComponent(entity, new AttackEntity() { Entity = Entity.Null });
-               // Debug.Log($"单位{entity}<color=red>攻击</color>范围中无单位");
-            }
-           
+                Entity = closest,
+                QueryProxyVersion = queryProxyVersion
+            });
         }
     }
 }

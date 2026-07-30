@@ -1,45 +1,79 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
-using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-internal partial struct CertificationStageKernel
+[BurstCompile]
+internal struct ValidateConsumerViewsJob : IJob
 {
-    [BurstCompile]
-    public struct ValidateConsumerViewsJob : IJob
+    public ContactPipelineConfiguration Configuration;
+    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+    [ReadOnly] public NativeList<BodyPair> SoftAvoidancePairs;
+    [ReadOnly] public NativeList<ContactConstraint> TimestepContactPairs;
+    [ReadOnly] public NativeList<PredictiveContactScheduleEntry>
+        PredictiveContactSchedule;
+    [ReadOnly] public NativeList<IncrementalDirtyBody> DirtyBodies;
+    public NativeReference<InteractionCertificate> InteractionCertificate;
+    public NativeList<InteractionCertificateViolation>
+        InteractionCertificateViolations;
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
+    public int SubstepIndex;
+    public byte RequireDirtyBodies;
+#if RTS_CONTACT_DIAGNOSTICS
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+#endif
+
+    public void Execute()
     {
-        public ContactPipelineConfiguration Configuration;
-        [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
-        [ReadOnly] public NativeList<BodyPair> SoftAvoidancePairs;
-        [ReadOnly] public NativeList<ContactConstraint> TimestepContactPairs;
-        [ReadOnly] public NativeList<PredictiveContactScheduleEntry> PredictiveContactSchedule;
-        public NativeReference<InteractionCertificate> InteractionCertificate;
-        public NativeList<InteractionCertificateViolation> InteractionCertificateViolations;
-        public NativeReference<ContactPipelineExecutionState> RuntimeState;
-        public int SubstepIndex;
+        if (RequireDirtyBodies != 0 &&
+            DirtyBodies.Length == 0)
+            return;
+
+        ContactPipelineExecutionState runtime = RuntimeState.Value;
+        if (runtime.IsValid == 0)
+            return;
+        ContactSolverSkipReason failure =
+            InteractionCertificateKernel.GetConsumerCertificateFailure(
+            SubstepIndex,
+            Configuration,
+            Bodies,
+            SoftAvoidancePairs,
+            TimestepContactPairs,
+            PredictiveContactSchedule,
+            InteractionCertificate);
+        if (failure == ContactSolverSkipReason.None)
+            return;
+
 #if RTS_CONTACT_DIAGNOSTICS
-        public NativeReference<PredictiveDiscContactStatistics> Statistics;
+        PredictiveDiscContactStatistics statistics = Statistics.Value;
+        statistics.SolverSkipReason = failure;
+        statistics.SolverSkippedSubstepCount++;
+        Statistics.Value = statistics;
 #endif
-        public void Execute()
+        if (InteractionCertificate.IsCreated)
         {
-            var kernel = new CertificationStageKernel
-            {
-                Configuration = Configuration,
-                Bodies = Bodies,
-                SoftAvoidancePairs = SoftAvoidancePairs,
-                TimestepContactPairs = TimestepContactPairs,
-                PredictiveContactSchedule = PredictiveContactSchedule,
-                InteractionCertificate = InteractionCertificate,
-                InteractionCertificateViolations = InteractionCertificateViolations,
-#if RTS_CONTACT_DIAGNOSTICS
-                Statistics = Statistics
-#endif
-            };
-            kernel.ValidateConsumerViews(SubstepIndex, RuntimeState);
+            InteractionCertificate certificate =
+                InteractionCertificate.Value;
+            certificate.Flags &= ~InteractionCertificationFlags.Issued;
+            InteractionCertificate.Value = certificate;
         }
+        if (InteractionCertificateViolations.IsCreated)
+        {
+            InteractionCertificateViolations.Add(
+                new InteractionCertificateViolation
+                {
+                    BodyIndex = -1,
+                    FirstInvalidSubstep =
+                        (ushort)Unity.Mathematics.math.max(0, SubstepIndex),
+                    Reason = InteractionCertificateViolationReason
+                        .CommittedViewMismatch
+                });
+        }
+        runtime.IsValid = 0;
+        runtime.RecoveryRequired = 1;
+        RuntimeState.Value = runtime;
     }
 }
 }

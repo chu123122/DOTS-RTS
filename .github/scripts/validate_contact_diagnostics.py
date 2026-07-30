@@ -66,17 +66,21 @@ for token in ("PersistentClassificationTelemetryState", "ContactHeatSample"):
     if token in release_resources:
         fail(f"Diagnostics allocation survives gameplay resources: {token}")
 
-spatial = read(DIAGNOSTICS / "Capture/SimulationDebuggerSpatialReadback.cs")
+spatial = read(INTEGRATION / "SimulationDebuggerSpatialReadback.cs")
 publishing = read(INTEGRATION / "SimulationDebuggerSnapshotPublishing.cs")
 lifecycle = read(INTEGRATION / "BaseFlowMovementDiagnosticsLifecycle.cs")
 if "internal static class SimulationDebuggerSpatialReadback" not in spatial:
     fail("Spatial readback still extends the simulation system owner")
-for token in ("EntityManager entityManager", "NativeList<PersistentSweptProxy> proxies"):
+for token in (
+    "EntityManager entityManager",
+    "CrowdPhysicsRuntime physicsRuntime",
+    "physicsRuntime.ReadDebugSweptProxy(i)",
+):
     if token not in spatial:
         fail(f"Spatial readback dependency is hidden: {token}")
 if "SimulationDebuggerSpatialReadback.Capture(" not in publishing:
     fail("Snapshot publication bypasses explicit spatial readback")
-if "_candidateStore" in spatial:
+if "_crossFrameCache" in spatial:
     fail("Spatial readback reaches through the candidate-store owner")
 if "SystemAPI.TryGetSingleton(out ContactDiagnosticSelection" in lifecycle:
     fail("Legacy diagnostic selection still assumes singleton ownership")
@@ -98,17 +102,12 @@ parallel_scheduler = read(
 if "JacobiPairCorrections.ResizeUninitialized" in parallel_scheduler:
     fail("Scheduler resizes a deferred Jacobi workset outside its dependency job")
 
-incremental_certification = read(
-    PIPE / "Stages/Certification/SubstepRepair/PersistentRepairKernel.cs")
-contact_workset = re.compile(
-    r"JacobiPairCorrections\.ResizeUninitialized\(\s*"
-    r"TimestepContactPairs\.Length\s*\).*?"
-    r"blockStatistics\.ResizeUninitialized\(\s*"
-    r"\(\s*TimestepContactPairs\.Length\s*\+\s*"
-    r"CrowdContactPipelineScheduler\.JacobiPairBatchSize\s*-\s*1\s*\)\s*/\s*"
-    r"CrowdContactPipelineScheduler\.JacobiPairBatchSize\s*\)",
-    re.DOTALL)
-if not contact_workset.search(incremental_certification):
+active_incident_jobs = read(
+    PIPE / "Stages/Certification/Certificate/"
+           "ActiveConstraintIncidentStageJobs.cs")
+if "Corrections.ResizeUninitialized(Pairs.Length);" not in \
+        active_incident_jobs or \
+        "Blocks.ResizeUninitialized(" not in active_incident_jobs:
     fail("Contact Jacobi workset is not sized from the committed contact view")
 
 for path in (Path("UI/Diagnostics/Presentation"), DIAGNOSTICS / "Recording",

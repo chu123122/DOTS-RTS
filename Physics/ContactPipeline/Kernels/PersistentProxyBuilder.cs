@@ -18,7 +18,7 @@ internal static class PersistentProxyBuilder
         int bodyIndex,
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
-        CrowdBodyStepState stateStep,
+        CrowdSolverBodyState stateStep,
         float guardMargin,
         float softAvoidanceShell,
         float softAvoidanceResponseRate,
@@ -30,7 +30,8 @@ internal static class PersistentProxyBuilder
             Entity = stateSnapshot.Entity,
             BodyIndex = bodyIndex,
             IsValid = (byte)((stateSnapshot.IsInsideSimulationDomain != 0) ? 1 : 0),
-            Radius = math.max(0f, stateSnapshot.Radius)
+            Radius = math.max(0f, stateSnapshot.Radius),
+            ShapeVersion = stateSnapshot.ShapeVersion
         };
         if (!(stateSnapshot.IsInsideSimulationDomain != 0))
             return proxy;
@@ -69,7 +70,8 @@ internal static class PersistentProxyBuilder
                     math.all(current.TrajectoryEnd == previous.TrajectoryEnd) &&
                     math.all(current.AvoidanceHorizonEnd ==
                              previous.AvoidanceHorizonEnd) &&
-                    current.Radius == previous.Radius;
+                    current.Radius == previous.Radius &&
+                    current.ShapeVersion == previous.ShapeVersion;
         current.MotionVersion = same
             ? previous.MotionVersion
             : previous.MotionVersion == uint.MaxValue
@@ -86,7 +88,7 @@ internal static class PersistentProxyBuilder
         int bodyIndex,
         CrowdBodySnapshot stateSnapshot,
         CrowdMotionEvidence stateEvidence,
-        CrowdBodyStepState stateStep,
+        CrowdSolverBodyState stateStep,
         NativeArray<PersistentSweptProxy> persistentProxies,
         NativeArray<int> proxyIndexByBody,
         IncrementalContactCacheState cacheState,
@@ -126,6 +128,7 @@ internal static class PersistentProxyBuilder
         float2 posMax = current.TrajectoryStart + current.Radius;
         bool topologyDirty = previous.IsValid != current.IsValid ||
                              previous.Radius != current.Radius ||
+                             previous.ShapeVersion != current.ShapeVersion ||
                              (current.IsValid != 0 && !ContactPipelineShared.AabbContains(
                                  previous.TopologyGuardMin, previous.TopologyGuardMax,
                                  posMin, posMax));
@@ -153,7 +156,11 @@ internal static class PersistentProxyBuilder
         }
         persistentProxies[proxyIndex] = current;
         return topologyDirty
-            ? IncrementalBodyDirtyFlags.Motion | IncrementalBodyDirtyFlags.Topology
+            ? IncrementalBodyDirtyFlags.Motion |
+              IncrementalBodyDirtyFlags.Topology |
+              (previous.ShapeVersion != current.ShapeVersion
+                  ? IncrementalBodyDirtyFlags.Shape
+                  : IncrementalBodyDirtyFlags.None)
             : IncrementalBodyDirtyFlags.Motion;
     }
 }

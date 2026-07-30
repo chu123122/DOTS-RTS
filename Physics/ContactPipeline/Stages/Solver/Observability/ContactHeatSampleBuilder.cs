@@ -14,15 +14,14 @@ public partial struct ConstraintSolverJob
         for (int bodyIndex = 0; bodyIndex < Bodies.Length; bodyIndex++)
         {
             CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-            CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-            CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
             CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-            CrowdBodyStepState stateStep = StepStates[bodyIndex];
+            CrowdSolverBodyState stateStep = StepStates[bodyIndex];
             HeatSamples[bodyIndex] = new ContactHeatSample
             {
                 Entity = stateSnapshot.Entity,
                 Position = stateStep.SolvedPosition,
-                ContactCorrection = math.length(stateEvidence.ContactCorrection),
+                ContactCorrection =
+                    math.length(stateStep.TimestepContactCorrection),
                 Escaped = stateEvidence.EnvelopeEscaped
             };
         }

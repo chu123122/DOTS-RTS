@@ -38,7 +38,8 @@ internal static class DirtyIncidentPairMapper
         NativeParallelMultiHashMap<Entity, int> incidentPairLookup,
         NativeReference<uint> incidentLookupEpoch,
         NativeList<PersistentNeighborPair> persistentNeighborPairs,
-        NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> contactIndex,
+        NativeList<PersistentPredictiveContact> contacts,
+        NativeParallelHashMap<StableEntityPairKey, int> contactIndex,
         NativeList<PersistentSweptProxy> persistentProxies,
         NativeList<int> proxyIndexByBody,
         IncrementalContactCacheState cacheState,
@@ -95,6 +96,7 @@ internal static class DirtyIncidentPairMapper
                 bodies,
                 bodyIndexByEntity,
                 persistentNeighborPairs,
+                contacts,
                 contactIndex,
                 persistentProxies,
                 proxyIndexByBody,
@@ -124,8 +126,11 @@ internal static class DirtyIncidentPairMapper
                     return false;
                 pairs.Add(new ContactConstraint
                 {
-                    BodyA = math.min(bodyA, bodyB),
-                    BodyB = math.max(bodyA, bodyB)
+                    Definition = new ContactConstraintDefinition
+                    {
+                        BodyA = math.min(bodyA, bodyB),
+                        BodyB = math.max(bodyA, bodyB)
+                    }
                 });
             }
             while (incidentPairLookup.TryGetNextValue(
@@ -140,6 +145,7 @@ internal static class DirtyIncidentPairMapper
         return FilterEligiblePairsInPlace(
             pairs,
             bodies,
+            contacts,
             contactIndex,
             persistentProxies,
             proxyIndexByBody,
@@ -152,7 +158,8 @@ internal static class DirtyIncidentPairMapper
         NativeArray<CrowdBodySnapshot> bodies,
         NativeParallelHashMap<Entity, int> bodyIndexByEntity,
         NativeList<PersistentNeighborPair> persistentNeighborPairs,
-        NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> contactIndex,
+        NativeList<PersistentPredictiveContact> contacts,
+        NativeParallelHashMap<StableEntityPairKey, int> contactIndex,
         NativeList<PersistentSweptProxy> persistentProxies,
         NativeList<int> proxyIndexByBody,
         out int dirtyIncidentPairCount,
@@ -177,9 +184,9 @@ internal static class DirtyIncidentPairMapper
                 continue;
 
             dirtyIncidentPairCount++;
-            if (!TryEvaluateEligibility(
+                if (!TryEvaluateEligibility(
                     key, bodyA, bodyB,
-                    contactIndex, persistentProxies, proxyIndexByBody,
+                    contacts, contactIndex, persistentProxies, proxyIndexByBody,
                     out bool eligible))
                 return false;
             if (!eligible)
@@ -189,8 +196,11 @@ internal static class DirtyIncidentPairMapper
             }
             pairs.Add(new ContactConstraint
             {
-                BodyA = math.min(bodyA, bodyB),
-                BodyB = math.max(bodyA, bodyB)
+                Definition = new ContactConstraintDefinition
+                {
+                    BodyA = math.min(bodyA, bodyB),
+                    BodyB = math.max(bodyA, bodyB)
+                }
             });
         }
         return true;
@@ -199,7 +209,8 @@ internal static class DirtyIncidentPairMapper
     private static bool FilterEligiblePairsInPlace(
         NativeList<ContactConstraint> pairs,
         NativeArray<CrowdBodySnapshot> bodies,
-        NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> contactIndex,
+        NativeList<PersistentPredictiveContact> contacts,
+        NativeParallelHashMap<StableEntityPairKey, int> contactIndex,
         NativeList<PersistentSweptProxy> persistentProxies,
         NativeList<int> proxyIndexByBody,
         out int eligibilitySkippedCount)
@@ -215,7 +226,7 @@ internal static class DirtyIncidentPairMapper
                 bodies[pair.BodyB].Entity);
             if (!TryEvaluateEligibility(
                     key, pair.BodyA, pair.BodyB,
-                    contactIndex, persistentProxies, proxyIndexByBody,
+                    contacts, contactIndex, persistentProxies, proxyIndexByBody,
                     out bool eligible))
                 return false;
             if (!eligible)
@@ -233,39 +244,56 @@ internal static class DirtyIncidentPairMapper
         StableEntityPairKey key,
         int bodyA,
         int bodyB,
-        NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> contactIndex,
+        NativeList<PersistentPredictiveContact> contacts,
+        NativeParallelHashMap<StableEntityPairKey, int> contactIndex,
         NativeList<PersistentSweptProxy> persistentProxies,
         NativeList<int> proxyIndexByBody,
         out bool eligible)
     {
-        eligible = false;
+        eligible = IsEligible(
+            key,
+            bodyA,
+            bodyB,
+            contacts.AsArray(),
+            contactIndex,
+            persistentProxies.AsArray(),
+            proxyIndexByBody.AsArray());
+        return true;
+    }
+
+    internal static bool IsEligible(
+        StableEntityPairKey key,
+        int bodyA,
+        int bodyB,
+        NativeArray<PersistentPredictiveContact> contacts,
+        NativeParallelHashMap<StableEntityPairKey, int> contactIndex,
+        NativeArray<PersistentSweptProxy> persistentProxies,
+        NativeArray<int> proxyIndexByBody)
+    {
         // O(1) 哈希表查找取代原来的二分查找
-        PersistentPredictiveContact prev = default;
+        int contactIndexValue = -1;
         bool hasPrev = contactIndex.IsCreated &&
-                       contactIndex.TryGetValue(key, out prev);
+                       contactIndex.TryGetValue(key, out contactIndexValue) &&
+                       (uint)contactIndexValue < (uint)contacts.Length;
+        PersistentPredictiveContact prev = hasPrev
+            ? contacts[contactIndexValue]
+            : default;
         if (hasPrev && prev.Lifecycle != PersistentContactLifecycle.Expired)
-        {
-            eligible = true;
             return true;
-        }
         if (!TryGetProxy(bodyA, persistentProxies, proxyIndexByBody,
                 out PersistentSweptProxy proxyA) ||
             !TryGetProxy(bodyB, persistentProxies, proxyIndexByBody,
                 out PersistentSweptProxy proxyB))
-        {
-            eligible = true;
             return true;
-        }
-        eligible = ContactPipelineShared.AabbOverlaps(
+        return ContactPipelineShared.AabbOverlaps(
             proxyA.TightMin, proxyA.TightMax,
             proxyB.TightMin, proxyB.TightMax);
-        return true;
     }
 
     private static bool TryGetProxy(
         int bodyIndex,
-        NativeList<PersistentSweptProxy> persistentProxies,
-        NativeList<int> proxyIndexByBody,
+        NativeArray<PersistentSweptProxy> persistentProxies,
+        NativeArray<int> proxyIndexByBody,
         out PersistentSweptProxy proxy)
     {
         proxy = default;

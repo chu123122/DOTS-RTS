@@ -7,13 +7,11 @@ namespace RTS.Unit.FlowField.Systems
 public abstract partial class BaseFlowMovementSystem
 {
     private void ApplySimulationDebuggerRuntimeOverrides(
-        ref FlowFieldSettings flowSettings,
         ref UnitContactSolverSettings solverSettings)
     {
         ulong worldId = SimulationDebuggerWorldIdentity.FromSequenceNumber(
             World.Unmanaged.SequenceNumber);
         SimulationDebuggerEffectiveSettings current = BuildEffectiveSettings(
-            flowSettings,
             solverSettings,
             AdaptiveFatAabbSettings.Default);
         SimulationDebuggerRuntime.CaptureBaselineSettings(worldId, current);
@@ -39,21 +37,22 @@ public abstract partial class BaseFlowMovementSystem
         solverSettings.TimestepContactMargin = math.max(0f, requested.TimestepContactMargin);
         solverSettings.EnableDiagnostics = requested.EnableDiagnostics != 0;
 
-        flowSettings.SoftAvoidanceResponseRate = math.max(0f, requested.SoftAvoidanceResponseRate);
-        flowSettings.SoftAvoidanceShell = math.max(0f, requested.SoftAvoidanceShell);
-        flowSettings.SettledSoftAvoidanceMultiplier = math.max(
+        solverSettings.SoftAvoidanceResponseRate =
+            math.max(0f, requested.SoftAvoidanceResponseRate);
+        solverSettings.SoftAvoidanceShell =
+            math.max(0f, requested.SoftAvoidanceShell);
+        solverSettings.SettledSoftAvoidanceMultiplier = math.max(
             0f,
             requested.SettledSoftAvoidanceMultiplier);
-        flowSettings.SoftAvoidanceVelocitySolver =
+        solverSettings.SoftAvoidanceVelocitySolver =
             (SoftAvoidanceVelocitySolverMode)math.clamp(requested.SoftAvoidanceVelocitySolver, 0, 1);
-        flowSettings.RvoTimeHorizon = math.max(0.01f, requested.RvoTimeHorizon);
+        solverSettings.RvoTimeHorizon =
+            math.max(0.01f, requested.RvoTimeHorizon);
 
-        SystemAPI.SetSingleton(flowSettings);
         SystemAPI.SetSingleton(solverSettings);
     }
 
     private static SimulationDebuggerEffectiveSettings BuildEffectiveSettings(
-        FlowFieldSettings flowSettings,
         UnitContactSolverSettings solverSettings,
         AdaptiveFatAabbSettings adaptiveSettings)
     {
@@ -77,11 +76,14 @@ public abstract partial class BaseFlowMovementSystem
             TimestepContactMargin = solverSettings.TimestepContactMargin,
             EnableDiagnostics =
                 (byte)(solverSettings.EnableDiagnostics ? 1 : 0),
-            SoftAvoidanceResponseRate = flowSettings.SoftAvoidanceResponseRate,
-            SoftAvoidanceShell = flowSettings.SoftAvoidanceShell,
-            SettledSoftAvoidanceMultiplier = flowSettings.SettledSoftAvoidanceMultiplier,
-            SoftAvoidanceVelocitySolver = (int)flowSettings.SoftAvoidanceVelocitySolver,
-            RvoTimeHorizon = flowSettings.RvoTimeHorizon,
+            SoftAvoidanceResponseRate =
+                solverSettings.SoftAvoidanceResponseRate,
+            SoftAvoidanceShell = solverSettings.SoftAvoidanceShell,
+            SettledSoftAvoidanceMultiplier =
+                solverSettings.SettledSoftAvoidanceMultiplier,
+            SoftAvoidanceVelocitySolver =
+                (int)solverSettings.SoftAvoidanceVelocitySolver,
+            RvoTimeHorizon = solverSettings.RvoTimeHorizon,
             EnableAdaptiveFatAabb = adaptiveSettings.Enabled,
             AdaptiveDetectionCellSpan = adaptiveSettings.DetectionCellSpan,
             AdaptiveMinimumUnitsPerCell = adaptiveSettings.MinimumUnitsPerCell,

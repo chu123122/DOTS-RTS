@@ -46,22 +46,44 @@ if "Interlocked" in jacobi or "Atomic" in jacobi:
 base = read(FLOW / "BaseFlowMovementSystem.cs")
 if re.search(r"new Native(?:Array|List|Reference|Parallel)", base):
     fail("Composition root allocates contact Native resources directly")
-for token in ("InteractionCandidateStore.Create(", "CrowdStepBodyResources.Create(",
-              "InteractionCertificationFrameResources.Create(",
-              "SoftAvoidanceFrameResources.Create(", "ConstraintSolverFrameResources.Create("):
+for token in (
+    "CrowdPhysicsRuntime.Create()",
+    "_physicsRuntime.CreateStep(unitCount)",
+    "_physicsRuntime.ScheduleStep(",
+):
     if token not in base:
         fail(f"Composition root wiring missing: {token}")
+for retired in ("InteractionCertificationFrameResources.Create(",
+                "SoftAvoidanceFrameResources.Create(",
+                "ConstraintSolverFrameResources.Create(",
+                "ContactPipelineExecutionResources.Create("):
+    if retired in base:
+        fail(f"Gameplay still allocates an internal stage resource: {retired}")
 
-certifier = read(PIPE / "Stages/Certification/Certificate/InteractionCorrectnessKernel.cs")
-timestep = read(PIPE / "Stages/Certification/InitialContact/TimestepContactSetKernel.cs")
-for token in ("IssueCertificateForCommittedViews(", "RevokeInteractionCertificate("):
+certifier = read(PIPE / "Kernels/InteractionCertificateKernel.cs")
+classification_publication = read(
+    PIPE / "Scheduling/Parallel/Jobs/ClassificationPublicationStageJobs.cs")
+classification_stage = read(
+    PIPE /
+    "Stages/Certification/PersistentClassification/"
+    "PersistentClassificationStageJobs.cs")
+for token in (
+    "IssueCertificateForCommittedViews(",
+    "GetConsumerCertificateFailure(",
+):
     if token not in certifier:
         fail(f"Certification boundary missing: {token}")
-for token in ("ResolveInteractionSource(", "CommitTimestepContactViews("):
-    if token not in timestep:
-        fail(f"Interaction view phase missing: {token}")
+for token in (
+    "ScatterClassificationPublicationBlocksJob",
+    "InitialTimestepContacts[constraintWrite]",
+):
+    if token not in classification_publication:
+        fail(f"Interaction view publication missing: {token}")
+if "FinalizePersistentClassificationCertificateJob" not in \
+        classification_stage:
+    fail("Initial classification certificate stage missing")
 
-oracle = read(PIPE / "Stages/Certification/Certificate/IncrementalContactOracleKernel.cs")
+oracle = read(PIPE / "Kernels/ContactOracleKernel.cs")
 if "IncrementalCacheState" in oracle or ".IsValid = 0" in oracle:
     fail("Oracle controls authoritative cache state")
 

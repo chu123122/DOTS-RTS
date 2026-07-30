@@ -9,7 +9,7 @@ internal static class ContactIterationDiagnostics
 {
     internal static void Record(
         NativeArray<CrowdBodySnapshot> bodies,
-        NativeArray<CrowdBodyStepState> stepStates,
+        NativeArray<CrowdSolverBodyState> stepStates,
         NativeList<ContactConstraint> constraints,
         NativeList<ContactIterationDiagnostic> diagnostics,
         int substepIndex,
@@ -96,33 +96,6 @@ internal static class ContactIterationDiagnostics
     }
 }
 
-internal partial struct CertificationStageKernel
-{
-    private void RecordIterationDiagnostic(
-        int substepIndex,
-        int iterationIndex,
-        float maxViolationBeforeSolve,
-        float averageViolationBeforeSolve,
-        float totalPositionCorrection,
-        float maxPositionCorrection,
-        float totalWallPositionCorrection,
-        float maxWallPositionCorrection)
-    {
-        ContactIterationDiagnostics.Record(
-            Bodies,
-            StepStates,
-            TimestepContactPairs,
-            IterationDiagnostics,
-            substepIndex,
-            iterationIndex,
-            maxViolationBeforeSolve,
-            averageViolationBeforeSolve,
-            totalPositionCorrection,
-            maxPositionCorrection,
-            totalWallPositionCorrection,
-            maxWallPositionCorrection);
-    }
-}
 }
 
 #endif

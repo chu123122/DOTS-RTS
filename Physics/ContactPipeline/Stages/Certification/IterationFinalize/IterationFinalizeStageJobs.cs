@@ -1,57 +1,105 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
-using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
-internal partial struct CertificationStageKernel
+[BurstCompile]
+internal struct FinalizeWallIterationJob : IJob
 {
-    [BurstCompile]
-    public struct FinalizeWallIterationJob : IJob
-    {
-        public CertificationEnvironmentResources Environment;
-        public CertificationBodyResources Body;
-        public CertificationViewResources Views;
-        public PersistentCertificationResources Persistent;
-        public CertificationSolverResources Solver;
-        public CertificationDiagnosticsResources Diagnostics;
-        public NativeReference<ContactPipelineExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public int BodyBlockCount;
-        public void Execute()
-        {
-            var kernel = CertificationKernelResources.Compose(Environment, Body, Views, Persistent, Solver, Diagnostics);
-            kernel.FinalizeWallIteration(SubstepIndex, RuntimeState
+    public ContactPipelineConfiguration Configuration;
+    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+    public NativeArray<CrowdMotionEvidence> MotionEvidence;
+    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
+    public NativeArray<byte> DirtyFlagsByBody;
+    public NativeList<IncrementalDirtyBody> DirtyBodies;
+    public NativeReference<InteractionCertificate> InteractionCertificate;
+    public NativeList<InteractionCertificateViolation> CertificateViolations;
+    public NativeArray<byte> CorrectedBodyFlags;
+    public NativeList<int> CorrectedBodyIndices;
+    [ReadOnly] public NativeArray<ParallelBodyStageResult> ParallelBodyStatistics;
 #if RTS_CONTACT_DIAGNOSTICS
-                , Diagnostics.IterationState, Diagnostics.BlockStatistics
+    public NativeReference<ContactSolverIterationTelemetry> IterationState;
+    [ReadOnly] public NativeList<JacobiBlockTelemetry> BlockStatistics;
+    public NativeReference<IncrementalContactPipelineStatistics>
+        IncrementalStatistics;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
 #endif
-                , BodyBlockCount);
-        }
-    }
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
+    public int SubstepIndex;
+    public int BodyBlockCount;
 
-    [BurstCompile]
-    public struct FinalizeContactIterationJob : IJob
-    {
-        public CertificationEnvironmentResources Environment;
-        public CertificationBodyResources Body;
-        public CertificationViewResources Views;
-        public PersistentCertificationResources Persistent;
-        public CertificationSolverResources Solver;
-        public CertificationDiagnosticsResources Diagnostics;
-        public NativeReference<ContactPipelineExecutionState> RuntimeState;
-        public int SubstepIndex;
-        public int IterationIndex;
-        public void Execute()
-        {
-            var kernel = CertificationKernelResources.Compose(Environment, Body, Views, Persistent, Solver, Diagnostics);
-            kernel.FinalizeContactIteration(SubstepIndex, IterationIndex, RuntimeState
+    public void Execute() => IterationFinalizeDataFlow.FinalizeWallIteration(
+        SubstepIndex,
+        RuntimeState
 #if RTS_CONTACT_DIAGNOSTICS
-                , Diagnostics.IterationState, Diagnostics.BlockStatistics
+        , IterationState,
+        BlockStatistics,
+        IncrementalStatistics,
+        Statistics
 #endif
-            );
-        }
-    }
+        , BodyBlockCount,
+        Configuration,
+        Bodies,
+        MotionEvidence,
+        StepStates,
+        DirtyFlagsByBody,
+        DirtyBodies,
+        InteractionCertificate,
+        CertificateViolations,
+        CorrectedBodyFlags,
+        CorrectedBodyIndices,
+        ParallelBodyStatistics);
+}
+
+[BurstCompile]
+internal struct FinalizeContactIterationJob : IJob
+{
+    public ContactPipelineConfiguration Configuration;
+    [ReadOnly] public NativeArray<CrowdBodySnapshot> Bodies;
+    public NativeArray<CrowdMotionEvidence> MotionEvidence;
+    [ReadOnly] public NativeArray<CrowdSolverBodyState> StepStates;
+    public NativeList<ContactConstraint> TimestepContactPairs;
+    public NativeArray<byte> DirtyFlagsByBody;
+    public NativeList<IncrementalDirtyBody> DirtyBodies;
+    public NativeReference<InteractionCertificate> InteractionCertificate;
+    public NativeList<InteractionCertificateViolation> CertificateViolations;
+    public NativeArray<byte> CorrectedBodyFlags;
+    public NativeList<int> CorrectedBodyIndices;
+#if RTS_CONTACT_DIAGNOSTICS
+    public NativeReference<ContactSolverIterationTelemetry> IterationState;
+    [ReadOnly] public NativeList<JacobiBlockTelemetry> BlockStatistics;
+    public NativeReference<IncrementalContactPipelineStatistics>
+        IncrementalStatistics;
+    public NativeReference<PredictiveDiscContactStatistics> Statistics;
+    public NativeList<ContactIterationDiagnostic> IterationDiagnostics;
+#endif
+    public NativeReference<ContactPipelineExecutionState> RuntimeState;
+    public int SubstepIndex;
+    public int IterationIndex;
+
+    public void Execute() => IterationFinalizeDataFlow.FinalizeContactIteration(
+        SubstepIndex,
+        IterationIndex,
+        RuntimeState
+#if RTS_CONTACT_DIAGNOSTICS
+        , IterationState,
+        BlockStatistics,
+        IncrementalStatistics,
+        Statistics,
+        IterationDiagnostics
+#endif
+        , Configuration,
+        Bodies,
+        MotionEvidence,
+        StepStates,
+        TimestepContactPairs,
+        DirtyFlagsByBody,
+        DirtyBodies,
+        InteractionCertificate,
+        CertificateViolations,
+        CorrectedBodyFlags,
+        CorrectedBodyIndices);
 }
 }

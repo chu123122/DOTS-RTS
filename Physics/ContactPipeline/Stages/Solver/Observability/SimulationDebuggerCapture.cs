@@ -30,9 +30,9 @@ public partial struct ConstraintSolverJob
         int substepIndex,
         ContactConstraint pair,
         CrowdBodySnapshot bodyA,
-        CrowdBodyStepState stepA,
+        CrowdSolverBodyState stepA,
         CrowdBodySnapshot bodyB,
-        CrowdBodyStepState stepB,
+        CrowdSolverBodyState stepB,
         float3 normal,
         float constraintValue,
         float pairCorrection)
@@ -58,9 +58,9 @@ public partial struct ConstraintSolverJob
         int substepIndex,
         ContactConstraint pair,
         CrowdBodySnapshot bodyA,
-        CrowdBodyStepState stepA,
+        CrowdSolverBodyState stepA,
         CrowdBodySnapshot bodyB,
-        CrowdBodyStepState stepB,
+        CrowdSolverBodyState stepB,
         float3 normal,
         float constraintValue,
         float pairCorrection)
@@ -152,10 +152,9 @@ public partial struct ConstraintSolverJob
             return;
 
         CrowdBodySnapshot stateSnapshot = Bodies[bodyIndex];
-        CrowdNavigationState stateNavigation = NavigationStates[bodyIndex];
-        CrowdMotionIntent stateIntent = MotionIntents[bodyIndex];
         CrowdMotionEvidence stateEvidence = MotionEvidence[bodyIndex];
-        CrowdBodyStepState stateStep = StepStates[bodyIndex];
+        CrowdSolverBodyState stateStep = StepStates[bodyIndex];
+        CrowdAvoidanceState avoidance = AvoidanceStates[bodyIndex];
         int cachedContacts = 0;
         int activeContacts = 0;
         for (int i = 0; i < SimulationDebuggerSelectedPairs.Length; i++)
@@ -177,10 +176,10 @@ public partial struct ConstraintSolverJob
             UnconstrainedPosition = stateStep.UnconstrainedPosition,
             FinalPosition = stateStep.SolvedPosition,
             CurrentVelocity = stateSnapshot.Velocity,
-            SoftAvoidanceVelocity = stateStep.SoftAvoidanceVelocity,
+            SoftAvoidanceVelocity = avoidance.SoftVelocity,
             ContactCorrection = math.length(stateStep.ContactCorrection.xz),
             WallCorrection = math.length(stateStep.WallCorrection.xz),
-            SoftNeighborCount = stateStep.SoftAvoidanceNeighborCount,
+            SoftNeighborCount = avoidance.NeighborCount,
             CapturedPairCount = cachedContacts,
             CachedContactCount = cachedContacts,
             ActiveContactCount = activeContacts
@@ -210,9 +209,9 @@ public partial struct ConstraintSolverJob
     private static float CalculateStartSeparation(
         ContactConstraint pair,
         CrowdBodySnapshot bodyA,
-        CrowdBodyStepState stepA,
+        CrowdSolverBodyState stepA,
         CrowdBodySnapshot bodyB,
-        CrowdBodyStepState stepB)
+        CrowdSolverBodyState stepB)
     {
         float3 delta = stepA.SubstepStartPosition - stepB.SubstepStartPosition;
         delta.y = 0f;

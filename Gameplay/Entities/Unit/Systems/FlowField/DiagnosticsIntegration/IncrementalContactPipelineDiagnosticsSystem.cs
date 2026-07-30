@@ -5,7 +5,7 @@ namespace RTS.Unit.FlowField.Systems
 {
 
 #if RTS_CONTACT_DIAGNOSTICS
-[UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
+[UpdateInGroup(typeof(CrowdPhysicsSystemGroup), OrderFirst = true)]
 [UpdateBefore(typeof(LocalUnitFlowMovementSystem))]
 public partial class IncrementalContactPipelineDiagnosticsSystem : SystemBase
 {

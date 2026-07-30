@@ -13,6 +13,7 @@ namespace Entities._Common
     public struct DamageBufferElement : IBufferElementData
     {
         public int Value;
+        public uint QueryProxyVersion;
     }
     public struct DamageThisTick : IBufferElementData
     {

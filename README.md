@@ -124,7 +124,7 @@ Physics/ContactPipeline/
 │   ├── Execution/         # ContactPipelineConfiguration（不可变快照）
 │   └── Interaction/       # BodyPair, ContactConstraint, 代理/调度条目
 ├── State/
-│   ├── Persistent/        # 跨帧候选所有者（InteractionCandidateStore）
+│   ├── Persistent/        # 跨帧缓存所有者（CrossFrameCache）
 │   └── Frame/             # 帧生命周期资源所有者
 ├── Kernels/               # 无容器共享 Burst 算法（分类器、调度器、数学）
 ├── Scheduling/

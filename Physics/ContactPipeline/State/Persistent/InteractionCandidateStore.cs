@@ -7,38 +7,33 @@ using RTS.Unit.FlowField.Jobs;
 namespace RTS.Unit.FlowField.Systems
 {
 /// <summary>
-/// 世界寿命的、未认证候选源。仅生命周期与认证阶段接收这些容器；运动、软避让、求解器 Job 一律不接收。
+/// World 生命周期的跨帧缓存。缓存只是 BroadPhase/NarrowPhase 的优化实现，
+/// 只有能力受限的资源切片会进入具体 Job；Solver 永远不能取得整个缓存。
 /// </summary>
-internal struct InteractionCandidateStore
+internal struct CrossFrameCache
 {
-    public NativeList<PersistentSweptProxy> SweptProxies;
-    public NativeList<int> ProxyIndexByBody;
-    public NativeList<PersistentNeighborPair> NeighborPairs;
-    public NativeList<PersistentPredictiveContact> PredictiveContacts;
-    // O(1) 查找索引，替代有序列表+二分查找。全量重建后从 PredictiveContacts 重建；
-    // 增量 patch 路径直接写入，无需重排序。
-    public NativeHashMap<StableEntityPairKey, PersistentPredictiveContact> PredictiveContactIndex;
-    public NativeList<StableEntityPairKey> ActiveContactKeys;
-    public NativeList<StableEntityPairKey> SoftAvoidancePairKeys;
-    public NativeList<PredictiveContactScheduleEntry> DormantContactSchedule;
-    public NativeReference<IncrementalContactCacheState> CacheState;
-    public NativeParallelMultiHashMap<Entity, int> IncidentPairLookup;
-    public NativeReference<uint> IncidentLookupEpoch;
-    public NativeParallelMultiHashMap<int, int> SpatialMembership;
-    public NativeReference<uint> SpatialMembershipEpoch;
+    private NativeList<PersistentSweptProxy> SweptProxies;
+    private NativeList<int> ProxyIndexByBody;
+    private NativeList<PersistentNeighborPair> NeighborPairs;
+    private NativeList<PersistentPredictiveContact> PredictiveContacts;
+    // 派生 key -> list index。PredictiveContacts 是唯一权威值存储；
+    // 任何列表替换/压缩都必须在发布前重建此索引。
+    private NativeParallelHashMap<StableEntityPairKey, int> PredictiveContactIndex;
+    private NativeReference<IncrementalContactCacheState> CacheState;
+    private NativeParallelMultiHashMap<Entity, int> IncidentPairLookup;
+    private NativeReference<uint> IncidentLookupEpoch;
+    private NativeParallelMultiHashMap<int, int> SpatialMembership;
+    private NativeReference<uint> SpatialMembershipEpoch;
 
-    public static InteractionCandidateStore Create()
+    public static CrossFrameCache Create()
     {
-        return new InteractionCandidateStore
+        return new CrossFrameCache
         {
             SweptProxies = new NativeList<PersistentSweptProxy>(Allocator.Persistent),
             ProxyIndexByBody = new NativeList<int>(Allocator.Persistent),
             NeighborPairs = new NativeList<PersistentNeighborPair>(Allocator.Persistent),
             PredictiveContacts = new NativeList<PersistentPredictiveContact>(Allocator.Persistent),
-            PredictiveContactIndex = new NativeHashMap<StableEntityPairKey, PersistentPredictiveContact>(1, Allocator.Persistent),
-            ActiveContactKeys = new NativeList<StableEntityPairKey>(Allocator.Persistent),
-            SoftAvoidancePairKeys = new NativeList<StableEntityPairKey>(Allocator.Persistent),
-            DormantContactSchedule = new NativeList<PredictiveContactScheduleEntry>(Allocator.Persistent),
+            PredictiveContactIndex = new NativeParallelHashMap<StableEntityPairKey, int>(1, Allocator.Persistent),
             CacheState = new NativeReference<IncrementalContactCacheState>(Allocator.Persistent),
             IncidentPairLookup = new NativeParallelMultiHashMap<Entity, int>(1, Allocator.Persistent),
             IncidentLookupEpoch = new NativeReference<uint>(Allocator.Persistent),
@@ -79,9 +74,6 @@ internal struct InteractionCandidateStore
         NeighborPairs.Clear();
         PredictiveContacts.Clear();
         PredictiveContactIndex.Clear();
-        ActiveContactKeys.Clear();
-        SoftAvoidancePairKeys.Clear();
-        DormantContactSchedule.Clear();
         CacheState.Value = default;
         IncidentPairLookup.Clear();
         IncidentLookupEpoch.Value = 0;
@@ -104,6 +96,7 @@ internal struct InteractionCandidateStore
             PersistentProxyIndexByBody = ProxyIndexByBody,
             PersistentNeighborPairs = NeighborPairs,
             PersistentPredictiveContacts = PredictiveContacts,
+            PersistentContactIndex = PredictiveContactIndex,
             PersistentSpatialMembership = SpatialMembership,
             PersistentSpatialMembershipEpoch = SpatialMembershipEpoch,
             PersistentIncidentPairLookup = IncidentPairLookup,
@@ -121,6 +114,32 @@ internal struct InteractionCandidateStore
         };
     }
 
+    internal NativeList<PersistentSweptProxy> PersistentSweptProxies =>
+        SweptProxies;
+    internal NativeList<int> PersistentProxyIndexByBody =>
+        ProxyIndexByBody;
+    internal NativeList<PersistentNeighborPair> PersistentNeighborPairs =>
+        NeighborPairs;
+    internal NativeList<PersistentPredictiveContact>
+        PersistentPredictiveContacts => PredictiveContacts;
+    internal NativeParallelHashMap<StableEntityPairKey, int>
+        PersistentContactIndex => PredictiveContactIndex;
+    internal NativeReference<IncrementalContactCacheState>
+        IncrementalCacheState => CacheState;
+    internal NativeParallelMultiHashMap<Entity, int>
+        PersistentIncidentPairLookup => IncidentPairLookup;
+    internal NativeReference<uint> PersistentIncidentLookupEpoch =>
+        IncidentLookupEpoch;
+    internal NativeParallelMultiHashMap<int, int>
+        PersistentSpatialMembership => SpatialMembership;
+    internal NativeReference<uint> PersistentSpatialMembershipEpoch =>
+        SpatialMembershipEpoch;
+
+    internal int DebugSweptProxyCount => SweptProxies.Length;
+
+    internal PersistentSweptProxy ReadDebugSweptProxy(int index) =>
+        SweptProxies[index];
+
     public void Dispose()
     {
         if (SweptProxies.IsCreated) SweptProxies.Dispose();
@@ -128,9 +147,6 @@ internal struct InteractionCandidateStore
         if (NeighborPairs.IsCreated) NeighborPairs.Dispose();
         if (PredictiveContacts.IsCreated) PredictiveContacts.Dispose();
         if (PredictiveContactIndex.IsCreated) PredictiveContactIndex.Dispose();
-        if (ActiveContactKeys.IsCreated) ActiveContactKeys.Dispose();
-        if (SoftAvoidancePairKeys.IsCreated) SoftAvoidancePairKeys.Dispose();
-        if (DormantContactSchedule.IsCreated) DormantContactSchedule.Dispose();
         if (CacheState.IsCreated) CacheState.Dispose();
         if (IncidentPairLookup.IsCreated) IncidentPairLookup.Dispose();
         if (IncidentLookupEpoch.IsCreated) IncidentLookupEpoch.Dispose();

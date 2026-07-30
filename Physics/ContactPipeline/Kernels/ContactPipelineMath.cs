@@ -26,12 +26,12 @@ public static class ContactPipelineMath
     }
 
     internal static float3 CalculateBaseVelocityForSubstep(
-        NativeArray<FlowFieldCell> grid,
+        NativeArray<CrowdObstacleCell> grid,
         FlowGridGeometry geometry,
         CrowdBodySnapshot body,
         CrowdNavigationState navigation,
         CrowdMotionIntent intent,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float substepDeltaTime)
     {
         float3 steeringVelocityError = intent.SteeringVelocityError;
@@ -64,7 +64,7 @@ public static class ContactPipelineMath
         CrowdBodySnapshot snapshot,
         CrowdNavigationState navigation,
         CrowdMotionIntent intent,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float deltaTime,
         float3 gridOrigin,
         float cellRadius)
@@ -101,7 +101,7 @@ public static class ContactPipelineMath
     internal static void CalculateInteractionBounds(
         CrowdBodySnapshot snapshot,
         CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float predictiveSkin,
         float margin,
         float softShell,
@@ -132,7 +132,7 @@ public static class ContactPipelineMath
     internal static void CalculateValidationBounds(
         CrowdBodySnapshot snapshot,
         CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float predictiveSkin,
         float margin,
         float softShell,
@@ -161,7 +161,7 @@ public static class ContactPipelineMath
 
     internal static void CalculatePathBounds(
         CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float softShell,
         float softResponseRate,
         SoftAvoidanceVelocitySolverMode softSolverMode,
@@ -192,7 +192,7 @@ public static class ContactPipelineMath
         CrowdBodySnapshot snapshot,
         CrowdNavigationState navigation,
         CrowdMotionEvidence evidence,
-        CrowdBodyStepState step,
+        CrowdSolverBodyState step,
         float3 avoidance,
         float responseRate,
         float settledMultiplier,

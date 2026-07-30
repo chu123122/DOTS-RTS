@@ -41,4 +41,56 @@ internal struct ContactPipelineExecutionResources
         return combined;
     }
 }
+
+/// <summary>
+/// 一个物理 timestep 的唯一缓存所有者。内部资源可跨 substep，
+/// 但不会跨帧；具体阶段只能取得自己的能力切片。
+/// </summary>
+internal struct TimestepCache
+{
+    public BroadPhaseFrameResources BroadPhase;
+    public ContactProductFrameResources Products;
+    public ContactClassificationFrameResources Classification;
+    public ContactRepairFrameResources Repair;
+    public ContactCertificateFrameResources Certificate;
+    public SoftAvoidanceFrameResources SoftAvoidance;
+    public ConstraintSolverFrameResources Solver;
+    public ContactPipelineExecutionResources Execution;
+
+    public static TimestepCache Create(int unitCount)
+    {
+        return new TimestepCache
+        {
+            BroadPhase = BroadPhaseFrameResources.Create(unitCount),
+            Products = ContactProductFrameResources.Create(unitCount),
+            Classification =
+                ContactClassificationFrameResources.Create(unitCount),
+            Repair = ContactRepairFrameResources.Create(unitCount),
+            Certificate = ContactCertificateFrameResources.Create(unitCount),
+            SoftAvoidance = SoftAvoidanceFrameResources.Create(unitCount),
+            Solver = ConstraintSolverFrameResources.Create(unitCount),
+            Execution = ContactPipelineExecutionResources.Create(unitCount)
+        };
+    }
+
+    public JobHandle Dispose(JobHandle finalReader)
+    {
+        JobHandle combined = BroadPhase.Dispose(finalReader);
+        combined = JobHandle.CombineDependencies(
+            combined, Products.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, Classification.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, Repair.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, Certificate.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, SoftAvoidance.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, Solver.Dispose(finalReader));
+        combined = JobHandle.CombineDependencies(
+            combined, Execution.Dispose(finalReader));
+        return combined;
+    }
+}
 }

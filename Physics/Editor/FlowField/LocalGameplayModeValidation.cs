@@ -1,9 +1,13 @@
 using System;
 using System.IO;
+using Entities._Common;
 using Entities._Common.SpawnEntityRpc;
+using Entities.Unit.System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics;
+using Unity.Profiling;
 using Unity.Transforms;
 using UnityEditor;
 using UnityEngine;
@@ -14,12 +18,15 @@ using RTS.Unit.FlowField;
 using RTS.Unit.FlowField.Diagnostics;
 using RTS.Unit.FlowField.Jobs;
 using RTS.Unit.FlowField.Systems;
+using RTS.Gameplay.Physics;
+using TMG.NFE_Tutorial;
 
 namespace RTS.Unit.FlowField.Editor
 {
 
 /// <summary>
 /// 本地 World、固定槽位与诊断可选路径的编辑器回归入口。
+/// 标记文件只在程序集重载后消费，避免验证运行在半完成的编译状态。
 /// </summary>
 public static class LocalGameplayModeValidation
 {
@@ -44,14 +51,24 @@ public static class LocalGameplayModeValidation
         ValidateLocalUnitSpawnAndIds();
         ValidateFixedDestinationSlotMath();
         ValidatePerSlotArrivalAndSteering();
+        ValidateQueryProxyVersionContract();
+        ValidateVersionedAttackAndTrackQueries();
+        ValidateVersionedTriggerDamage();
         ValidateMovementWithoutDiagnosticComponents();
+        ValidateCacheAndSolverOutputEquivalence();
         Debug.Log(
             "LOCAL_GAMEPLAY_VALIDATION_OK\n" +
             "move order: right-click snapshot consumed once, live selection unchanged=1\n" +
             "local spawn ids: 1,2\n" +
             "fixed slots: unique, walkable, assigned=1\n" +
             "per-slot movement: direct steer=1, settled=1\n" +
-            "diagnostics optional: movement=1");
+            "query proxy: crowd commit=9, physics publish=9\n" +
+            "attack/track query: version match=1, stale source/target rejected=1\n" +
+            "trigger damage: matching version accepted=1, stale rejected=1\n" +
+            "diagnostics optional: movement=1, profiler recorder bound=1\n" +
+            "cache/solver outputs: off=timestep=cross-frame, GS~=Jacobi, " +
+            "Jacobi multi-contact incident=1\n"
+        );
     }
 
     private static void ValidateMoveOrderWithoutNetworkWorld()
@@ -228,10 +245,8 @@ public static class LocalGameplayModeValidation
     private static void ValidatePerSlotArrivalAndSteering()
     {
         var gridCells = new NativeArray<FlowFieldCell>(9, Allocator.Temp);
-        var footprints = new NativeArray<float2>(1, Allocator.Temp);
-        var bodies = new NativeArray<CrowdBodySnapshot>(1, Allocator.Temp);
-        var navigationStates = new NativeArray<CrowdNavigationState>(1, Allocator.Temp);
-        var motionIntents = new NativeArray<CrowdMotionIntent>(1, Allocator.Temp);
+        var stepInputs =
+            new NativeArray<CrowdPhysicsBodyInput>(1, Allocator.Temp);
         try
         {
             for (int i = 0; i < gridCells.Length; i++)
@@ -243,23 +258,19 @@ public static class LocalGameplayModeValidation
                     BestDirectionIndex = 0
                 };
             }
-
-            footprints[0] = new float2(1f, 1f);
             var job = new BuildCrowdMotionIntentJob
             {
                 NavigationCells = gridCells,
                 NavigationGrid = new FlowGridGeometry(
                     float3.zero, new int2(3, 3), 0.5f),
                 ActiveRequestVersion = 1,
-                CollisionFootprints = footprints,
-                Bodies = bodies,
-                NavigationStates = navigationStates,
-                MotionIntents = motionIntents
+                StepInputs = stepInputs
             };
             var velocity = new Velocity { Value = float3.zero };
             var speed = new UnitMoveSpeed { Value = 2f };
             var settings = new UnitMovementSettings { MaxForce = 20f };
             var contactBody = new UnitContactBody { InverseMass = 1f };
+            var shape = new CrowdDiscShape { Radius = 0.5f, Version = 1 };
             var destination = new UnitMoveDestination
             {
                 Position = new float3(1.8f, 0f, 1f),
@@ -278,11 +289,12 @@ public static class LocalGameplayModeValidation
                 speed,
                 settings,
                 contactBody,
+                shape,
                 destination,
                 ref arrival);
             Require(arrival.IsSettled &&
-                    math.lengthsq(bodies[0].Velocity) <= 0.000001f &&
-                    math.lengthsq(motionIntents[0].SteeringVelocityError) <= 0.000001f,
+                    math.lengthsq(stepInputs[0].Velocity) <= 0.000001f &&
+                    math.lengthsq(stepInputs[0].SteeringVelocityError) <= 0.000001f,
                 "Unit did not stop while waiting for its matching Flow Field request.");
 
             destination.OrderVersion = 1;
@@ -294,10 +306,11 @@ public static class LocalGameplayModeValidation
                 speed,
                 settings,
                 contactBody,
+                shape,
                 destination,
                 ref arrival);
             Require(!arrival.IsSettled &&
-                    motionIntents[0].SteeringVelocityError.x > 0f,
+                    stepInputs[0].SteeringVelocityError.x > 0f,
                 "Unit did not steer directly toward its assigned slot.");
 
             job.Execute(
@@ -308,68 +321,58 @@ public static class LocalGameplayModeValidation
                 speed,
                 settings,
                 contactBody,
+                shape,
                 destination,
                 ref arrival);
             Require(arrival.IsSettled &&
-                    math.lengthsq(motionIntents[0].SteeringVelocityError) <= 0.000001f,
+                    math.lengthsq(stepInputs[0].SteeringVelocityError) <= 0.000001f,
                 "Unit did not settle independently at its assigned slot.");
         }
         finally
         {
-            motionIntents.Dispose();
-            navigationStates.Dispose();
-            bodies.Dispose();
-            footprints.Dispose();
+            stepInputs.Dispose();
             gridCells.Dispose();
         }
     }
 
     private static void ValidateMovementWithoutDiagnosticComponents()
     {
-        var gridCells = new NativeArray<FlowFieldCell>(16, Allocator.TempJob);
+        var physicsWorld = new PhysicsWorld(0, 0, 0);
         try
         {
-            for (int i = 0; i < gridCells.Length; i++)
-            {
-                gridCells[i] = new FlowFieldCell
-                {
-                    Cost = 1,
-                    IntegrationValue = 3,
-                    BestDirectionIndex = 2
-                };
-            }
-
             using var world = new World("Diagnostic Optional Movement Validation", WorldFlags.Game);
             world.SetTime(new Unity.Core.TimeData(1d, 0.1f));
             EntityManager entityManager = world.EntityManager;
             Entity manager = entityManager.CreateEntity(
-                typeof(FlowFieldGrid),
+                typeof(FlowFieldGlobalTarget),
                 typeof(FlowFieldRuntimeState),
+                typeof(FlowFieldCostState),
                 typeof(FlowFieldSettings),
-                typeof(UnitContactSolverSettings));
-            entityManager.SetComponentData(manager, new FlowFieldGrid
-            {
-                Grid = gridCells,
-                GridOrigin = float3.zero,
-                GridDimensions = new int2(4, 4),
-                CellRadius = 0.5f
-            });
+                typeof(UnitContactSolverSettings),
+                typeof(RecalculateFlowFieldTag));
+            Entity physicsWorldEntity =
+                entityManager.CreateEntity(typeof(PhysicsWorldSingleton));
+            entityManager.SetComponentData(
+                physicsWorldEntity,
+                new PhysicsWorldSingleton { PhysicsWorld = physicsWorld });
             entityManager.SetComponentData(
                 manager,
-                new FlowFieldRuntimeState
+                new FlowFieldGlobalTarget
                 {
-                    ActiveVersion = 1,
-                    ActiveRequestVersion = 1
+                    TargetPosition = new float3(3f, 0f, 1f)
+                });
+            entityManager.SetComponentData(
+                manager,
+                new FlowFieldCostState
+                {
+                    IsDirty = true,
+                    CostVersion = 0
                 });
             entityManager.SetComponentData(manager, new FlowFieldSettings
             {
                 GridOrigin = float3.zero,
                 GridDimensions = new int2(4, 4),
-                CellRadius = 0.5f,
-                SoftAvoidanceResponseRate = 1f,
-                SoftAvoidanceShell = 0.1f,
-                SettledSoftAvoidanceMultiplier = 1f,
-                RvoTimeHorizon = 1f
+                CellRadius = 0.5f
             });
             entityManager.SetComponentData(manager, new UnitContactSolverSettings
             {
@@ -378,9 +381,34 @@ public static class LocalGameplayModeValidation
                 ContactPositionSolver = ContactPositionSolverMode.GaussSeidel,
                 Compliance = 0f,
                 PredictiveSkin = 0f,
+                SoftAvoidanceResponseRate = 1f,
+                SoftAvoidanceShell = 0.1f,
+                SettledSoftAvoidanceMultiplier = 1f,
+                RvoTimeHorizon = 1f,
                 EnableDiagnostics = false,
                 EnablePersistentContactCache = false
             });
+            entityManager.SetComponentData(
+                manager,
+                new RecalculateFlowFieldTag { RequestVersion = 1 });
+            entityManager.SetComponentEnabled<RecalculateFlowFieldTag>(
+                manager,
+                true);
+
+            FlowFieldBakeSystem bakeSystem =
+                world.CreateSystemManaged<FlowFieldBakeSystem>();
+            bakeSystem.Update();
+            entityManager.SetComponentData(
+                physicsWorldEntity,
+                new PhysicsWorldSingleton { PhysicsWorld = physicsWorld });
+            bakeSystem.Update();
+            entityManager.CompleteAllTrackedJobs();
+            bakeSystem.Update();
+
+            Require(
+                entityManager.GetComponentData<FlowFieldRuntimeState>(manager)
+                    .ActiveVersion == 1,
+                "Flow Field environment snapshot did not publish.");
 
             Entity unit = entityManager.CreateEntity(
                 typeof(LocalInstance),
@@ -390,6 +418,8 @@ public static class LocalGameplayModeValidation
                 typeof(UnitMoveSpeed),
                 typeof(UnitMovementSettings),
                 typeof(UnitContactBody),
+                typeof(CrowdDiscShape),
+                typeof(CrowdQueryProxy),
                 typeof(UnitMoveDestination));
             entityManager.SetComponentData(unit, new LocalInstance { Id = 1 });
             entityManager.SetComponentData(
@@ -402,6 +432,9 @@ public static class LocalGameplayModeValidation
             entityManager.SetComponentData(
                 unit,
                 new UnitContactBody { InverseMass = 1f });
+            entityManager.SetComponentData(
+                unit,
+                new CrowdDiscShape { Radius = 0.5f, Version = 1 });
             entityManager.SetComponentData(unit, new UnitMoveDestination
             {
                 Position = new float3(3f, 0f, 1f),
@@ -413,12 +446,20 @@ public static class LocalGameplayModeValidation
 
             LocalUnitFlowMovementSystem system =
                 world.CreateSystemManaged<LocalUnitFlowMovementSystem>();
+            using ProfilerRecorder simulationUpdateRecorder =
+                ProfilerRecorder.StartNew(
+                    ProfilerCategory.Scripts,
+                    "RTS.Simulation.Update",
+                    8);
             system.Update();
             entityManager.CompleteAllTrackedJobs();
 
             Require(
                 entityManager.GetComponentData<LocalTransform>(unit).Position.x > 1f,
                 "Movement system did not run without diagnostic singleton components.");
+            Require(
+                simulationUpdateRecorder.Valid,
+                "Profiler recorder could not bind RTS.Simulation.Update.");
 
 #if RTS_CONTACT_DIAGNOSTICS
             Entity legacySelectionA =
@@ -444,8 +485,532 @@ public static class LocalGameplayModeValidation
         }
         finally
         {
-            gridCells.Dispose();
+            physicsWorld.Dispose();
         }
+    }
+
+    private readonly struct MovementScenarioResult
+    {
+        public readonly float3 FirstPosition;
+        public readonly float3 SecondPosition;
+        public readonly float3 ThirdPosition;
+        public readonly float3 FourthPosition;
+        public readonly float3 FirstVelocity;
+        public readonly float3 SecondVelocity;
+        public readonly float3 ThirdVelocity;
+        public readonly float3 FourthVelocity;
+
+        public MovementScenarioResult(
+            float3 firstPosition,
+            float3 secondPosition,
+            float3 thirdPosition,
+            float3 fourthPosition,
+            float3 firstVelocity,
+            float3 secondVelocity,
+            float3 thirdVelocity,
+            float3 fourthVelocity)
+        {
+            FirstPosition = firstPosition;
+            SecondPosition = secondPosition;
+            ThirdPosition = thirdPosition;
+            FourthPosition = fourthPosition;
+            FirstVelocity = firstVelocity;
+            SecondVelocity = secondVelocity;
+            ThirdVelocity = thirdVelocity;
+            FourthVelocity = fourthVelocity;
+        }
+    }
+
+    private static void ValidateCacheAndSolverOutputEquivalence()
+    {
+        MovementScenarioResult cacheOff = RunMovementScenario(
+            "Cache OFF GS",
+            enableTimestepCache: false,
+            enablePersistentCache: false,
+            ContactPositionSolverMode.GaussSeidel);
+        MovementScenarioResult timestepCache = RunMovementScenario(
+            "Timestep Cache GS",
+            enableTimestepCache: true,
+            enablePersistentCache: false,
+            ContactPositionSolverMode.GaussSeidel);
+        MovementScenarioResult crossFrameCache = RunMovementScenario(
+            "Cross Frame Cache GS",
+            enableTimestepCache: true,
+            enablePersistentCache: true,
+            ContactPositionSolverMode.GaussSeidel);
+        MovementScenarioResult jacobi = RunMovementScenario(
+            "Cache OFF Jacobi",
+            enableTimestepCache: false,
+            enablePersistentCache: false,
+            ContactPositionSolverMode.Jacobi);
+        MovementScenarioResult multiContactJacobi = RunMovementScenario(
+            "Cross Frame Cache Jacobi Multi Contact",
+            enableTimestepCache: true,
+            enablePersistentCache: true,
+            ContactPositionSolverMode.Jacobi,
+            multiContact: true);
+
+        RequireScenarioClose(
+            cacheOff,
+            timestepCache,
+            0.0005f,
+            "Timestep cache output diverged from Cache OFF.");
+        RequireScenarioClose(
+            cacheOff,
+            crossFrameCache,
+            0.0005f,
+            "Cross-frame cache output diverged from Cache OFF.");
+        RequireScenarioClose(
+            cacheOff,
+            jacobi,
+            0.02f,
+            "Jacobi output diverged from the shared GS pipeline.");
+        Require(
+            math.distance(
+                cacheOff.FirstPosition,
+                cacheOff.SecondPosition) >= 0.9f,
+            "The equivalence scenario did not preserve the hard-contact separation.");
+        Require(
+            math.distance(
+                multiContactJacobi.SecondPosition,
+                multiContactJacobi.ThirdPosition) >= 0.9f &&
+            math.distance(
+                multiContactJacobi.ThirdPosition,
+                multiContactJacobi.FourthPosition) >= 0.9f,
+            "The Jacobi multi-contact incident chain did not preserve separation.");
+    }
+
+    private static MovementScenarioResult RunMovementScenario(
+        string name,
+        bool enableTimestepCache,
+        bool enablePersistentCache,
+        ContactPositionSolverMode solverMode,
+        bool multiContact = false)
+    {
+        var physicsWorld = new PhysicsWorld(0, 0, 0);
+        try
+        {
+            using var world = new World(name, WorldFlags.Game);
+            EntityManager entityManager = world.EntityManager;
+            Entity manager = entityManager.CreateEntity(
+                typeof(FlowFieldGlobalTarget),
+                typeof(FlowFieldRuntimeState),
+                typeof(FlowFieldCostState),
+                typeof(FlowFieldSettings),
+                typeof(UnitContactSolverSettings),
+                typeof(RecalculateFlowFieldTag));
+            Entity physicsWorldEntity =
+                entityManager.CreateEntity(typeof(PhysicsWorldSingleton));
+            entityManager.SetComponentData(
+                physicsWorldEntity,
+                new PhysicsWorldSingleton { PhysicsWorld = physicsWorld });
+            entityManager.SetComponentData(
+                manager,
+                new FlowFieldGlobalTarget
+                {
+                    TargetPosition = new float3(6f, 0f, 2f)
+                });
+            entityManager.SetComponentData(
+                manager,
+                new FlowFieldCostState { IsDirty = true });
+            entityManager.SetComponentData(manager, new FlowFieldSettings
+            {
+                GridOrigin = float3.zero,
+                GridDimensions = new int2(8, 6),
+                CellRadius = 0.5f
+            });
+            entityManager.SetComponentData(manager, new UnitContactSolverSettings
+            {
+                SubstepCount = 2,
+                IterationCount = 4,
+                ContactPositionSolver = solverMode,
+                Compliance = 0f,
+                PredictiveSkin = 0.05f,
+                SoftAvoidanceResponseRate = 0f,
+                SoftAvoidanceShell = 0f,
+                SettledSoftAvoidanceMultiplier = 1f,
+                RvoTimeHorizon = 1f,
+                EnablePredictivePairGeneration = true,
+                EnablePredictiveContacts = true,
+                EnableDiagnostics = false,
+                EnableTimestepContactSetCache = enableTimestepCache,
+                EnablePersistentContactCache = enablePersistentCache,
+                PersistentGuardEnvelopeMargin = 0.25f,
+                TimestepContactMargin = 0.05f
+            });
+            entityManager.SetComponentData(
+                manager,
+                new RecalculateFlowFieldTag { RequestVersion = 1 });
+            entityManager.SetComponentEnabled<RecalculateFlowFieldTag>(
+                manager,
+                true);
+
+            FlowFieldBakeSystem bakeSystem =
+                world.CreateSystemManaged<FlowFieldBakeSystem>();
+            bakeSystem.Update();
+            entityManager.SetComponentData(
+                physicsWorldEntity,
+                new PhysicsWorldSingleton { PhysicsWorld = physicsWorld });
+            bakeSystem.Update();
+            entityManager.CompleteAllTrackedJobs();
+            bakeSystem.Update();
+            Require(
+                entityManager.GetComponentData<FlowFieldRuntimeState>(manager)
+                    .ActiveVersion == 1,
+                $"{name}: Flow Field environment snapshot did not publish.");
+
+            Entity first = CreateScenarioUnit(
+                entityManager,
+                1,
+                new float3(2f, 0f, 2f));
+            Entity second = CreateScenarioUnit(
+                entityManager,
+                2,
+                new float3(2.7f, 0f, 2f));
+            Entity third = Entity.Null;
+            Entity fourth = Entity.Null;
+            if (multiContact)
+            {
+                third = CreateScenarioUnit(
+                    entityManager,
+                    3,
+                    new float3(3.4f, 0f, 2f));
+                fourth = CreateScenarioUnit(
+                    entityManager,
+                    4,
+                    new float3(4.1f, 0f, 2f));
+            }
+            LocalUnitFlowMovementSystem system =
+                world.CreateSystemManaged<LocalUnitFlowMovementSystem>();
+
+            for (int step = 0; step < 4; step++)
+            {
+                world.SetTime(new Unity.Core.TimeData(
+                    1d + step * 0.05d,
+                    0.05f));
+                system.Update();
+                entityManager.CompleteAllTrackedJobs();
+            }
+
+            return new MovementScenarioResult(
+                entityManager.GetComponentData<LocalTransform>(first).Position,
+                entityManager.GetComponentData<LocalTransform>(second).Position,
+                multiContact
+                    ? entityManager.GetComponentData<LocalTransform>(third)
+                        .Position
+                    : float3.zero,
+                multiContact
+                    ? entityManager.GetComponentData<LocalTransform>(fourth)
+                        .Position
+                    : float3.zero,
+                entityManager.GetComponentData<Velocity>(first).Value,
+                entityManager.GetComponentData<Velocity>(second).Value,
+                multiContact
+                    ? entityManager.GetComponentData<Velocity>(third).Value
+                    : float3.zero,
+                multiContact
+                    ? entityManager.GetComponentData<Velocity>(fourth).Value
+                    : float3.zero);
+        }
+        finally
+        {
+            physicsWorld.Dispose();
+        }
+    }
+
+    private static Entity CreateScenarioUnit(
+        EntityManager entityManager,
+        int id,
+        float3 position)
+    {
+        Entity unit = entityManager.CreateEntity(
+            typeof(LocalInstance),
+            typeof(LocalTransform),
+            typeof(Velocity),
+            typeof(FlowArrivalState),
+            typeof(UnitMoveSpeed),
+            typeof(UnitMovementSettings),
+            typeof(UnitContactBody),
+            typeof(CrowdDiscShape),
+            typeof(CrowdQueryProxy),
+            typeof(UnitMoveDestination));
+        entityManager.SetComponentData(unit, new LocalInstance { Id = id });
+        entityManager.SetComponentData(
+            unit,
+            LocalTransform.FromPosition(position));
+        entityManager.SetComponentData(
+            unit,
+            new UnitMoveSpeed { Value = 2f });
+        entityManager.SetComponentData(
+            unit,
+            new UnitMovementSettings
+            {
+                MaxForce = 20f,
+                RotationSpeed = 10f
+            });
+        entityManager.SetComponentData(
+            unit,
+            new UnitContactBody { InverseMass = 1f });
+        entityManager.SetComponentData(
+            unit,
+            new CrowdDiscShape { Radius = 0.5f, Version = 1 });
+        entityManager.SetComponentData(unit, new UnitMoveDestination
+        {
+            Position = new float3(6f, 0f, 2f),
+            ArrivalRadius = 0.1f,
+            DirectApproachIntegrationDistance = 16,
+            OrderVersion = 1,
+            IsActive = 1
+        });
+        return unit;
+    }
+
+    private static void RequireScenarioClose(
+        MovementScenarioResult expected,
+        MovementScenarioResult actual,
+        float tolerance,
+        string message)
+    {
+        bool positionsMatch =
+            math.distance(expected.FirstPosition, actual.FirstPosition) <= tolerance &&
+            math.distance(expected.SecondPosition, actual.SecondPosition) <= tolerance &&
+            math.distance(expected.ThirdPosition, actual.ThirdPosition) <= tolerance &&
+            math.distance(expected.FourthPosition, actual.FourthPosition) <= tolerance;
+        bool velocitiesMatch =
+            math.distance(expected.FirstVelocity, actual.FirstVelocity) <= tolerance &&
+            math.distance(expected.SecondVelocity, actual.SecondVelocity) <= tolerance &&
+            math.distance(expected.ThirdVelocity, actual.ThirdVelocity) <= tolerance &&
+            math.distance(expected.FourthVelocity, actual.FourthVelocity) <= tolerance;
+        Require(positionsMatch && velocitiesMatch, message);
+    }
+
+    private static void ValidateQueryProxyVersionContract()
+    {
+        var results = new NativeArray<CrowdBodyResult>(1, Allocator.TempJob);
+        try
+        {
+            results[0] = new CrowdBodyResult
+            {
+                Position = new float3(2f, 0f, 3f),
+                Rotation = quaternion.identity,
+                Velocity = new float3(1f, 0f, 0f)
+            };
+            var apply = new ApplyFlowMovementJob
+            {
+                Results = results.AsReadOnly(),
+                CrowdStepVersion = 9
+            };
+            LocalTransform transform = LocalTransform.Identity;
+            Velocity velocity = default;
+            CrowdQueryProxy proxy = new CrowdQueryProxy
+            {
+                CrowdStepVersion = 3,
+                ProxyVersion = 3
+            };
+            apply.Execute(0, ref transform, ref velocity, ref proxy);
+            Require(
+                proxy.CrowdStepVersion == 9 && proxy.ProxyVersion == 3,
+                "Crowd commit did not advance only the ECS Transform version.");
+
+            using var world =
+                new World("Crowd Query Proxy Publication Validation", WorldFlags.Game);
+            EntityManager entityManager = world.EntityManager;
+            Entity physicsWorldEntity =
+                entityManager.CreateEntity(typeof(PhysicsWorldSingleton));
+            entityManager.SetComponentData(
+                physicsWorldEntity,
+                new PhysicsWorldSingleton());
+            Entity unit = entityManager.CreateEntity(typeof(CrowdQueryProxy));
+            entityManager.SetComponentData(unit, proxy);
+
+            CrowdQueryProxyPublicationSystem publishSystem =
+                world.CreateSystemManaged<CrowdQueryProxyPublicationSystem>();
+            publishSystem.Update();
+            entityManager.CompleteAllTrackedJobs();
+
+            Require(
+                entityManager.GetComponentData<CrowdQueryProxy>(unit)
+                    .ProxyVersion == 9,
+                "Post-BuildPhysicsWorld publication did not advance ProxyVersion.");
+        }
+        finally
+        {
+            results.Dispose();
+        }
+    }
+
+    private static void ValidateVersionedAttackAndTrackQueries()
+    {
+        using var world =
+            new World("Versioned Attack Track Query Validation", WorldFlags.Game);
+        EntityManager entityManager = world.EntityManager;
+        Entity source = entityManager.CreateEntity(
+            typeof(LocalTransform),
+            typeof(CrowdQueryProxy),
+            typeof(IsUserUnitTag),
+            typeof(AttackDistance),
+            typeof(AttackEntity),
+            typeof(TrackDistance),
+            typeof(TrackEntity));
+        Entity target = entityManager.CreateEntity(
+            typeof(LocalTransform),
+            typeof(CrowdQueryProxy));
+        entityManager.SetComponentData(
+            source,
+            LocalTransform.FromPosition(float3.zero));
+        entityManager.SetComponentData(
+            target,
+            LocalTransform.FromPosition(new float3(1.5f, 0f, 0f)));
+        entityManager.SetComponentData(
+            source,
+            new CrowdQueryProxy
+            {
+                CrowdStepVersion = 7,
+                ProxyVersion = 7
+            });
+        entityManager.SetComponentData(
+            target,
+            new CrowdQueryProxy
+            {
+                CrowdStepVersion = 7,
+                ProxyVersion = 7
+            });
+        entityManager.SetComponentData(source, new AttackDistance { Distance = 3f });
+        entityManager.SetComponentData(source, new TrackDistance { Distance = 3f });
+
+        CollisionFilter unitBodyFilter = new CollisionFilter
+        {
+            BelongsTo = CrowdQueryCollisionFilters.Unit,
+            CollidesWith =
+                CrowdQueryCollisionFilters.Ground |
+                CrowdQueryCollisionFilters.Obstacle,
+            GroupIndex = 0
+        };
+        Require(
+            !CollisionFilter.IsCollisionEnabled(
+                unitBodyFilter,
+                unitBodyFilter),
+            "Unity Physics Unit-Unit response filter is still enabled.");
+        Require(
+            CollisionFilter.IsCollisionEnabled(
+                CrowdQueryCollisionFilters.UnitOverlap,
+                unitBodyFilter),
+            "Unit overlap query cannot see query proxies.");
+
+        using BlobAssetReference<Unity.Physics.Collider> collider =
+            Unity.Physics.SphereCollider.Create(
+                new SphereGeometry
+                {
+                    Center = float3.zero,
+                    Radius = 0.5f
+                },
+                unitBodyFilter);
+        var physicsWorld = new PhysicsWorld(2, 0, 0);
+        try
+        {
+            NativeArray<RigidBody> staticBodies = physicsWorld.StaticBodies;
+            staticBodies[0] = new RigidBody
+            {
+                Entity = source,
+                Collider = collider,
+                WorldFromBody = new RigidTransform(
+                    quaternion.identity,
+                    float3.zero),
+                Scale = 1f
+            };
+            staticBodies[1] = new RigidBody
+            {
+                Entity = target,
+                Collider = collider,
+                WorldFromBody = new RigidTransform(
+                    quaternion.identity,
+                    new float3(1.5f, 0f, 0f)),
+                Scale = 1f
+            };
+            physicsWorld.UpdateIndexMaps();
+            physicsWorld.CollisionWorld.BuildBroadphase(
+                ref physicsWorld,
+                0f,
+                float3.zero,
+                buildStaticTree: true);
+            entityManager.CreateSingleton(new PhysicsWorldSingleton
+            {
+                PhysicsWorld = physicsWorld
+            });
+
+            SystemHandle attackSystem =
+                world.GetOrCreateSystem<UnitAttackTriggerSystem>();
+            SystemHandle trackSystem =
+                world.GetOrCreateSystem<TrackTriggerSystem>();
+            attackSystem.Update(world.Unmanaged);
+            trackSystem.Update(world.Unmanaged);
+
+            AttackEntity attack =
+                entityManager.GetComponentData<AttackEntity>(source);
+            TrackEntity track =
+                entityManager.GetComponentData<TrackEntity>(source);
+            Require(
+                attack.Entity == target &&
+                attack.QueryProxyVersion == 7 &&
+                track.Entity == target &&
+                track.QueryProxyVersion == 7,
+                "Attack/Track query did not publish the matching proxy version.");
+
+            CrowdQueryProxy staleTarget =
+                entityManager.GetComponentData<CrowdQueryProxy>(target);
+            staleTarget.ProxyVersion = 6;
+            entityManager.SetComponentData(target, staleTarget);
+            attackSystem.Update(world.Unmanaged);
+            trackSystem.Update(world.Unmanaged);
+
+            attack = entityManager.GetComponentData<AttackEntity>(source);
+            track = entityManager.GetComponentData<TrackEntity>(source);
+            Require(
+                attack.Entity == Entity.Null &&
+                attack.QueryProxyVersion == 7 &&
+                track.Entity == Entity.Null &&
+                track.QueryProxyVersion == 7,
+                "Attack/Track query consumed a stale target proxy.");
+
+            staleTarget.ProxyVersion = 7;
+            entityManager.SetComponentData(target, staleTarget);
+            CrowdQueryProxy staleSource =
+                entityManager.GetComponentData<CrowdQueryProxy>(source);
+            staleSource.CrowdStepVersion = 8;
+            entityManager.SetComponentData(source, staleSource);
+            attackSystem.Update(world.Unmanaged);
+            trackSystem.Update(world.Unmanaged);
+
+            attack = entityManager.GetComponentData<AttackEntity>(source);
+            track = entityManager.GetComponentData<TrackEntity>(source);
+            Require(
+                attack.Entity == Entity.Null &&
+                attack.QueryProxyVersion == 0 &&
+                track.Entity == Entity.Null &&
+                track.QueryProxyVersion == 0,
+                "Attack/Track query mixed a newer ECS source with an older PhysicsWorld.");
+        }
+        finally
+        {
+            physicsWorld.Dispose();
+        }
+    }
+
+    private static void ValidateVersionedTriggerDamage()
+    {
+        DamageBufferElement damage =
+            DamageOnTriggerJob.CreateDamageElement(11, 7);
+        Require(
+            damage.Value == 11 &&
+            CalculateFrameDamageSystem.IsDamageVersionCurrent(
+                damage,
+                hasQueryProxy: true,
+                currentProxyVersion: 7) &&
+            !CalculateFrameDamageSystem.IsDamageVersionCurrent(
+                damage,
+                hasQueryProxy: true,
+                currentProxyVersion: 8),
+            "Trigger damage consumer did not reject a stale query proxy version.");
     }
 
     private static void ValidateLocalUnitSpawnAndIds()

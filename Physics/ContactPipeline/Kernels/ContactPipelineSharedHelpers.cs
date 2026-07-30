@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using RTS.Unit.FlowField;
+using RTS.Unit.FlowField.Diagnostics;
 
 namespace RTS.Unit.FlowField.Jobs
 {
@@ -64,10 +65,57 @@ internal static class ContactPipelineShared
             BodyPair pair = source[i];
             destination.Add(new ContactConstraint
             {
-                BodyA = pair.BodyA,
-                BodyB = pair.BodyB
+                Definition = new ContactConstraintDefinition
+                {
+                    BodyA = pair.BodyA,
+                    BodyB = pair.BodyB
+                }
             });
         }
+    }
+
+    internal static int FindConstraintIndex(
+        NativeList<ContactConstraint> constraints,
+        int bodyA,
+        int bodyB)
+    {
+        int low = 0;
+        int high = constraints.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            ContactConstraint candidate = constraints[middle];
+            if (candidate.BodyA == bodyA && candidate.BodyB == bodyB)
+                return middle;
+            if (candidate.BodyA < bodyA ||
+                (candidate.BodyA == bodyA && candidate.BodyB < bodyB))
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return -1;
+    }
+
+    internal static int FindBodyPairIndex(
+        NativeList<BodyPair> pairs,
+        int bodyA,
+        int bodyB)
+    {
+        int low = 0;
+        int high = pairs.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            BodyPair candidate = pairs[middle];
+            if (candidate.BodyA == bodyA && candidate.BodyB == bodyB)
+                return middle;
+            if (candidate.BodyA < bodyA ||
+                (candidate.BodyA == bodyA && candidate.BodyB < bodyB))
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return -1;
     }
 
     internal static bool TryFindProxy(
@@ -114,6 +162,131 @@ internal static class ContactPipelineShared
         float2 maxB)
     {
         return math.all(maxA >= minB) && math.all(maxB >= minA);
+    }
+}
+
+internal static class ContactEnvelopeValidationKernel
+{
+    internal static bool ValidateSolverCorrections(
+        int substepIndex,
+        float predictiveSkin,
+        NativeArray<CrowdBodySnapshot> bodies,
+        NativeArray<CrowdMotionEvidence> motionEvidence,
+        NativeArray<CrowdSolverBodyState> stepStates,
+        NativeArray<byte> dirtyFlagsByBody,
+        NativeList<IncrementalDirtyBody> dirtyBodies,
+        NativeReference<InteractionCertificate> interactionCertificate,
+        NativeList<InteractionCertificateViolation> certificateViolations,
+        NativeList<int> correctedBodyIndices,
+        ref PredictiveDiscContactStatistics statistics,
+        ref IncrementalContactPipelineStatistics incrementalStatistics)
+    {
+        bool allInside = true;
+        IncrementalDirtyBodyStore.Clear(dirtyFlagsByBody, dirtyBodies);
+        float skin = math.max(0f, predictiveSkin);
+        for (int correctedIndex = 0;
+             correctedIndex < correctedBodyIndices.Length;
+             correctedIndex++)
+        {
+            int bodyIndex = correctedBodyIndices[correctedIndex];
+            CrowdBodySnapshot snapshot = bodies[bodyIndex];
+            CrowdMotionEvidence evidence = motionEvidence[bodyIndex];
+            CrowdSolverBodyState step = stepStates[bodyIndex];
+            float extent = math.max(0f, snapshot.Radius) + skin;
+            float2 currentMin = step.SolvedPosition.xz - extent;
+            float2 currentMax = step.SolvedPosition.xz + extent;
+            if (ContactPipelineShared.AabbContains(
+                    evidence.ContactEnvelopeMin,
+                    evidence.ContactEnvelopeMax,
+                    currentMin,
+                    currentMax))
+                continue;
+
+            allInside = false;
+            RevokeCertificate(
+                bodyIndex,
+                substepIndex,
+                InteractionCertificateViolationReason
+                    .SolverCorrectionEnvelopeEscape,
+                currentMin,
+                currentMax,
+                interactionCertificate,
+                certificateViolations);
+            IncrementalDirtyBodyStore.SetFlags(
+                bodyIndex,
+                IncrementalBodyDirtyFlags.Motion |
+                IncrementalBodyDirtyFlags.CorrectedEscape,
+                dirtyFlagsByBody,
+                dirtyBodies);
+            if (evidence.EnvelopeEscaped != 0)
+                continue;
+
+            evidence.EnvelopeEscaped = 1;
+            statistics.TimestepContactSetEscapeBodyCount++;
+            if (statistics.TimestepContactSetFirstEscapeSubstep < 0)
+                statistics.TimestepContactSetFirstEscapeSubstep =
+                    substepIndex;
+            motionEvidence[bodyIndex] = evidence;
+        }
+        incrementalStatistics.CorrectedEscapeBodyCount += dirtyBodies.Length;
+        return allInside;
+    }
+
+    private static void RevokeCertificate(
+        int bodyIndex,
+        int substepIndex,
+        InteractionCertificateViolationReason reason,
+        float2 observedMin,
+        float2 observedMax,
+        NativeReference<InteractionCertificate> interactionCertificate,
+        NativeList<InteractionCertificateViolation> certificateViolations)
+    {
+        if (interactionCertificate.IsCreated)
+        {
+            InteractionCertificate certificate = interactionCertificate.Value;
+            certificate.Flags &= ~InteractionCertificationFlags.Issued;
+            interactionCertificate.Value = certificate;
+        }
+
+        if (!certificateViolations.IsCreated)
+            return;
+        certificateViolations.Add(new InteractionCertificateViolation
+        {
+            BodyIndex = bodyIndex,
+            FirstInvalidSubstep = (ushort)math.max(0, substepIndex),
+            Reason = reason,
+            ObservedMin = observedMin,
+            ObservedMax = observedMax
+        });
+    }
+}
+
+internal static class CorrectedBodyTrackingKernel
+{
+    internal static void Reset(
+        NativeArray<byte> correctedBodyFlags,
+        NativeList<int> correctedBodyIndices)
+    {
+        for (int i = 0; i < correctedBodyIndices.Length; i++)
+            correctedBodyFlags[correctedBodyIndices[i]] = 0;
+        correctedBodyIndices.Clear();
+    }
+}
+
+internal static class ContactConstraintStateKernel
+{
+    internal static void ResetForSubstep(
+        NativeList<ContactConstraint> timestepContactPairs)
+    {
+        for (int pairIndex = 0;
+             pairIndex < timestepContactPairs.Length;
+             pairIndex++)
+        {
+            ContactConstraint pair = timestepContactPairs[pairIndex];
+            pair.Lambda = 0f;
+            pair.WasActivated = 0;
+            timestepContactPairs[pairIndex] = pair;
+        }
     }
 }
 }
